@@ -139,10 +139,12 @@ async function main(argv) {
       const cues = captions.buildCues(flow.steps, timeline, await ff.probeDuration(main));
       if (cues.length) {
         const style = captions.buildForceStyle(theme.captions, font, theme.video);
+        const maxChars = captions.lineBudget(theme.captions, theme.video);
         const { srtPath, assPath } = captions.writeCaptionFiles(
           cues, style, theme.video,
           path.join(workDir, 'captions.srt'),
-          path.join(workDir, 'captions.ass')
+          path.join(workDir, 'captions.ass'),
+          maxChars
         );
         // Keep the .srt next to the video: it is useful on its own.
         fs.copyFileSync(srtPath, outFile.replace(/\.[^.]+$/, '') + '.srt');

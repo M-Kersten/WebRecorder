@@ -6,7 +6,7 @@
   "bin": { "site-tutorial-video": "src/index.js" },
   "scripts": {
     "test": "node --test test/*.test.js",
-    "demo": "node src/index.js --flow demo/flow.json --theme theme.json --no-tts --out out/demo.mp4"
+    "demo": "node src/index.js --flow demo/flow.json --theme theme.json --serve demo --no-tts --out out/demo.mp4"
   },
   "dependencies": {
     "playwright": "^1.49.0"

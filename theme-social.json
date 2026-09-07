@@ -1,0 +1,22 @@
+{
+  "fonts": {
+    "heading": { "family": "Poppins", "file": "fonts/Poppins-Bold.ttf", "weight": 700 },
+    "body":    { "family": "Inter",   "file": "fonts/Inter-Regular.ttf", "weight": 400 }
+  },
+  "captions": {
+    "enabled": true,
+    "font": "heading",
+    "fontSize": 52,
+    "color": "#FFE066",
+    "backgroundColor": "#3B1E8C",
+    "backgroundOpacity": 0.85,
+    "position": "top",
+    "marginBottom": 90,
+    "outline": false
+  },
+  "cursor":    { "enabled": true, "color": "#FFE066", "strokeColor": "#3B1E8C", "size": 44 },
+  "highlight": { "enabled": true, "color": "#00D1B2", "glow": true, "borderWidth": 5, "borderRadius": 18 },
+  "intro":     { "enabled": false },
+  "outro":     { "enabled": false },
+  "video":     { "width": 1080, "height": 1920, "fps": 30 }
+}

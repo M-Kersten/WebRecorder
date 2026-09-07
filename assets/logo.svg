@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="360" height="120" viewBox="0 0 360 120">
+  <rect x="8" y="18" width="84" height="84" rx="22" fill="#6C5CE7"/>
+  <path d="M32 74 L50 40 L68 74 Z" fill="#fff"/>
+  <text x="110" y="78" font-family="Poppins, system-ui, sans-serif" font-size="54"
+        font-weight="700" fill="#FFFFFF">Acme</text>
+</svg>

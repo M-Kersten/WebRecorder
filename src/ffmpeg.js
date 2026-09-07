@@ -60,6 +60,82 @@ async function checkToolchain() {
   }
 }
 
+/**
+ * Codec and geometry of a file's first video and audio stream.
+ * Used to decide whether the concat demuxer can be trusted with a set of
+ * segments - see concatSegments for why the exit code alone is not enough.
+ */
+async function probeStreams(file) {
+  const { stdout } = await run(FFPROBE, [
+    '-v', 'error',
+    '-show_entries', 'stream=codec_type,codec_name,width,height,pix_fmt,r_frame_rate,sample_rate,channels',
+    '-of', 'json', file,
+  ], { label: 'ffprobe' });
+  const streams = (JSON.parse(stdout).streams || []);
+  const video = streams.find((s) => s.codec_type === 'video') || null;
+  const audio = streams.find((s) => s.codec_type === 'audio') || null;
+  return {
+    video: video && {
+      codec: video.codec_name,
+      width: video.width,
+      height: video.height,
+      pixFmt: video.pix_fmt,
+      fps: ratio(video.r_frame_rate),
+    },
+    audio: audio && {
+      codec: audio.codec_name,
+      sampleRate: Number(audio.sample_rate),
+      channels: audio.channels,
+    },
+  };
+}
+
+function ratio(text) {
+  const [num, den] = String(text || '0/1').split('/').map(Number);
+  return den ? num / den : num;
+}
+
+/**
+ * Can these segments be stream-copied together?
+ *
+ * Returns null when they can, or a sentence saying what differs when they
+ * cannot. Checked up front because the demuxer does not reliably fail on a
+ * mismatch: given segments with different codecs it can exit 0 and still write
+ * a file whose second half will not decode.
+ */
+async function concatCompatibility(segments) {
+  const probes = await Promise.all(segments.map(probeStreams));
+  const [first] = probes;
+  if (!first.video) return `${segments[0]} has no video stream`;
+
+  for (let i = 1; i < probes.length; i++) {
+    const p = probes[i];
+    const where = `segment ${i + 1} (${path.basename(segments[i])})`;
+    if (!p.video) return `${where} has no video stream`;
+    for (const [field, label] of [['codec', 'video codec'], ['width', 'width'],
+      ['height', 'height'], ['pixFmt', 'pixel format']]) {
+      if (p.video[field] !== first.video[field]) {
+        return `${where} has ${label} ${p.video[field]}, first segment has ${first.video[field]}`;
+      }
+    }
+    if (Math.abs(p.video.fps - first.video.fps) > 0.01) {
+      return `${where} runs at ${p.video.fps.toFixed(2)}fps, first segment at ${first.video.fps.toFixed(2)}fps`;
+    }
+    if (!!p.audio !== !!first.audio) {
+      return `${where} ${p.audio ? 'has' : 'is missing'} an audio stream, unlike the first segment`;
+    }
+    if (p.audio && first.audio) {
+      for (const [field, label] of [['codec', 'audio codec'], ['sampleRate', 'sample rate'],
+        ['channels', 'channel count']]) {
+        if (p.audio[field] !== first.audio[field]) {
+          return `${where} has ${label} ${p.audio[field]}, first segment has ${first.audio[field]}`;
+        }
+      }
+    }
+  }
+  return null;
+}
+
 /** Duration of a media file in seconds. */
 async function probeDuration(file) {
   const { stdout } = await run(FFPROBE, [
@@ -220,20 +296,44 @@ async function concatFilter(segments, outFile, video) {
 
 /**
  * Join segments, preferring the stream-copy demuxer and falling back to the
- * filter when the segments will not line up.
+ * re-encoding filter when they will not line up.
+ *
+ * The demuxer is checked for *before* it runs rather than after. Given segments
+ * whose codecs or geometry differ it can exit 0 and still produce a file whose
+ * later segments do not decode - a silently broken video, which is worse than a
+ * slow one. So compatibility is established by probing, and the result is
+ * duration-checked afterwards as a second guard.
  */
 async function concatSegments(segments, outFile, video, workDir, log = () => {}) {
   if (segments.length === 1) {
     fs.copyFileSync(segments[0], outFile);
     return { outFile, method: 'copy' };
   }
+
+  const expectedSec = (await Promise.all(segments.map(probeDuration)))
+    .reduce((a, b) => a + b, 0);
+
+  const mismatch = await concatCompatibility(segments);
+  if (mismatch) {
+    log(`segments do not match, re-encoding instead (${mismatch})`);
+    await concatFilter(segments, outFile, video);
+    return { outFile, method: 'filter', expectedSec };
+  }
+
   try {
     await concatDemuxer(segments, outFile, workDir);
-    return { outFile, method: 'demuxer' };
+    const actualSec = await probeDuration(outFile);
+    // Half a second of slack covers container rounding, nothing more.
+    if (Math.abs(actualSec - expectedSec) > 0.5) {
+      throw new Error(
+        `stream copy produced ${actualSec.toFixed(2)}s from ${expectedSec.toFixed(2)}s of input`
+      );
+    }
+    return { outFile, method: 'demuxer', expectedSec };
   } catch (err) {
-    log(`concat demuxer refused the segments, re-encoding instead (${firstLine(err.message)})`);
+    log(`concat demuxer could not be trusted, re-encoding instead (${firstLine(err.message)})`);
     await concatFilter(segments, outFile, video);
-    return { outFile, method: 'filter' };
+    return { outFile, method: 'filter', expectedSec };
   }
 }
 
@@ -254,6 +354,8 @@ module.exports = {
   run,
   checkToolchain,
   probeDuration,
+  probeStreams,
+  concatCompatibility,
   generateSilence,
   buildNarrationTrack,
   muxAudioVideo,

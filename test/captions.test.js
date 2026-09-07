@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const {
   hexToAss, buildForceStyle, buildCues, buildSrt, buildAss, srtTime, assTime, wrap, assText,
+  lineBudget,
 } = require('../src/captions');
 
 // ASS colours are &HAABBGGRR: alpha first, then blue/green/red, and the alpha
@@ -59,15 +60,43 @@ test('buildForceStyle names the resolved font, not the theme key', () => {
 
 test('buildForceStyle converts fontSize through the font line span', () => {
   const style = parseStyle(buildForceStyle({ ...base(), fontSize: 34 }, FONT, VIDEO));
-  // 34 CSS px * 1.4302 span = 48.63 ASS units at 1080p.
+  // libass sizes text so winAscent+winDescent equals FontSize, so a 34px CSS
+  // size becomes 34 * 1.4302 ASS units.
   assert.strictEqual(style.FontSize, '48.63');
 });
 
-test('buildForceStyle scales with video height so a theme is resolution-independent', () => {
-  const at1080 = parseStyle(buildForceStyle(base(), FONT, VIDEO));
-  const at720 = parseStyle(buildForceStyle(base(), FONT, { width: 1280, height: 720, fps: 30 }));
-  assert.ok(Math.abs(Number(at1080.FontSize) / Number(at720.FontSize) - 1.5) < 0.01);
-  assert.strictEqual(Number(at1080.MarginV) / Number(at720.MarginV), 1.5);
+test('fontSize and marginBottom are literal pixels, not scaled by the frame', () => {
+  // Scaling type off the frame height would blow captions up on a portrait
+  // video, which takes its height from the long side.
+  const portrait = parseStyle(buildForceStyle(base(), FONT, { width: 1080, height: 1920, fps: 30 }));
+  const landscape = parseStyle(buildForceStyle(base(), FONT, VIDEO));
+  assert.strictEqual(portrait.FontSize, landscape.FontSize);
+  assert.strictEqual(portrait.MarginV, landscape.MarginV);
+  assert.strictEqual(landscape.MarginV, '60', 'marginBottom 60 means 60px');
+});
+
+test('side margins follow the frame width', () => {
+  const wide = parseStyle(buildForceStyle(base(), FONT, VIDEO));
+  const narrow = parseStyle(buildForceStyle(base(), FONT, { width: 1080, height: 1920, fps: 30 }));
+  assert.strictEqual(wide.MarginL, '120');
+  assert.strictEqual(wide.MarginL, wide.MarginR);
+  assert.ok(Number(narrow.MarginL) < Number(wide.MarginL), 'a narrow frame gets narrower margins');
+});
+
+test('the line budget tightens on a narrow frame and caps at subtitle convention', () => {
+  // A wide frame has room for far more than 42 characters, but a line that long
+  // is unreadable, so the convention wins.
+  assert.strictEqual(lineBudget(base(), VIDEO), 42);
+  assert.strictEqual(lineBudget(base(), { width: 3840, height: 2160 }), 42);
+  const portrait = lineBudget({ ...base(), fontSize: 52 }, { width: 1080, height: 1920 });
+  assert.ok(portrait < 42 && portrait >= 16, `portrait budget should tighten, got ${portrait}`);
+});
+
+test('wrapping respects the budget it is given', () => {
+  const text = 'Revenue for the last thirty days sits at the top left.';
+  const tight = wrap(text, 20).split('\n');
+  assert.ok(tight.every((l) => l.length <= 24), `lines too long: ${JSON.stringify(tight)}`);
+  assert.ok(wrap(text, 42).length <= wrap(text, 20).length + text.length);
 });
 
 test('a caption background becomes an opaque box painted with OutlineColour', () => {
@@ -127,9 +156,20 @@ test('cues skip steps with no narration and stay inside the video', () => {
   assert.deepStrictEqual(cues.map((c) => c.index), [1, 2], 'renumbered after the skip');
 });
 
-test('long narration wraps to two lines', () => {
+test('wrapping never exceeds the budget, and balances the lines it uses', () => {
   const text = 'This is a fairly long line of narration that would otherwise run right across the frame';
-  assert.strictEqual(wrap(text).split('\n').length, 2);
+  const lines = wrap(text, 42).split('\n');
+  assert.ok(lines.every((l) => l.length <= 42), `over budget: ${JSON.stringify(lines)}`);
+  // Balanced means no line is wildly shorter than the longest.
+  const longest = Math.max(...lines.map((l) => l.length));
+  const shortest = Math.min(...lines.map((l) => l.length));
+  assert.ok(longest - shortest < 15, `unbalanced: ${JSON.stringify(lines)}`);
+});
+
+test('a word longer than the budget gets its own line rather than being lost', () => {
+  const lines = wrap('short Supercalifragilisticexpialidocious end', 20).split('\n');
+  assert.ok(lines.includes('Supercalifragilisticexpialidocious'));
+  assert.strictEqual(lines.join(' '), 'short Supercalifragilisticexpialidocious end');
 });
 
 test('ASS override characters in narration are escaped', () => {

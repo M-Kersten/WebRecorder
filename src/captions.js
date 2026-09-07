@@ -52,8 +52,23 @@ const byte = (n) => n.toString(16).toUpperCase().padStart(2, '0');
 // ASS \an-style alignment: 2 = bottom centre, 8 = top centre.
 const ALIGNMENT = { bottom: 2, top: 8 };
 
+/** Side margins, as a fraction of frame width. */
+const SIDE_MARGIN_RATIO = 0.0625;
+
+/** Horizontal room a caption line has to work with, in pixels. */
+function usableWidth(video) {
+  return video.width - 2 * sideMargin(video);
+}
+
+const sideMargin = (video) => Math.round(video.width * SIDE_MARGIN_RATIO);
+
 /**
  * Turn theme.captions into ASS style fields.
+ *
+ * Sizes are literal pixels in the output frame: fontSize 34 is 34px whatever
+ * the resolution. Scaling them off the frame height instead would seem tidier,
+ * but it breaks the moment the video is portrait - a 1080x1920 frame would take
+ * its type size from the 1920 side and render captions that swallow the page.
  *
  * How the two background modes map:
  *   backgroundOpacity > 0  ->  BorderStyle 3, an opaque box. libass paints that
@@ -63,21 +78,19 @@ const ALIGNMENT = { bottom: 2, top: 8 };
  *   backgroundOpacity == 0 ->  BorderStyle 1, and `outline` draws a contrasting
  *                              stroke around the glyphs in backgroundColor.
  *
- * `video` is needed because libass sizes text so that the font's
- * winAscent+winDescent span equals Fontsize; dividing by that span is what
- * makes fontSize behave like a CSS px size.
+ * The font is needed because libass sizes text so that the font's
+ * winAscent+winDescent span equals Fontsize, rather than the em square.
+ * Multiplying by that span is what makes fontSize behave like a CSS px size.
  */
 function buildForceStyle(captions, font, video) {
-  const scale = video && video.height ? video.height / 1080 : 1;
   const lineSpan = font && font.metrics ? font.metrics.lineSpan : 1;
-
-  const px = (v) => v * scale;
+  const size = captions.fontSize;
   const boxed = captions.backgroundOpacity > 0;
+  const margin = sideMargin(video);
 
   const style = {
     FontName: font ? font.family : 'Arial',
-    // fontSize is authored as a CSS-style px size at 1080p.
-    FontSize: round2(px(captions.fontSize) * lineSpan),
+    FontSize: round2(size * lineSpan),
     PrimaryColour: hexToAss(captions.color, 1),
     SecondaryColour: hexToAss(captions.color, 1),
     OutlineColour: boxed
@@ -87,17 +100,32 @@ function buildForceStyle(captions, font, video) {
     Bold: font && font.weight >= 600 ? -1 : 0,
     Italic: font && font.style === 'italic' ? -1 : 0,
     BorderStyle: boxed ? 3 : 1,
+    // Padding and stroke both scale with the type, not with the frame.
     Outline: boxed
-      ? round2(px(captions.outline ? 14 : 6))
-      : round2(px(captions.outline ? 3 : 0)),
+      ? round2(size * (captions.outline ? 0.4 : 0.18))
+      : round2(size * (captions.outline ? 0.09 : 0)),
     Shadow: 0,
     Alignment: ALIGNMENT[captions.position] || ALIGNMENT.bottom,
-    MarginL: Math.round(px(120)),
-    MarginR: Math.round(px(120)),
-    MarginV: Math.round(px(captions.marginBottom)),
+    MarginL: margin,
+    MarginR: margin,
+    MarginV: Math.round(captions.marginBottom),
   };
 
   return Object.entries(style).map(([k, v]) => `${k}=${v}`).join(',');
+}
+
+/**
+ * How many characters fit on one caption line.
+ *
+ * Two limits, whichever is tighter: what actually fits across the frame at this
+ * type size, and the ~42 characters subtitling convention allows regardless of
+ * room. Without the first, a narrow portrait frame re-wraps every line inside
+ * libass and the caption grows to four lines.
+ */
+function lineBudget(captions, video) {
+  // 0.52em is a fair average advance width for mixed-case text in a sans face.
+  const byWidth = Math.floor(usableWidth(video) / (captions.fontSize * 0.52));
+  return Math.max(16, Math.min(42, byWidth));
 }
 
 const round2 = (n) => Math.round(n * 100) / 100;
@@ -120,13 +148,13 @@ function buildCues(steps, timeline, totalSec) {
   return cues;
 }
 
-function buildSrt(cues) {
+function buildSrt(cues, maxChars) {
   return cues
-    .map((c) => `${c.index}\n${srtTime(c.start)} --> ${srtTime(c.end)}\n${wrap(c.text)}\n`)
+    .map((c) => `${c.index}\n${srtTime(c.start)} --> ${srtTime(c.end)}\n${wrap(c.text, maxChars)}\n`)
     .join('\n');
 }
 
-function buildAss(cues, styleString, video) {
+function buildAss(cues, styleString, video, maxChars) {
   const styleOrder = [
     'FontName', 'FontSize', 'PrimaryColour', 'SecondaryColour', 'OutlineColour',
     'BackColour', 'Bold', 'Italic', 'Underline', 'StrikeOut', 'ScaleX', 'ScaleY',
@@ -164,16 +192,16 @@ function buildAss(cues, styleString, video) {
     '[Events]',
     'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',
     ...cues.map((c) =>
-      `Dialogue: 0,${assTime(c.start)},${assTime(c.end)},Caption,,0,0,0,,${assText(c.text)}`
+      `Dialogue: 0,${assTime(c.start)},${assTime(c.end)},Caption,,0,0,0,,${assText(c.text, maxChars)}`
     ),
     '',
   ].join('\n');
 }
 
 /** Write both files; returns the paths. */
-function writeCaptionFiles(cues, styleString, video, srtPath, assPath) {
-  fs.writeFileSync(srtPath, buildSrt(cues), 'utf8');
-  fs.writeFileSync(assPath, buildAss(cues, styleString, video), 'utf8');
+function writeCaptionFiles(cues, styleString, video, srtPath, assPath, maxChars) {
+  fs.writeFileSync(srtPath, buildSrt(cues, maxChars), 'utf8');
+  fs.writeFileSync(assPath, buildAss(cues, styleString, video, maxChars), 'utf8');
   return { srtPath, assPath };
 }
 
@@ -204,9 +232,30 @@ function split(sec) {
 
 const pad = (n) => String(n).padStart(2, '0');
 
-/** Keep captions to two shortish lines rather than one long one. */
+/**
+ * Wrap a caption to lines of at most `maxChars`, balanced so they come out
+ * roughly even rather than one full line and one short one.
+ *
+ * The budget is a hard limit. Squeezing text onto fewer lines than it fits on
+ * just moves the problem: libass re-wraps anything too wide for the frame, and
+ * a caption that was meant to be two lines becomes four.
+ */
 function wrap(text, maxChars = 42) {
-  const words = text.split(/\s+/);
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return '';
+
+  const lines = greedyWrap(words, maxChars);
+  // Re-wrap at the narrowest width that still needs the same number of lines;
+  // that is the most even split available.
+  const longest = Math.max(...words.map((w) => w.length));
+  for (let target = Math.max(longest, Math.ceil(text.length / lines.length)); target < maxChars; target++) {
+    const candidate = greedyWrap(words, target);
+    if (candidate.length === lines.length) return candidate.join('\n');
+  }
+  return lines.join('\n');
+}
+
+function greedyWrap(words, maxChars) {
   const lines = [];
   let line = '';
   for (const word of words) {
@@ -218,17 +267,12 @@ function wrap(text, maxChars = 42) {
     }
   }
   if (line) lines.push(line);
-  // Anything longer than two lines covers too much of the page.
-  if (lines.length > 2) {
-    const mid = Math.ceil(lines.length / 2);
-    return [lines.slice(0, mid).join(' '), lines.slice(mid).join(' ')].join('\n');
-  }
-  return lines.join('\n');
+  return lines;
 }
 
 /** ASS treats { } as override blocks and needs \N for a line break. */
-function assText(text) {
-  return wrap(text)
+function assText(text, maxChars) {
+  return wrap(text, maxChars)
     .replace(/\\/g, '\\\\')
     .replace(/\{/g, '\\{')
     .replace(/\}/g, '\\}')
@@ -237,6 +281,7 @@ function assText(text) {
 
 module.exports = {
   hexToAss,
+  lineBudget,
   normalizeHex,
   buildForceStyle,
   buildCues,
