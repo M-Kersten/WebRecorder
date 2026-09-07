@@ -40,6 +40,9 @@
   </div>
 </div>
 <script>
+  // ?auth=1 is a fixture affordance, so tests can open the dashboard directly
+  // without walking the login every time.
+  if(new URLSearchParams(location.search).has('auth')) localStorage.setItem('portal-auth','1');
   if(!localStorage.getItem('portal-auth')) location.href='index.html';
   // Rows arrive after the page load event, the way a real dashboard behaves.
   setTimeout(() => {

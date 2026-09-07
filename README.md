@@ -17,10 +17,16 @@ card, a drawn cursor, highlight rings, on-screen hints and fades.
 For your own site:
 
 ```bash
-npx site-tutorial-video init      # writes theme.json and flow.json
-# point flow.json at your site, edit theme.json
-npx site-tutorial-video --no-tts  # free preview, no API key
+npx site-tutorial-video init                              # theme.json, flow.json, fonts
+npx site-tutorial-video capture --url https://app.example.com
+npx site-tutorial-video --no-tts                          # free preview, no API key
+npx site-tutorial-video --out out/walkthrough.mp4         # the real thing
 ```
+
+`capture` opens the site in a browser. Use it the way you would show it to
+someone: click through, type into things, and write the narration in the panel
+on the right as you go. When you press **Save flow** it writes `flow.json` with
+a selector for every step, so nobody has to open devtools and copy one by hand.
 
 ## How it fits together
 
@@ -63,6 +69,41 @@ ffmpeg that ships inside Playwright will not work.
 
 If Chromium is already installed somewhere the tool cannot guess, point
 `CHROMIUM_EXECUTABLE_PATH` at it; otherwise `npx playwright install chromium`.
+
+## Recording a flow
+
+```bash
+site-tutorial-video capture --url https://app.example.com
+```
+
+The browser opens with a panel down the right-hand side.
+
+- **Every click and everything you type is recorded**, and passed through to the
+  page, so the site behaves normally and the flow matches the walk you did.
+- **Narration and hints** are typed straight into the panel, per step, whenever
+  you like. Both are optional.
+- **The dropdown changes what a step does.** Record a click on something you
+  only wanted to point at, then switch it to `hover`.
+- **Pause** stops recording while you click around to find the next screen.
+  **Add page** records the page you are on as a `goto`.
+- **Save flow** writes the file and closes the browser.
+
+A password field is never written down. Capture leaves `${PASSWORD}` in its
+place, which is read from the environment at record time.
+
+Selectors prefer what somebody put there deliberately: a `data-testid`, then an
+id, then an `aria-label` or `name`, then classes that do not look
+machine-generated. Only when none of that exists does it fall back to a path by
+position, and that path is anchored to the nearest named ancestor and always
+states the sibling index. Otherwise clicking a row while a table still says
+"loading" gives a selector that is unique for exactly as long as it takes the
+real rows to arrive.
+
+Look over what came out before recording:
+
+```bash
+site-tutorial-video --check
+```
 
 ## flow.json
 
@@ -337,7 +378,8 @@ opens on a flash of blank white while the browser is still on `about:blank`.
 ## CLI
 
 ```
-site-tutorial-video init          scaffold theme.json and flow.json here
+site-tutorial-video init                     scaffold theme.json and flow.json here
+site-tutorial-video capture --url <url>      record a flow by walking the site
 site-tutorial-video [options]
 ```
 
@@ -347,6 +389,7 @@ site-tutorial-video [options]
 | `--theme <path>` | `theme.json` | |
 | `--out <path>` | `out/tutorial.mp4` | |
 | `--serve <dir>` | | serve a directory statically and use it as `baseUrl` |
+| `--url <url>` | | where `capture` starts |
 | `--no-tts` | | timed silence instead of ElevenLabs; free, and the pacing matches |
 | `--captions` / `--no-captions` | theme | force captions on or off for one run |
 | `--no-hints` | theme | skip the on-screen hint blocks |
@@ -434,6 +477,9 @@ src/
   browser.js    finds a usable Chromium
   server.js     static server for --serve
   secrets.js    ${VAR} interpolation, and keeping the value out of the log
+  capture.js    the capture session: holds the steps, writes the flow
+  capture-panel.js  the panel you fill in while walking the site
+  selector.js   picks a selector that will still work next month
 fonts/          bundled .ttf/.otf, see fonts/README.md
 theme-rebels.json    a real-world theme: brand colour, Overused Grotesk
 assets/         logos and other card artwork

@@ -14,18 +14,21 @@ const captions = require('./captions');
 const { renderCard } = require('./titlecard');
 const ff = require('./ffmpeg');
 const { serveStatic } = require('./server');
+const { capture } = require('./capture');
 
 const USAGE = `
 site-tutorial-video - turn a flow.json into a narrated, themed tutorial video
 
   site-tutorial-video [options]
-  site-tutorial-video init          scaffold theme.json and flow.json here
+  site-tutorial-video init                    scaffold theme.json and flow.json here
+  site-tutorial-video capture --url <url>     record a flow by walking the site
 
 Options
   --flow <path>       Flow file describing the steps      (default: flow.json)
   --theme <path>      Theme file                          (default: theme.json)
   --out <path>        Output video                        (default: out/tutorial.mp4)
   --serve <dir>       Serve <dir> statically and use it as the flow's baseUrl
+  --url <url>         Where "capture" starts (capture only)
 
   --no-tts            Timed silence instead of ElevenLabs. Free, and the
                       pacing comes out the same, so use it while iterating.
@@ -53,6 +56,7 @@ Environment
 
 Examples
   site-tutorial-video init
+  site-tutorial-video capture --url https://app.example.com
   site-tutorial-video --no-tts                     # fast, free preview
   site-tutorial-video --captions --out out/v1.mp4  # the real thing
 `;
@@ -69,6 +73,7 @@ function parseArgs(argv) {
     hints: null,
     fades: null,
     serve: null,
+    url: null,
     headed: false,
     relogin: false,
     keepTemp: false,
@@ -77,8 +82,10 @@ function parseArgs(argv) {
     quiet: false,
     help: false,
   };
-  const takesValue = { '--flow': 'flow', '--theme': 'theme', '--out': 'out', '--serve': 'serve' };
-  const COMMANDS = ['init'];
+  const takesValue = {
+    '--flow': 'flow', '--theme': 'theme', '--out': 'out', '--serve': 'serve', '--url': 'url',
+  };
+  const COMMANDS = ['init', 'capture'];
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -226,6 +233,7 @@ async function main(argv) {
   const args = parseArgs(argv);
   if (args.help) { write(USAGE); return 0; }
   if (args.command === 'init') return initProject(process.cwd());
+  if (args.command === 'capture') return captureFlow(args);
 
   const theme = applyOverrides(loadTheme(args.theme), args);
   if (args.printTheme) { write(describeTheme(theme)); return 0; }
@@ -403,6 +411,49 @@ async function main(argv) {
   }
 }
 
+/**
+ * Walk the site, and write down what you did as a flow.
+ *
+ * Deliberately does not touch the theme: capture is about what happens, not
+ * what it looks like, and a half-finished theme should not stop you recording.
+ */
+async function captureFlow(args) {
+  const url = args.url;
+  if (!url) {
+    throw new ConfigError(
+      'capture needs a starting page:\n' +
+      '  site-tutorial-video capture --url https://app.example.com'
+    );
+  }
+  if (!/^https?:\/\//i.test(url)) {
+    throw new ConfigError(`--url must start with http:// or https:// (got "${url}")`);
+  }
+
+  const outFile = args.flow === 'flow.json' && args.out !== path.join('out', 'tutorial.mp4')
+    ? args.out
+    : args.flow;
+
+  if (fs.existsSync(outFile)) {
+    write(`note: ${outFile} already exists and will be overwritten when you save.`);
+  }
+  write(`capturing from ${url}`);
+
+  const { flow, reason } = await capture({ url, outFile, log: write });
+
+  write('');
+  if (reason === 'closed' && flow.steps.length <= 1) {
+    write('Browser closed with nothing recorded. Nothing written.');
+    return 1;
+  }
+  write(`wrote ${path.resolve(outFile)}  (${flow.steps.length} steps)`);
+  write('');
+  write('Next:');
+  write(`  site-tutorial-video --flow ${outFile} --check     look it over`);
+  write(`  site-tutorial-video --flow ${outFile} --no-tts    a free preview`);
+  write('');
+  return 0;
+}
+
 async function buildCardSegment(which, theme, workDir, fadeSec) {
   const card = theme[which];
   const png = await renderCard(card, theme, path.join(workDir, `${which}.png`));
@@ -422,4 +473,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { main, parseArgs, applyOverrides, initProject };
+module.exports = { main, parseArgs, applyOverrides, initProject, captureFlow };
