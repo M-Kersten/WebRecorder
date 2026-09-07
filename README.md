@@ -110,6 +110,64 @@ Every step may carry two optional pieces of text:
 Run `site-tutorial-video --check` to validate a flow and see what each step
 carries, without recording anything.
 
+### Logging in
+
+Any `${VAR}` in a step's `url` or `text` is replaced from the environment, so a
+password never has to be written into `flow.json`. An unset variable stops the
+run and names itself; it is never quietly substituted with nothing.
+
+```jsonc
+"auth": {
+  "stateFile": ".auth/portal.json",   // where the session is kept
+  "maxAgeHours": 12,                  // log in again once it is older than this
+  "steps": [
+    { "action": "goto",  "url": "/login" },
+    { "action": "type",  "selector": "#email", "text": "${PORTAL_EMAIL}" },
+    { "action": "type",  "selector": "#pw",    "text": "${PORTAL_PASSWORD}" },
+    { "action": "click", "selector": "#signin" }
+  ]
+}
+```
+
+These steps run once, in a browser of their own, before recording starts. The
+login never appears in the video, and the session they produce is saved and
+reused, so later runs skip it. `--relogin` forces a fresh one.
+
+A step whose text came from the environment is treated as a password field from
+then on: the console prints dots instead of the value. The state file holds live
+session cookies, so it is written `0600` and `.auth/` is in `.gitignore`. Keep it
+that way.
+
+### Hiding personal data
+
+A walkthrough of a real, logged-in product is a recording of real data: names,
+avatars, customer rows. `mask` says which parts must not reach a frame.
+
+```jsonc
+"mask": [
+  { "selector": "#greeting", "mode": "text", "text": "Hello, Alex Doe" },
+  { "selector": ".avatar",   "mode": "blur", "radius": 14 },
+  { "selector": "td.client", "mode": "blur" },
+  { "selector": ".invoice-total", "mode": "hide" }
+]
+```
+
+| Mode | |
+| --- | --- |
+| `blur` | softens it past reading, `radius` in pixels (default 10) |
+| `hide` | makes it invisible while keeping the space it occupied, so nothing reflows |
+| `text` | swaps its text for a `text` you choose |
+
+`blur` and `hide` go in as a stylesheet keyed on your own selectors, which is
+what makes them stick: a framework re-rendering a table cannot undo a CSS rule
+the way it would undo a class or an inline style. Rows that arrive from an API
+after the page has loaded are covered from the moment they exist. Text
+replacement has no CSS equivalent, so it runs on a MutationObserver and is
+reapplied whenever the page writes over it.
+
+The mask is injected before any page script runs, so nothing is captured first
+and hidden afterwards.
+
 ## theme.json
 
 Copy `theme.example.json` to `theme.json` and edit. A missing theme file is an
@@ -188,6 +246,12 @@ back to the middle of the screen every time the site navigates.
 page, so nothing has to load at record time. `hotspot` is the point that sits on
 the target, as a fraction of the image: `[0, 0]` is its top-left corner, `[0.5,
 0.5]` its centre. A tip-at-top-left arrow wants roughly `[0.19, 0.08]`.
+
+`highlight.borderRadius: "auto"` takes the corners from the element being
+highlighted and grows them to stay concentric with the ring. On a page built out
+of rounded cards of differing radii this is the difference between a highlight
+and a slightly wrong rectangle cutting across the corners. A number pins it
+instead.
 
 Setting either `enabled: false` removes it from the page entirely and skips the
 calls that would drive it.
@@ -275,7 +339,8 @@ site-tutorial-video [options]
 | `--captions` / `--no-captions` | theme | force captions on or off for one run |
 | `--no-hints` | theme | skip the on-screen hint blocks |
 | `--no-fades` | theme | skip the fades between segments |
-| `--check` | | validate the flow and theme, print what each step carries, and stop |
+| `--check` | | validate everything, print what each step carries and what is masked, and stop |
+| `--relogin` | | log in again even if the saved session is still valid |
 | `--headed` | | watch the browser, for debugging a flow |
 | `--keep-temp` | | leave the intermediate files behind |
 | `--print-theme` | | resolve and print the theme, then exit |
@@ -356,7 +421,9 @@ src/
   ffmpeg.js     narration track, mux, image-to-video, concat, caption burn
   browser.js    finds a usable Chromium
   server.js     static server for --serve
+  secrets.js    ${VAR} interpolation, and keeping the value out of the log
 fonts/          bundled .ttf/.otf, see fonts/README.md
 assets/         logos and other card artwork
 demo/           demo site and flow, used by every test
+  portal/       a login plus a dashboard, for the auth and masking examples
 ```

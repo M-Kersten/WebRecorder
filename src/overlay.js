@@ -39,7 +39,7 @@ function fontFaceCss(font) {
     `font-weight:${font.weight};font-style:${font.style};font-display:block;}`;
 }
 
-function buildOverlayScript(theme) {
+function buildOverlayScript(theme, mask = []) {
   const { cursor, highlight, hints } = theme;
   const hintFont = hints.enabled && hints.font ? theme.fonts[hints.font] : null;
 
@@ -65,8 +65,15 @@ function buildOverlayScript(theme) {
       color: highlight.color,
       glow: !!highlight.glow,
       borderWidth: highlight.borderWidth,
+      // "auto" means take it from the element being highlighted.
       borderRadius: highlight.borderRadius,
     },
+    mask: mask.map((rule) => ({
+      selector: rule.selector,
+      mode: rule.mode,
+      text: rule.text || '',
+      radius: rule.radius,
+    })),
     hints: {
       enabled: !!hints.enabled,
       fontFamily: hintFont ? hintFont.family : null,
@@ -161,7 +168,7 @@ function buildOverlayScript(theme) {
       ringEl.style.cssText = [
         'position:fixed', 'left:0', 'top:0', 'width:0', 'height:0',
         'border:' + CFG.highlight.borderWidth + 'px solid ' + CFG.highlight.color,
-        'border-radius:' + CFG.highlight.borderRadius + 'px',
+        'border-radius:' + ringRadius(null),
         'box-sizing:border-box', 'opacity:0', 'pointer-events:none',
         'transition:opacity 200ms ease, left 260ms cubic-bezier(.22,.61,.36,1), ' +
           'top 260ms cubic-bezier(.22,.61,.36,1), width 260ms cubic-bezier(.22,.61,.36,1), ' +
@@ -234,10 +241,78 @@ function buildOverlayScript(theme) {
     return mount();
   }
 
-  mount();
-  document.addEventListener('DOMContentLoaded', mount);
-  document.addEventListener('readystatechange', mount);
-  window.addEventListener('load', mount);
+  /**
+   * Hide personal data before it is ever recorded.
+   *
+   * blur and hide go in as a stylesheet keyed on the caller's own selectors.
+   * That survives anything the page does to itself: a framework re-rendering a
+   * table cannot undo a CSS rule the way it would undo an inline style or a
+   * class we had added to a node.
+   *
+   * Text replacement has no CSS equivalent, so it runs on a MutationObserver,
+   * guarded so that writing the replacement does not retrigger itself.
+   */
+  function applyMask() {
+    if (!CFG.mask.length || !document.head) return;
+
+    if (!document.getElementById('__tut_mask_style')) {
+      const rules = [];
+      for (const rule of CFG.mask) {
+        if (rule.mode === 'blur') {
+          rules.push(rule.selector + '{filter:blur(' + rule.radius + 'px) !important}');
+        } else if (rule.mode === 'hide') {
+          // visibility, not display: removing a node reflows the layout and the
+          // recording no longer matches the site.
+          rules.push(rule.selector + '{visibility:hidden !important}');
+        }
+      }
+      if (rules.length) {
+        const style = document.createElement('style');
+        style.id = '__tut_mask_style';
+        style.textContent = rules.join(' ');
+        document.head.appendChild(style);
+      }
+    }
+
+    replaceText();
+    if (!maskObserver && document.body) {
+      const textRules = CFG.mask.filter((r) => r.mode === 'text');
+      if (textRules.length) {
+        maskObserver = new MutationObserver(() => {
+          if (replacing) return;
+          replacing = true;
+          try { replaceText(); } finally { replacing = false; }
+        });
+        maskObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
+      }
+    }
+  }
+
+  function replaceText() {
+    for (const rule of CFG.mask) {
+      if (rule.mode !== 'text') continue;
+      let nodes;
+      try { nodes = document.querySelectorAll(rule.selector); } catch (e) { continue; }
+      for (const node of nodes) {
+        // Only write when it differs, or the observer sees our own change and
+        // we loop forever.
+        if (node.textContent !== rule.text) node.textContent = rule.text;
+      }
+    }
+  }
+
+  let maskObserver = null;
+  let replacing = false;
+
+  function init() {
+    mount();
+    applyMask();
+  }
+
+  init();
+  document.addEventListener('DOMContentLoaded', init);
+  document.addEventListener('readystatechange', init);
+  window.addEventListener('load', init);
 
   window.__tutMoveCursor = (x, y, durationMs) => new Promise((resolve) => {
     if (!CFG.cursor.enabled || !ensure() || !cursorEl) return resolve();
@@ -301,13 +376,29 @@ function buildOverlayScript(theme) {
     setTimeout(() => ripple.remove(), CFG.cursor.rippleMs + 400);
   };
 
+  const RING_PAD = 6;
+
+  /**
+   * The ring sits RING_PAD outside the element, so matching its corners means
+   * growing each radius by that padding. Otherwise a ring around a card with a
+   * 20px radius reads as a slightly wrong rectangle rather than a highlight.
+   */
+  function ringRadius(elementRadius) {
+    if (CFG.highlight.borderRadius !== 'auto') return CFG.highlight.borderRadius + 'px';
+    if (!elementRadius) return '0px';
+    // border-radius can be four values, and each can be a percentage.
+    return String(elementRadius).trim().split(/\s+/)
+      .map((part) => (part.endsWith('%') ? part : 'calc(' + part + ' + ' + RING_PAD + 'px)'))
+      .join(' ');
+  }
+
   window.__tutHighlight = (rect) => {
     if (!CFG.highlight.enabled || !ensure() || !ringEl) return;
-    const pad = 6;
-    ringEl.style.left = (rect.x - pad) + 'px';
-    ringEl.style.top = (rect.y - pad) + 'px';
-    ringEl.style.width = (rect.width + pad * 2) + 'px';
-    ringEl.style.height = (rect.height + pad * 2) + 'px';
+    ringEl.style.left = (rect.x - RING_PAD) + 'px';
+    ringEl.style.top = (rect.y - RING_PAD) + 'px';
+    ringEl.style.width = (rect.width + RING_PAD * 2) + 'px';
+    ringEl.style.height = (rect.height + RING_PAD * 2) + 'px';
+    ringEl.style.borderRadius = ringRadius(rect.radius);
     ringEl.style.opacity = '1';
   };
 

@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { launch } = require('./browser');
 const { buildOverlayScript } = require('./overlay');
+const { REDACTED } = require('./secrets');
 
 /**
  * Drive the flow through a real browser and record it.
@@ -20,6 +21,7 @@ async function record(flow, theme, audio, options = {}) {
     headless = true,
     log = () => {},
     slowMo = 0,
+    storageState = null,
   } = options;
 
   const { width, height } = theme.video;
@@ -37,10 +39,13 @@ async function record(flow, theme, audio, options = {}) {
     deviceScaleFactor: 1,
     recordVideo: { dir: videoDir, size: { width, height } },
     reducedMotion: 'no-preference',
+    ...(storageState ? { storageState } : {}),
   });
 
   // Injected before any page script runs, and re-injected on every navigation.
-  await context.addInitScript(buildOverlayScript(theme));
+  // The mask goes in with it, so personal data is neutralised in the very first
+  // frame rather than after something has already been captured.
+  await context.addInitScript(buildOverlayScript(theme, flow.mask));
 
   const page = await context.newPage();
   const timeline = [];
@@ -157,6 +162,10 @@ async function runStep(page, step, flow, theme) {
         await locator.scrollIntoViewIfNeeded({ timeout: 15000 });
         await page.waitForTimeout(400);
         rect = await locator.boundingBox().catch(() => null);
+        if (rect && theme.highlight.borderRadius === 'auto') {
+          rect.radius = await locator.evaluate((el) => getComputedStyle(el).borderRadius)
+            .catch(() => null);
+        }
         if (rect && theme.highlight.enabled && step.highlight !== false) {
           await page.evaluate((r) => window.__tutHighlight && window.__tutHighlight(r), rect)
             .catch(() => {});
@@ -220,6 +229,13 @@ async function point(page, selector, theme) {
   if (!box) return null;
 
   const rect = { x: box.x, y: box.y, width: box.width, height: box.height };
+  // The ring matches the element's own corners when the theme says "auto".
+  // Everything on a modern dashboard is a rounded card, and the radius differs
+  // between a small tile, a hero panel and a table row.
+  if (theme.highlight.borderRadius === 'auto') {
+    rect.radius = await locator.evaluate((el) => getComputedStyle(el).borderRadius)
+      .catch(() => null);
+  }
   if (theme.highlight.enabled) {
     await page.evaluate((r) => window.__tutHighlight && window.__tutHighlight(r), rect)
       .catch(() => {});
@@ -249,11 +265,67 @@ function resolveUrl(url, baseUrl) {
 function describeStep(step) {
   switch (step.action) {
     case 'goto': return `goto ${step.url}`;
-    case 'type': return `type "${step.text}" into ${step.selector}`;
+    // A step whose text came from the environment is a password field in all
+    // but name, so the console gets dots.
+    case 'type': return `type "${step.secret ? REDACTED : step.text}" into ${step.selector}`;
     case 'wait': return `wait ${step.durationMs ?? 1000}ms`;
     case 'scroll': return `scroll to ${step.selector || (step.to ?? 'one screen down')}`;
     default: return `${step.action} ${step.selector || ''}`.trim();
   }
 }
 
-module.exports = { record, resolveUrl, readingTimeMs, describeStep };
+/**
+ * Log in once, in a browser of its own, and save the session.
+ *
+ * Separate from the recording on purpose: the login has no place in the video,
+ * and the saved state means later runs skip it entirely. Returns the path to
+ * the saved session.
+ */
+async function authenticate(flow, options = {}) {
+  const { headless = true, log = () => {} } = options;
+  const stateFile = path.resolve(path.dirname(flow.path), flow.auth.stateFile);
+
+  const browser = await launch({ headless });
+  try {
+    const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const page = await context.newPage();
+    for (let i = 0; i < flow.auth.steps.length; i++) {
+      const step = flow.auth.steps[i];
+      log(`[${i + 1}/${flow.auth.steps.length}] ${describeStep(step)}`);
+      // A minimal theme: no overlay is wanted on a login that is not recorded.
+      await runStep(page, step, flow, NO_DECORATION);
+    }
+    fs.mkdirSync(path.dirname(stateFile), { recursive: true });
+    await context.storageState({ path: stateFile });
+    // The file holds live session cookies. Treat it like a key, not a config.
+    fs.chmodSync(stateFile, 0o600);
+    await context.close();
+    return stateFile;
+  } finally {
+    await browser.close().catch(() => {});
+  }
+}
+
+const NO_DECORATION = {
+  cursor: { enabled: false },
+  highlight: { enabled: false, borderRadius: 0 },
+  hints: { enabled: false, fadeMs: 0 },
+};
+
+/** Is a saved session present and recent enough to trust? */
+function sessionIsFresh(flow) {
+  if (!flow.auth) return false;
+  const stateFile = path.resolve(path.dirname(flow.path), flow.auth.stateFile);
+  if (!fs.existsSync(stateFile)) return false;
+  const ageHours = (Date.now() - fs.statSync(stateFile).mtimeMs) / 3_600_000;
+  return ageHours < flow.auth.maxAgeHours;
+}
+
+function sessionPath(flow) {
+  return path.resolve(path.dirname(flow.path), flow.auth.stateFile);
+}
+
+module.exports = {
+  record, resolveUrl, readingTimeMs, describeStep,
+  authenticate, sessionIsFresh, sessionPath,
+};

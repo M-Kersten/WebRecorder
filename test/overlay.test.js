@@ -39,13 +39,13 @@ test.after(async () => {
  * document, which tears the mounted overlay out of it. The recorder always
  * navigates, so this is what the overlay actually has to survive.
  */
-async function withOverlay(overrides, body = PAGE) {
+async function withOverlay(overrides, body = PAGE, mask = []) {
   const theme = deepMerge(DEFAULTS, overrides);
   if (overrides && overrides.cursor && overrides.cursor.image) {
     theme.cursor.imagePath = path.resolve(REPO, overrides.cursor.image);
   }
   const ctx = await browser.newContext({ viewport: { width: 1000, height: 700 } });
-  await ctx.addInitScript(buildOverlayScript(theme));
+  await ctx.addInitScript(buildOverlayScript(theme, mask));
   const page = await ctx.newPage();
   await page.goto(`data:text/html;charset=utf-8,${encodeURIComponent(body)}`, { waitUntil: 'load' });
   await page.waitForFunction(() => window.__tutOverlayReady === true);
@@ -270,4 +270,153 @@ test('the hint font is inlined so no request can fail mid-recording', () => {
   const script = buildOverlayScript(theme);
   assert.ok(script.includes('@font-face'), 'the face should be in the script');
   assert.ok(script.includes('data:font/ttf;base64,'), 'and the file inlined with it');
+});
+
+// --- masking -----------------------------------------------------------
+//
+// A walkthrough of a logged-in product is a recording of real data. These
+// checks are about that data never reaching a frame.
+
+const PERSONAL = [
+  '<!doctype html><body style="margin:0">',
+  '<h1 id="greeting">Hello, Merijn Kersten</h1>',
+  '<div id="avatar" style="width:40px;height:40px;background:#E6007E"></div>',
+  '<span id="secret">secret@example.com</span>',
+  '<table><tbody id="rows"></tbody></table>',
+  // Rows arrive after load, the way a real dashboard fills a table.
+  '<script>setTimeout(function(){',
+  '  document.getElementById("rows").innerHTML =',
+  '    "<tr><td class=client>Vandelay Industries</td></tr>";',
+  '}, 300);<' + '/script></body>',
+].join('');
+
+test('a blurred selector is blurred', async () => {
+  const { page, close } = await withOverlay({}, PERSONAL, [
+    { selector: '#avatar', mode: 'blur', radius: 12 },
+  ]);
+  try {
+    const filter = await page.evaluate(() =>
+      getComputedStyle(document.getElementById('avatar')).filter);
+    assert.match(filter, /blur\(12px\)/);
+    // Only what was asked for.
+    assert.strictEqual(
+      await page.evaluate(() => getComputedStyle(document.getElementById('greeting')).filter),
+      'none'
+    );
+  } finally { await close(); }
+});
+
+test('text replacement swaps the content', async () => {
+  const { page, close } = await withOverlay({}, PERSONAL, [
+    { selector: '#greeting', mode: 'text', text: 'Hello, Alex Doe', radius: 10 },
+  ]);
+  try {
+    assert.strictEqual(
+      await page.evaluate(() => document.getElementById('greeting').textContent),
+      'Hello, Alex Doe'
+    );
+  } finally { await close(); }
+});
+
+test('hide keeps the space so the layout still matches the site', async () => {
+  const { page, close } = await withOverlay({}, PERSONAL, [
+    { selector: '#secret', mode: 'hide', radius: 10 },
+  ]);
+  try {
+    const state = await page.evaluate(() => {
+      const el = document.getElementById('secret');
+      return { visibility: getComputedStyle(el).visibility, width: el.getBoundingClientRect().width };
+    });
+    assert.strictEqual(state.visibility, 'hidden');
+    assert.ok(state.width > 0, 'display:none would reflow the page and the recording would not match');
+  } finally { await close(); }
+});
+
+// The case that matters on a real dashboard: rows arrive from an API after the
+// page has loaded, so a mask applied once at startup would miss them entirely.
+test('content rendered after load is masked too', async () => {
+  const { page, close } = await withOverlay({}, PERSONAL, [
+    { selector: '#rows td.client', mode: 'blur', radius: 8 },
+  ]);
+  try {
+    await page.waitForSelector('#rows td.client');
+    await page.waitForTimeout(150);
+    const filter = await page.evaluate(() =>
+      getComputedStyle(document.querySelector('#rows td.client')).filter);
+    assert.match(filter, /blur\(8px\)/, 'a late row must be blurred as soon as it exists');
+  } finally { await close(); }
+});
+
+test('text replacement survives the page rewriting the same node', async () => {
+  const rewriting = [
+    '<!doctype html><body><h1 id="g">Merijn Kersten</h1>',
+    '<script>var n = 0; var t = setInterval(function(){',
+    '  document.getElementById("g").textContent = "Merijn Kersten " + (++n);',
+    '  if (n > 3) clearInterval(t);',
+    '}, 60);<' + '/script></body>',
+  ].join('');
+  const { page, close } = await withOverlay({}, rewriting, [
+    { selector: '#g', mode: 'text', text: 'Alex Doe', radius: 10 },
+  ]);
+  try {
+    await page.waitForTimeout(600);
+    assert.strictEqual(await page.evaluate(() => document.getElementById('g').textContent), 'Alex Doe');
+  } finally { await close(); }
+});
+
+test('a mask rule with a broken selector does not take the overlay down with it', async () => {
+  const { page, close } = await withOverlay({}, PERSONAL, [
+    { selector: ':::nonsense', mode: 'text', text: 'x', radius: 10 },
+    { selector: '#greeting', mode: 'text', text: 'Alex Doe', radius: 10 },
+  ]);
+  try {
+    assert.strictEqual(
+      await page.evaluate(() => document.getElementById('greeting').textContent),
+      'Alex Doe',
+      'the valid rule still applies'
+    );
+  } finally { await close(); }
+});
+
+// --- highlight radius --------------------------------------------------
+
+test('the ring takes its corners from the element when the theme says auto', async () => {
+  const cards = '<!doctype html><body style="margin:0">' +
+    '<div id="round" style="position:absolute;left:100px;top:100px;width:200px;' +
+    'height:120px;border-radius:26px;background:#eee"></div></body>';
+  const { page, close } = await withOverlay({ highlight: { borderRadius: 'auto' } }, cards);
+  try {
+    const rect = await page.locator('#round').boundingBox();
+    rect.radius = await page.locator('#round').evaluate((el) => getComputedStyle(el).borderRadius);
+    assert.strictEqual(rect.radius, '26px');
+
+    await page.evaluate((r) => window.__tutHighlight(r), rect);
+    await page.waitForTimeout(120);
+    const ring = await page.evaluate(() =>
+      getComputedStyle(document.querySelector('[data-tut-ring]')).borderRadius);
+    // The ring sits 6px outside the element, so its corners grow to match.
+    assert.strictEqual(ring, '32px');
+  } finally { await close(); }
+});
+
+test('a fixed radius in the theme still wins', async () => {
+  const { page, close } = await withOverlay({ highlight: { borderRadius: 4 } });
+  try {
+    await page.evaluate(() => window.__tutHighlight({ x: 10, y: 10, width: 100, height: 50, radius: '26px' }));
+    await page.waitForTimeout(120);
+    const ring = await page.evaluate(() =>
+      getComputedStyle(document.querySelector('[data-tut-ring]')).borderRadius);
+    assert.strictEqual(ring, '4px');
+  } finally { await close(); }
+});
+
+test('an element with no radius gets a square ring, not a broken one', async () => {
+  const { page, close } = await withOverlay({ highlight: { borderRadius: 'auto' } });
+  try {
+    await page.evaluate(() => window.__tutHighlight({ x: 10, y: 10, width: 100, height: 50, radius: '0px' }));
+    await page.waitForTimeout(120);
+    const ring = await page.evaluate(() =>
+      getComputedStyle(document.querySelector('[data-tut-ring]')).borderRadius);
+    assert.strictEqual(ring, '6px');
+  } finally { await close(); }
 });

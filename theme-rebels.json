@@ -28,7 +28,7 @@
     "glow": true,
     "borderWidth": 3,
     // De tegels op dit dashboard hebben flink afgeronde hoeken.
-    "borderRadius": 20
+    "borderRadius": "auto"
   },
 
   // Zwart blok met roze accent, zoals de Document Box-tegel.

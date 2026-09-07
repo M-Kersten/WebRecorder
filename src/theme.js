@@ -47,7 +47,10 @@ const DEFAULTS = {
     color: '#6C5CE7',
     glow: true,
     borderWidth: 3,
-    borderRadius: 10,
+    // "auto" takes the radius from the element being highlighted, which is what
+    // you want on a page built out of rounded cards of differing radii. A number
+    // pins it instead.
+    borderRadius: 'auto',
   },
   hints: {
     enabled: true,
@@ -154,6 +157,7 @@ function loadTheme(themePath) {
   validateFontRefs(theme, abs);
   validateColors(theme, abs);
   validateCursor(theme, baseDir, abs);
+  validateHighlight(theme, abs);
   validateHints(theme, abs);
   validateTransitions(theme, abs);
   validateCards(theme, baseDir, abs);
@@ -353,6 +357,16 @@ const HINT_POSITIONS = [
   'bottom-left', 'bottom-center', 'bottom-right',
 ];
 
+function validateHighlight(theme, abs) {
+  const r = theme.highlight.borderRadius;
+  if (r !== 'auto' && !(Number.isFinite(r) && r >= 0)) {
+    throw new ThemeError(
+      `${abs}: highlight.borderRadius must be "auto" (take it from the element) ` +
+      `or a number of pixels (got ${JSON.stringify(r)})`
+    );
+  }
+}
+
 function validateHints(theme, abs) {
   const h = theme.hints;
   if (!HINT_POSITIONS.includes(h.position)) {
@@ -438,7 +452,10 @@ function describeTheme(theme) {
     ? `on, ${cur.imagePath ? path.basename(cur.imagePath) : cur.color} ${cur.size}px, ` +
       `${cur.easing}${cur.ripple ? ', ripple' : ''}`
     : 'off'}`);
-  lines.push(`  highlight: ${theme.highlight.enabled ? `on, ${theme.highlight.color}` : 'off'}`);
+  lines.push(`  highlight: ${theme.highlight.enabled
+    ? `on, ${theme.highlight.color}, radius ${theme.highlight.borderRadius === 'auto'
+      ? 'from the element' : `${theme.highlight.borderRadius}px`}`
+    : 'off'}`);
   const hintFont = theme.hints.font ? `"${theme.fonts[theme.hints.font].family}"` : '(system)';
   lines.push(`  hints: ${theme.hints.enabled
     ? `on, ${hintFont} ${theme.hints.fontSize}px at ${theme.hints.position}`

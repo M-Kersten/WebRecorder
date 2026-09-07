@@ -1,0 +1,52 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Portal</title>
+<style>
+ :root{--pink:#E6007E}
+ body{margin:0;background:#F4F5F7;font:16px system-ui,sans-serif;color:#111}
+ header{display:flex;align-items:center;gap:24px;padding:16px 40px;background:#fff;
+        border-radius:0 0 24px 24px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+ .brand{font-weight:800;letter-spacing:-.5px}
+ nav{display:flex;gap:22px;margin-left:auto;font-size:14px;color:#6B7280}
+ .avatar{width:40px;height:40px;border-radius:50%;
+         background:linear-gradient(135deg,#E6007E,#7A0043)}
+ h1{margin:34px 40px 26px;font-weight:400;font-size:34px}
+ .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:20px;padding:0 40px}
+ .tile{background:#fff;border-radius:22px;padding:26px;min-height:150px}
+ .tile.pink{background:var(--pink);color:#fff;border-radius:26px}
+ .tile.dark{background:#0A0A0A;color:#fff;border-radius:18px}
+ .tile .label{font-size:13px;color:#6B7280}
+ .tile.pink .label,.tile.dark .label{color:rgba(255,255,255,.72)}
+ .tile .big{font-size:38px;margin-top:10px}
+ .wide{grid-column:span 2}
+ table{width:100%;border-collapse:collapse;margin-top:14px;font-size:14px}
+ th{text-align:left;color:#6B7280;font-size:12px;text-transform:uppercase;padding:8px 0}
+ td{padding:9px 0;border-top:1px solid #EEF0F4}
+ .scroller{max-height:190px;overflow-y:auto}
+</style></head><body>
+<header>
+  <div class="brand">PORTAL</div>
+  <nav><span>Home</span><span id="nav-hours">Hour registration</span><span>Documents</span></nav>
+  <div class="avatar" id="avatar"></div>
+</header>
+<h1 id="greeting">Hello, Merijn Kersten</h1>
+<div class="grid">
+  <div class="tile" id="tile-hours"><div class="label">Monthly hours</div><div class="big" id="hours">48</div></div>
+  <div class="tile pink" id="tile-profile"><div class="label">My profile</div></div>
+  <div class="tile dark" id="tile-docs"><div class="label">Document Box</div><div style="margin-top:8px">Contracts, Terms</div></div>
+  <div class="tile" id="tile-vac"><div class="label">Vacancies</div></div>
+  <div class="tile wide" id="tile-reg" style="grid-column:span 4">
+    <div class="label">Hourly Registration</div>
+    <div class="scroller"><table id="reg"><thead><tr><th>Date</th><th>Client</th><th>Hours</th></tr></thead>
+    <tbody id="rows"><tr><td>loading…</td><td></td><td></td></tr></tbody></table></div>
+  </div>
+</div>
+<script>
+  if(!localStorage.getItem('portal-auth')) location.href='index.html';
+  // Rows arrive after the page load event, the way a real dashboard behaves.
+  setTimeout(() => {
+    const data=[['1 sep. 2026','Vandelay Industries',8],['2 sep. 2026','Initech BV',8],
+                ['3 sep. 2026','Soylent Foods',6],['4 sep. 2026','Hooli Nederland',8],
+                ['5 sep. 2026','Wonka Logistics',4]];
+    document.getElementById('rows').innerHTML=data
+      .map(r=>'<tr><td>'+r[0]+'</td><td class="client">'+r[1]+'</td><td>'+r[2]+'</td></tr>').join('');
+  }, 900);
+</script></body></html>

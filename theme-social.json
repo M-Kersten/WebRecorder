@@ -19,7 +19,7 @@
     "enabled": true, "color": "#FFE066", "strokeColor": "#3B1E8C", "size": 46,
     "easing": "easeOut", "ripple": true, "rippleColor": "#FFE066", "rippleMs": 520
   },
-  "highlight": { "enabled": true, "color": "#00D1B2", "glow": true, "borderWidth": 5, "borderRadius": 18 },
+  "highlight": { "enabled": true, "color": "#00D1B2", "glow": true, "borderWidth": 5, "borderRadius": "auto" },
   "hints": {
     "enabled": true, "font": "body", "fontSize": 30,
     "color": "#1A1030", "backgroundColor": "#FFE066", "backgroundOpacity": 0.97,

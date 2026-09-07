@@ -3,3 +3,7 @@ out/
 .tts-cache/
 tmp/
 *.log
+
+# Saved login sessions. These hold live cookies; treat them like keys.
+.auth/
+**/.auth/

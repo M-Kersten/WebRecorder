@@ -8,7 +8,8 @@ const os = require('os');
 const { loadFlow, ConfigError } = require('./config');
 const { loadTheme, describeTheme } = require('./theme');
 const { synthesizeAll } = require('./tts');
-const { record, describeStep } = require('./recorder');
+const { record, describeStep, authenticate, sessionIsFresh, sessionPath } = require('./recorder');
+const { resolveFlowSecrets } = require('./secrets');
 const captions = require('./captions');
 const { renderCard } = require('./titlecard');
 const ff = require('./ffmpeg');
@@ -33,12 +34,16 @@ Options
   --no-hints          Skip the on-screen hint blocks
   --no-fades          Skip the fades between segments
 
+  --relogin           Log in again even if a saved session is still valid
   --headed            Watch the browser, for debugging a flow
   --keep-temp         Leave the intermediate files behind
   --print-theme       Resolve and print the theme, then exit
   --check             Validate the flow and theme without recording
   -q, --quiet         Only print the result
   -h, --help          This text
+
+Any \${VAR} in a step's url or text is replaced from the environment, so a
+password never has to be written into flow.json.
 
 Environment
   ELEVENLABS_API_KEY    required unless --no-tts
@@ -65,6 +70,7 @@ function parseArgs(argv) {
     fades: null,
     serve: null,
     headed: false,
+    relogin: false,
     keepTemp: false,
     printTheme: false,
     check: false,
@@ -91,6 +97,7 @@ function parseArgs(argv) {
       case '--no-hints': args.hints = false; break;
       case '--fades': args.fades = true; break;
       case '--no-fades': args.fades = false; break;
+      case '--relogin': args.relogin = true; break;
       case '--headed': args.headed = true; break;
       case '--keep-temp': args.keepTemp = true; break;
       case '--print-theme': args.printTheme = true; break;
@@ -224,6 +231,7 @@ async function main(argv) {
   if (args.printTheme) { write(describeTheme(theme)); return 0; }
 
   const flow = loadFlow(args.flow);
+  const secretsUsed = resolveFlowSecrets(flow);
   if (args.check) {
     write(describeTheme(theme));
     write('');
@@ -235,6 +243,23 @@ async function main(argv) {
       ].filter(Boolean);
       write(`  ${String(i + 1).padStart(2)}. ${describeStep(step)}${marks.length ? `  [${marks.join(', ')}]` : ''}`);
     });
+    if (flow.mask.length) {
+      write('');
+      write('masked before recording:');
+      for (const rule of flow.mask) {
+        write(`  ${rule.mode.padEnd(5)} ${rule.selector}` +
+          (rule.mode === 'text' ? `  -> "${rule.text}"` : ''));
+      }
+    }
+    if (flow.auth) {
+      write('');
+      write(`auth: ${flow.auth.steps.length} login steps, session in ${flow.auth.stateFile}` +
+        `${sessionIsFresh(flow) ? ' (saved session still valid)' : ' (will log in)'}`);
+    }
+    if (secretsUsed.length) {
+      write('');
+      write(`from the environment: ${secretsUsed.join(', ')}`);
+    }
     write('');
     write('flow and theme are valid.');
     return 0;
@@ -262,7 +287,22 @@ async function main(argv) {
       write(`flow   ${flow.path}  (${flow.steps.length} steps)`);
       write(`theme  ${theme.path}`);
       if (server) write(`serve  ${path.resolve(args.serve)} at ${server.url}`);
+      if (flow.mask.length) write(`mask   ${flow.mask.length} selector(s)`);
+      if (secretsUsed.length) write(`env    ${secretsUsed.join(', ')}`);
       write('');
+    }
+
+    // Log in first, in a browser of its own, so the login never reaches the
+    // video. The saved session is reused until it goes stale.
+    let storageState = null;
+    if (flow.auth) {
+      if (!args.relogin && sessionIsFresh(flow)) {
+        storageState = sessionPath(flow);
+        ui.plain(`using the saved session in ${flow.auth.stateFile}`);
+      } else {
+        ui.step('logging in');
+        storageState = await authenticate(flow, { headless: !args.headed, log: ui.detail });
+      }
     }
 
     // 1. Narration first. Durations have to exist before the browser starts,
@@ -280,6 +320,7 @@ async function main(argv) {
       outDir: workDir,
       headless: !args.headed,
       log: ui.detail,
+      storageState,
     });
 
     // 3. Narration track: each clip at the timestamp its step actually started.

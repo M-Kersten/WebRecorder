@@ -1,0 +1,40 @@
+{
+  "name": "Portal walkthrough",
+  "baseUrl": "http://127.0.0.1:8099",
+  "minStepMs": 1600,
+
+  // Runs once, in its own browser, and never appears in the video. The session
+  // is saved and reused until it goes stale.
+  "auth": {
+    "stateFile": ".auth/portal.json",
+    "maxAgeHours": 12,
+    "steps": [
+      { "action": "goto", "url": "/index.html" },
+      { "action": "type", "selector": "#email", "text": "${PORTAL_EMAIL}" },
+      { "action": "type", "selector": "#pw", "text": "${PORTAL_PASSWORD}" },
+      { "action": "click", "selector": "#signin" },
+      { "action": "wait", "durationMs": 800 }
+    ]
+  },
+
+  // Neutralised before the first frame is captured.
+  "mask": [
+    { "selector": "#greeting", "mode": "text", "text": "Hello, Alex Doe" },
+    { "selector": "#avatar", "mode": "blur", "radius": 14 },
+    { "selector": "#reg td.client", "mode": "blur", "radius": 6 }
+  ],
+
+  "steps": [
+    { "action": "goto", "url": "/dashboard.html",
+      "narration": "This is your portal, with everything about your assignment in one place.",
+      "hint": "You land here after signing in." },
+    { "action": "hover", "selector": "#tile-hours",
+      "narration": "Your hours for this month are top left.",
+      "hint": "Updated the moment a registration is approved." },
+    { "action": "hover", "selector": "#tile-profile",
+      "narration": "Your profile holds your details and documents." },
+    { "action": "scroll", "selector": "#tile-reg",
+      "narration": "Further down is the hour registration.",
+      "hint": "Client names are hidden in this recording." }
+  ]
+}

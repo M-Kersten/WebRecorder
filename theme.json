@@ -41,7 +41,7 @@
     "color": "#6C5CE7",
     "glow": true,
     "borderWidth": 3,
-    "borderRadius": 10
+    "borderRadius": "auto"
   },
 
   // Small blocks of text that explain a step. Add "hint" to a step in
