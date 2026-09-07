@@ -7,28 +7,33 @@
     {
       "action": "goto",
       "url": "/",
-      "narration": "This is the Northwind dashboard, where every account lives."
+      "narration": "This is the Northwind dashboard, where every account lives.",
+      "hint": "Everything on this page updates live."
     },
     {
       "action": "hover",
       "selector": ".cards .card:nth-child(1)",
-      "narration": "Revenue for the last thirty days sits at the top left."
+      "narration": "Revenue for the last thirty days sits at the top left.",
+      "hint": "Cards show the last 30 days by default."
     },
     {
       "action": "type",
       "selector": "#search",
       "text": "hooli",
-      "narration": "Start typing to filter the account table instantly."
+      "narration": "Start typing to filter the account table instantly.",
+      "hint": "Filtering is instant - no submit button."
     },
     {
       "action": "click",
       "selector": "#run-report",
-      "narration": "Run report rebuilds the numbers against your current filter."
+      "narration": "Run report rebuilds the numbers against your current filter.",
+      "hint": "Reports respect whatever filter is active."
     },
     {
       "action": "scroll",
       "selector": "#deep-section",
-      "narration": "Further down you will find retention broken out by cohort."
+      "narration": "Further down you will find retention broken out by cohort.",
+      "hint": "Cohorts are grouped by signup month."
     }
   ]
 }

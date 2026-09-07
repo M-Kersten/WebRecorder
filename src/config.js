@@ -101,6 +101,9 @@ function loadFlow(flowPath) {
     if (step.narration !== undefined && typeof step.narration !== 'string') {
       throw new ConfigError(`${where}: "narration" must be a string`);
     }
+    if (step.hint !== undefined && typeof step.hint !== 'string') {
+      throw new ConfigError(`${where}: "hint" must be a string`);
+    }
     if (step.durationMs !== undefined && !(Number.isFinite(step.durationMs) && step.durationMs >= 0)) {
       throw new ConfigError(`${where}: "durationMs" must be a non-negative number`);
     }

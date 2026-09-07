@@ -5,12 +5,22 @@ website. Playwright drives a real browser through the steps, ElevenLabs reads
 the narration, and ffmpeg assembles the result with captions and intro/outro
 cards. Everything about how it looks lives in one `theme.json`.
 
-```
-node src/index.js --flow demo/flow.json --serve demo --no-tts --out out/demo.mp4
+```bash
+npm install
+npm run demo          # finished video in out/demo.mp4
 ```
 
-That command needs no API key and no network: it serves the bundled demo site,
-uses timed silence instead of speech, and produces a finished video.
+That needs no API key and no network: it serves the bundled demo site, uses
+timed silence instead of speech, and produces a finished video with an intro
+card, a drawn cursor, highlight rings, on-screen hints and fades.
+
+For your own site:
+
+```bash
+npx site-tutorial-video init      # writes theme.json and flow.json
+# point flow.json at your site, edit theme.json
+npx site-tutorial-video --no-tts  # free preview, no API key
+```
 
 ## How it fits together
 
@@ -37,7 +47,7 @@ track is then built by placing every clip at its measured timestamp with
 
 **Captions are a post-process.** Restyling them regenerates a subtitle file and
 re-burns; it never re-records. That matters when you are iterating on how a font
-looks.
+looks. They are off unless you ask for them.
 
 ## Setup
 
@@ -63,13 +73,16 @@ If Chromium is already installed somewhere the tool cannot guess, point
   "minStepMs": 1400,       // floor per step, so a short line still reads
   "stepPaddingMs": 600,    // beat after the narration ends
   "steps": [
-    { "action": "goto",   "url": "/",             "narration": "This is the dashboard." },
-    { "action": "hover",  "selector": ".card",    "narration": "Revenue sits top left." },
-    { "action": "type",   "selector": "#search", "text": "hooli",
-      "narration": "Start typing to filter." },
-    { "action": "click",  "selector": "#run",     "narration": "Run rebuilds the numbers." },
-    { "action": "scroll", "selector": "#cohorts", "narration": "Retention is further down." },
-    { "action": "wait",   "durationMs": 1500 }
+    { "action": "goto",  "url": "/",
+      "narration": "This is the dashboard.",
+      "hint": "Everything here updates live." },
+    { "action": "hover", "selector": ".card",   "narration": "Revenue sits top left." },
+    { "action": "type",  "selector": "#search", "text": "hooli",
+      "narration": "Start typing to filter.",
+      "hint": "Filtering is instant - no submit button." },
+    { "action": "click", "selector": "#run",    "narration": "Run rebuilds the numbers." },
+    { "action": "scroll","selector": "#cohorts","narration": "Retention is further down." },
+    { "action": "wait",  "durationMs": 1500 }
   ]
 }
 ```
@@ -83,8 +96,19 @@ If Chromium is already installed somewhere the tool cannot guess, point
 | `scroll` | — | `selector` to scroll to, or `to` in px |
 | `wait` | — | `durationMs` (default 1000) |
 
-Every step may carry `narration`. Steps without it are silent and uncaptioned.
+Every step may carry two optional pieces of text:
+
+- **`narration`** is spoken, and captioned if captions are on.
+- **`hint`** is a small block of text drawn on the page while the step plays,
+  anchored to whatever the step is acting on. Use it for the thing that is
+  awkward to say out loud - a keyboard shortcut, a caveat, a value to notice.
+  A step showing a hint is held on screen long enough to read it, even when
+  its narration is shorter than that.
+
 `//` and `/* */` comments are allowed in both `flow.json` and `theme.json`.
+
+Run `site-tutorial-video --check` to validate a flow and see what each step
+carries, without recording anything.
 
 ## theme.json
 
@@ -108,6 +132,8 @@ the font file — leave it out and it is read from the file for you. Paths are
 relative to `theme.json`. Use `.ttf` or `.otf`; libass cannot read `.woff2`.
 
 ### `captions`
+
+Off by default. Turn them on in the theme, or with `--captions` for one run.
 
 | Field | Meaning |
 | --- | --- |
@@ -136,14 +162,68 @@ A `.srt` sidecar is written next to the output video.
 ### `cursor` and `highlight`
 
 ```jsonc
-"cursor":    { "enabled": true, "color": "#FFFFFF", "strokeColor": "#000000", "size": 28 },
+"cursor": {
+  "enabled": true,
+  "color": "#FFFFFF", "strokeColor": "#000000", "size": 28,
+
+  "image": "assets/cursor.png",   // optional: your own pointer
+  "hotspot": [0.19, 0.08],        // which point of it lands on the target
+
+  "moveMs": null,                 // null = travel time follows the distance
+  "easing": "easeInOut",          // easeInOut | easeOut | linear
+
+  "ripple": true,                 // expanding ring where the click lands
+  "rippleColor": null,            // null = use the highlight colour
+  "rippleMs": 620
+},
 "highlight": { "enabled": true, "color": "#6C5CE7", "glow": true,
                "borderWidth": 3, "borderRadius": 10 }
 ```
 
-A drawn cursor glides to each target and pulses on click; a ring marks the
-element being acted on. Setting either `enabled: false` removes it from the
-page entirely and skips the calls that would drive it.
+The cursor eases to each target rather than jumping, pulses on click, and leaves
+a ripple behind it. Its position carries across page loads, so it does not snap
+back to the middle of the screen every time the site navigates.
+
+`image` takes a `.png` (with transparency) or `.svg`. It is inlined into the
+page, so nothing has to load at record time. `hotspot` is the point that sits on
+the target, as a fraction of the image: `[0, 0]` is its top-left corner, `[0.5,
+0.5]` its centre. A tip-at-top-left arrow wants roughly `[0.19, 0.08]`.
+
+Setting either `enabled: false` removes it from the page entirely and skips the
+calls that would drive it.
+
+### `hints`
+
+```jsonc
+"hints": {
+  "enabled": true,
+  "font": "body", "fontSize": 28, "color": "#FFFFFF",
+  "backgroundColor": "#1A1D29", "backgroundOpacity": 0.94,
+  "accentColor": "#6C5CE7",
+  "borderRadius": 12, "maxWidth": 520, "padding": 20,
+  "position": "auto", "offset": 20, "fadeMs": 260
+}
+```
+
+`position: "auto"` anchors each hint to the element its step is acting on -
+below it, or above when there is no room below, clamped to stay on screen. The
+fixed alternatives are `top`/`bottom` crossed with `left`/`center`/`right`, for
+a hint that should always sit in the same place.
+
+Hints are drawn in the page, so they use your bundled fonts through an inlined
+`@font-face` and appear in the recording like anything else on the page.
+
+### `transitions`
+
+```jsonc
+"transitions": { "enabled": true, "fadeSec": 0.4 }
+```
+
+Every segment fades in from and out to black, so the video opens cleanly and the
+intro, the walkthrough and the outro are separated rather than cutting. The fade
+rides along with an encode that was happening anyway, so it costs nothing extra.
+A segment too short for the full fade gets a proportionally shorter one instead
+of fading to black and straight back.
 
 ### `intro` and `outro`
 
@@ -167,30 +247,45 @@ Type scales off `video.height`, so one card design works at any resolution.
 ### `video`
 
 ```jsonc
-"video": { "width": 1920, "height": 1080, "fps": 30 }
+"video": { "width": 1920, "height": 1080, "fps": 30, "backgroundColor": "#0F1115" }
 ```
 
 Sets the recording viewport and normalises every segment. Both dimensions must
 be even — H.264 requires it. Portrait works: `theme-social.json` is a 1080x1920
 example with no cards.
 
+`backgroundColor` is painted behind the page before the first navigation, and
+used to letterbox a recording that does not fill the frame. Without it the video
+opens on a flash of blank white while the browser is still on `about:blank`.
+
 ## CLI
+
+```
+site-tutorial-video init          scaffold theme.json and flow.json here
+site-tutorial-video [options]
+```
 
 | Flag | Default | |
 | --- | --- | --- |
 | `--flow <path>` | `flow.json` | |
 | `--theme <path>` | `theme.json` | |
 | `--out <path>` | `out/tutorial.mp4` | |
-| `--no-tts` | | timed silence instead of ElevenLabs; free, and the pacing matches |
-| `--no-captions` | | skip burning captions |
 | `--serve <dir>` | | serve a directory statically and use it as `baseUrl` |
+| `--no-tts` | | timed silence instead of ElevenLabs; free, and the pacing matches |
+| `--captions` / `--no-captions` | theme | force captions on or off for one run |
+| `--no-hints` | theme | skip the on-screen hint blocks |
+| `--no-fades` | theme | skip the fades between segments |
+| `--check` | | validate the flow and theme, print what each step carries, and stop |
 | `--headed` | | watch the browser, for debugging a flow |
 | `--keep-temp` | | leave the intermediate files behind |
 | `--print-theme` | | resolve and print the theme, then exit |
+| `-q`, `--quiet` | | only print the result |
 
-There are deliberately no per-field style overrides. One theme file per look
-(`theme.json`, `theme-social.json`) is easier to reason about. The loaded theme
-is a single plain object, so adding `--caption-color` later is a small change.
+The on/off flags override the theme for one run; leaving one out leaves the
+theme's own setting alone. There are deliberately no per-field style overrides -
+one theme file per look (`theme.json`, `theme-social.json`) is easier to reason
+about, and the loaded theme is a single plain object, so adding `--caption-color`
+later is a small change.
 
 `ELEVENLABS_VOICE_ID` and `ELEVENLABS_MODEL_ID` override the defaults. Audio is
 cached under `.tts-cache/`, keyed by a hash of the text, voice, model and voice
@@ -229,8 +324,13 @@ npm test
 Unit tests cover the ASS colour conversion (`&HAABBGGRR`: alpha first, BGR
 order, and alpha inverted), the theme validation and its error messages, and
 flow parsing. Integration tests drive real ffmpeg to check that narration lands
-at the timestamps the recorder logged, that durations add up, and that
-mismatched segments are caught before they are stream-copied.
+at the timestamps the recorder logged, that durations add up, that a fade
+actually darkens the frames it should, and that mismatched segments are caught
+before they are stream-copied. A third set drives a real browser to check the
+overlay: that a custom pointer is inlined and lands on its hotspot, that the
+cursor eases rather than jumps and survives a navigation, that ripples clean
+themselves up, and that hints flip above their target when there is no room
+below.
 
 For anything visual, render frames and look at them:
 
@@ -250,7 +350,7 @@ src/
   fontname.js   reads family names and metrics out of a font file
   tts.js        ElevenLabs, caching, --no-tts silence
   recorder.js   Playwright run, step timing, timestamp logging
-  overlay.js    the injected cursor/highlight script, built from the theme
+  overlay.js    the injected cursor/highlight/hint script, built from the theme
   captions.js   cues, .srt, .ass, and the theme-to-ASS style mapping
   titlecard.js  HTML -> screenshot for intro/outro
   ffmpeg.js     narration track, mux, image-to-video, concat, caption burn

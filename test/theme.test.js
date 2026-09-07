@@ -172,3 +172,92 @@ test('the shipped theme.example.json loads', () => {
   assert.strictEqual(theme.fonts.body.family, 'Inter');
   assert.strictEqual(theme.captions.font, 'body');
 });
+
+test('captions are off unless a theme or a flag turns them on', () => {
+  assert.strictEqual(withTheme({}).captions.enabled, false);
+  assert.strictEqual(withTheme({ captions: { enabled: true } }).captions.enabled, true);
+});
+
+test('hints and fades are on by default', () => {
+  const theme = withTheme({});
+  assert.strictEqual(theme.hints.enabled, true);
+  assert.strictEqual(theme.transitions.enabled, true);
+  assert.ok(theme.transitions.fadeSec > 0);
+});
+
+test('a cursor image is resolved and checked', () => {
+  const png = path.join(REPO, 'assets', 'cursor.png');
+  const theme = withTheme({ cursor: { image: png } });
+  assert.strictEqual(theme.cursor.imagePath, png);
+
+  assert.throws(
+    () => withTheme({ cursor: { image: 'assets/nope.png' } }),
+    /cursor\.image points at "assets\/nope\.png"/
+  );
+});
+
+test('a cursor image the browser cannot draw is rejected with a reason', () => {
+  const notAnImage = path.join(work, 'pointer.tiff');
+  fs.writeFileSync(notAnImage, 'x');
+  assert.throws(() => withTheme({ cursor: { image: notAnImage } }), /which the browser cannot draw/);
+});
+
+test('the cursor hotspot must be two fractions', () => {
+  assert.doesNotThrow(() => withTheme({ cursor: { hotspot: [0, 0] } }));
+  assert.doesNotThrow(() => withTheme({ cursor: { hotspot: [1, 1] } }));
+  assert.throws(() => withTheme({ cursor: { hotspot: [0.5] } }), /two numbers between 0 and 1/);
+  assert.throws(() => withTheme({ cursor: { hotspot: [0.5, 2] } }), /two numbers between 0 and 1/);
+  assert.throws(() => withTheme({ cursor: { hotspot: '0.5,0.5' } }), /two numbers between 0 and 1/);
+});
+
+test('cursor easing and timings are checked', () => {
+  assert.doesNotThrow(() => withTheme({ cursor: { easing: 'easeOut', moveMs: 500 } }));
+  assert.doesNotThrow(() => withTheme({ cursor: { moveMs: null } }), 'null means follow the distance');
+  assert.throws(() => withTheme({ cursor: { easing: 'bouncy' } }), /cursor\.easing must be one of/);
+  assert.throws(() => withTheme({ cursor: { moveMs: -1 } }), /cursor\.moveMs/);
+  assert.throws(() => withTheme({ cursor: { rippleMs: 0 } }), /cursor\.rippleMs must be a positive number/);
+});
+
+test('an unset rippleColor is allowed and falls back to the highlight colour', () => {
+  const theme = withTheme({ cursor: { rippleColor: null } });
+  assert.strictEqual(theme.cursor.rippleColor, null);
+  assert.throws(() => withTheme({ cursor: { rippleColor: 'teal' } }), /cursor\.rippleColor must be a hex/);
+});
+
+test('hint position must be one this tool knows how to place', () => {
+  for (const spot of ['auto', 'top-left', 'top-center', 'top-right',
+    'bottom-left', 'bottom-center', 'bottom-right']) {
+    assert.doesNotThrow(() => withTheme({ hints: { position: spot } }), spot);
+  }
+  assert.throws(() => withTheme({ hints: { position: 'middle' } }), /hints\.position must be one of/);
+});
+
+test('hint numbers and colours are checked', () => {
+  assert.throws(() => withTheme({ hints: { fontSize: -2 } }), /hints\.fontSize/);
+  assert.throws(() => withTheme({ hints: { backgroundOpacity: 2 } }), /hints\.backgroundOpacity/);
+  assert.throws(() => withTheme({ hints: { accentColor: 'purple' } }), /hints\.accentColor must be a hex/);
+});
+
+test('a hint font reference is checked like every other font reference', () => {
+  assert.throws(
+    () => withTheme({ fonts: { body: { file: INTER } }, hints: { font: 'nope' } }),
+    /hints\.font refers to font "nope"/
+  );
+});
+
+test('fade length is sanity-checked against segment length', () => {
+  assert.doesNotThrow(() => withTheme({ transitions: { fadeSec: 0 } }), 'zero disables it');
+  assert.throws(() => withTheme({ transitions: { fadeSec: -1 } }), /non-negative/);
+  assert.throws(() => withTheme({ transitions: { fadeSec: 5 } }), /longer than any segment wants/);
+});
+
+test('the stage background colour is validated', () => {
+  assert.strictEqual(withTheme({}).video.backgroundColor, '#0F1115');
+  assert.throws(() => withTheme({ video: { backgroundColor: 'black' } }), /video\.backgroundColor must be a hex/);
+});
+
+test('the shipped example themes all load', () => {
+  for (const file of ['theme.example.json', 'theme.json', 'theme-social.json']) {
+    assert.doesNotThrow(() => loadTheme(path.join(REPO, file)), file);
+  }
+});

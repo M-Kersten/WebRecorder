@@ -8,7 +8,7 @@ const os = require('os');
 const { loadFlow, ConfigError } = require('./config');
 const { loadTheme, describeTheme } = require('./theme');
 const { synthesizeAll } = require('./tts');
-const { record } = require('./recorder');
+const { record, describeStep } = require('./recorder');
 const captions = require('./captions');
 const { renderCard } = require('./titlecard');
 const ff = require('./ffmpeg');
@@ -17,44 +17,66 @@ const { serveStatic } = require('./server');
 const USAGE = `
 site-tutorial-video - turn a flow.json into a narrated, themed tutorial video
 
-  node src/index.js [options]
+  site-tutorial-video [options]
+  site-tutorial-video init          scaffold theme.json and flow.json here
 
 Options
   --flow <path>       Flow file describing the steps      (default: flow.json)
   --theme <path>      Theme file                          (default: theme.json)
   --out <path>        Output video                        (default: out/tutorial.mp4)
-  --no-tts            Use timed silence instead of calling ElevenLabs.
-                      Free and fast; pacing matches a real run.
-  --no-captions       Skip burning captions.
-  --serve <dir>       Serve <dir> statically and use it as the flow's baseUrl.
-  --headed            Run the browser headed (for debugging a flow).
-  --keep-temp         Leave the intermediate files behind.
-  --print-theme       Resolve and print the theme, then exit.
-  -h, --help          This text.
+  --serve <dir>       Serve <dir> statically and use it as the flow's baseUrl
+
+  --no-tts            Timed silence instead of ElevenLabs. Free, and the
+                      pacing comes out the same, so use it while iterating.
+  --captions          Burn captions in (they are off unless asked for)
+  --no-captions       Force captions off even if the theme enables them
+  --no-hints          Skip the on-screen hint blocks
+  --no-fades          Skip the fades between segments
+
+  --headed            Watch the browser, for debugging a flow
+  --keep-temp         Leave the intermediate files behind
+  --print-theme       Resolve and print the theme, then exit
+  --check             Validate the flow and theme without recording
+  -q, --quiet         Only print the result
+  -h, --help          This text
 
 Environment
   ELEVENLABS_API_KEY    required unless --no-tts
   ELEVENLABS_VOICE_ID   optional, defaults to a stock voice
   ELEVENLABS_MODEL_ID   optional
+  CHROMIUM_EXECUTABLE_PATH  optional, if Chromium is somewhere unusual
+
+Examples
+  site-tutorial-video init
+  site-tutorial-video --no-tts                     # fast, free preview
+  site-tutorial-video --captions --out out/v1.mp4  # the real thing
 `;
 
 function parseArgs(argv) {
   const args = {
+    command: null,
     flow: 'flow.json',
     theme: 'theme.json',
     out: path.join('out', 'tutorial.mp4'),
     tts: true,
-    captions: true,
+    // null means "whatever the theme says"; the flags below force it either way.
+    captions: null,
+    hints: null,
+    fades: null,
     serve: null,
     headed: false,
     keepTemp: false,
     printTheme: false,
+    check: false,
+    quiet: false,
     help: false,
   };
   const takesValue = { '--flow': 'flow', '--theme': 'theme', '--out': 'out', '--serve': 'serve' };
+  const COMMANDS = ['init'];
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
+    if (i === 0 && COMMANDS.includes(arg)) { args.command = arg; continue; }
     if (takesValue[arg]) {
       const value = argv[++i];
       if (value === undefined) throw new ConfigError(`${arg} needs a value`);
@@ -63,80 +85,227 @@ function parseArgs(argv) {
     }
     switch (arg) {
       case '--no-tts': args.tts = false; break;
+      case '--captions': args.captions = true; break;
       case '--no-captions': args.captions = false; break;
+      case '--hints': args.hints = true; break;
+      case '--no-hints': args.hints = false; break;
+      case '--fades': args.fades = true; break;
+      case '--no-fades': args.fades = false; break;
       case '--headed': args.headed = true; break;
       case '--keep-temp': args.keepTemp = true; break;
       case '--print-theme': args.printTheme = true; break;
+      case '--check': args.check = true; break;
+      case '-q': case '--quiet': args.quiet = true; break;
       case '-h': case '--help': args.help = true; break;
       default:
-        throw new ConfigError(`Unknown option "${arg}"\n${USAGE}`);
+        throw new ConfigError(
+          `Unknown option "${arg}". Run with --help to see what is available.`
+        );
     }
   }
   return args;
 }
 
-const log = (msg = '') => process.stdout.write(`${msg}\n`);
+const write = (msg = '') => process.stdout.write(`${msg}\n`);
+
+/** Timing wrapper, so the console shows where a slow run actually went. */
+function stepLogger(quiet) {
+  let startedAt = null;
+  let label = null;
+  const done = () => {
+    if (!label) return;
+    if (!quiet) write(`  ${((Date.now() - startedAt) / 1000).toFixed(1)}s`);
+    label = null;
+  };
+  return {
+    step(text) {
+      done();
+      label = text;
+      startedAt = Date.now();
+      if (!quiet) process.stdout.write(`${text}\n`);
+    },
+    detail(text) { if (!quiet) write(`    ${text}`); },
+    finish: done,
+    plain: (text) => { if (!quiet) write(text); },
+  };
+}
+
+/** CLI flags win over the theme; an unset flag leaves the theme alone. */
+function applyOverrides(theme, args) {
+  if (args.captions !== null) theme.captions.enabled = args.captions;
+  if (args.hints !== null) theme.hints.enabled = args.hints;
+  if (args.fades !== null) theme.transitions.enabled = args.fades;
+  return theme;
+}
+
+const SAMPLE_FLOW = {
+  name: 'My walkthrough',
+  baseUrl: 'http://localhost:3000',
+  minStepMs: 1400,
+  stepPaddingMs: 600,
+  steps: [
+    {
+      action: 'goto',
+      url: '/',
+      narration: 'This is the home page.',
+      hint: 'Everything starts here.',
+    },
+    {
+      action: 'click',
+      selector: 'button',
+      narration: 'Clicking through to the next screen.',
+    },
+  ],
+};
+
+/**
+ * Scaffold a project so a first run is edit-two-files rather than
+ * read-the-docs.
+ *
+ * The fonts and the pointer image come along with the theme. Writing a
+ * theme.json that references files the new directory does not have would make
+ * the very first command a new user runs fail on a missing font.
+ */
+function initProject(cwd) {
+  const pkgRoot = path.join(__dirname, '..');
+  const created = [];
+  const skipped = [];
+
+  const copyIfNew = (from, to, label) => {
+    if (fs.existsSync(to)) { skipped.push(label); return; }
+    fs.mkdirSync(path.dirname(to), { recursive: true });
+    fs.copyFileSync(from, to);
+    created.push(label);
+  };
+
+  copyIfNew(path.join(pkgRoot, 'theme.example.json'), path.join(cwd, 'theme.json'), 'theme.json');
+
+  const flowTarget = path.join(cwd, 'flow.json');
+  if (fs.existsSync(flowTarget)) {
+    skipped.push('flow.json');
+  } else {
+    fs.writeFileSync(flowTarget, `${JSON.stringify(SAMPLE_FLOW, null, 2)}\n`, 'utf8');
+    created.push('flow.json');
+  }
+
+  // Everything theme.example.json points at, so the scaffold validates as-is.
+  const fontsDir = path.join(pkgRoot, 'fonts');
+  if (fs.existsSync(fontsDir)) {
+    for (const name of fs.readdirSync(fontsDir).filter((f) => /\.(ttf|otf)$/i.test(f))) {
+      copyIfNew(path.join(fontsDir, name), path.join(cwd, 'fonts', name), `fonts/${name}`);
+    }
+  }
+  const cursorSource = path.join(pkgRoot, 'assets', 'cursor.png');
+  if (fs.existsSync(cursorSource)) {
+    copyIfNew(cursorSource, path.join(cwd, 'assets', 'cursor.png'), 'assets/cursor.png');
+  }
+
+  write('');
+  if (created.length) write(`created  ${created.join('\n         ')}`);
+  if (skipped.length) write(`kept     ${skipped.join(', ')}  (already there)`);
+  write('');
+  write('Next:');
+  write('  1. point flow.json at your site and describe the steps');
+  write('  2. edit theme.json - fonts, colours, intro/outro text');
+  write('  3. site-tutorial-video --no-tts     free preview, no API key needed');
+  write('');
+  write('  site-tutorial-video --check         validate without recording');
+  write('  site-tutorial-video --help          every option');
+  write('');
+  return 0;
+}
 
 async function main(argv) {
   const args = parseArgs(argv);
-  if (args.help) { log(USAGE); return 0; }
+  if (args.help) { write(USAGE); return 0; }
+  if (args.command === 'init') return initProject(process.cwd());
 
-  const theme = loadTheme(args.theme);
-  if (args.printTheme) { log(describeTheme(theme)); return 0; }
+  const theme = applyOverrides(loadTheme(args.theme), args);
+  if (args.printTheme) { write(describeTheme(theme)); return 0; }
+
+  const flow = loadFlow(args.flow);
+  if (args.check) {
+    write(describeTheme(theme));
+    write('');
+    write(`flow: ${flow.path}`);
+    flow.steps.forEach((step, i) => {
+      const marks = [
+        step.narration ? 'narration' : null,
+        step.hint ? 'hint' : null,
+      ].filter(Boolean);
+      write(`  ${String(i + 1).padStart(2)}. ${describeStep(step)}${marks.length ? `  [${marks.join(', ')}]` : ''}`);
+    });
+    write('');
+    write('flow and theme are valid.');
+    return 0;
+  }
 
   await ff.checkToolchain();
-  const flow = loadFlow(args.flow);
+  if (args.serve && !fs.existsSync(args.serve)) {
+    throw new ConfigError(`--serve points at "${args.serve}", which is not a directory that exists`);
+  }
 
   const outFile = path.resolve(args.out);
   fs.mkdirSync(path.dirname(outFile), { recursive: true });
   const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tutvid-'));
+  const ui = stepLogger(args.quiet);
+  const startedAt = Date.now();
 
   let server = null;
   try {
     if (args.serve) {
       server = await serveStatic(args.serve);
       flow.baseUrl = server.url;
-      log(`serving ${path.resolve(args.serve)} at ${server.url}`);
     }
 
-    log(`flow:  ${flow.path} (${flow.steps.length} steps)`);
-    log(`theme: ${theme.path}`);
-    log('');
+    if (!args.quiet) {
+      write(`flow   ${flow.path}  (${flow.steps.length} steps)`);
+      write(`theme  ${theme.path}`);
+      if (server) write(`serve  ${path.resolve(args.serve)} at ${server.url}`);
+      write('');
+    }
 
     // 1. Narration first. Durations have to exist before the browser starts,
     //    because they decide how long each step stays on screen.
-    log(args.tts ? 'generating narration...' : 'generating timed silence (--no-tts)...');
+    ui.step(args.tts ? 'narration' : 'narration (silent, --no-tts)');
     const audio = await synthesizeAll(flow.steps, {
       noTts: !args.tts,
       cacheDir: path.join(process.cwd(), '.tts-cache'),
-      log,
+      log: ui.detail,
     });
 
     // 2. Record.
-    log('recording...');
+    ui.step('recording');
     const { videoPath, timeline, totalSec } = await record(flow, theme, audio, {
       outDir: workDir,
       headless: !args.headed,
-      log,
+      log: ui.detail,
     });
-    log(`  recorded ${totalSec.toFixed(1)}s`);
 
     // 3. Narration track: each clip at the timestamp its step actually started.
-    log('building narration track...');
+    ui.step('narration track');
     const clips = [];
     audio.forEach((clip, i) => {
       if (clip && timeline[i]) clips.push({ file: clip.file, startSec: timeline[i].startSec });
     });
     const audioTrack = await ff.buildNarrationTrack(clips, totalSec, path.join(workDir, 'narration.m4a'));
 
-    // 4. Mux, normalising to the theme's resolution and fps.
-    log('muxing...');
-    let main = await ff.muxAudioVideo(videoPath, audioTrack, path.join(workDir, 'main.mp4'), theme.video);
+    // 4. Mux, normalising to the theme's resolution and fps. The fade rides
+    //    along with whichever encode is this segment's last, rather than
+    //    costing another pass.
+    const fadeSec = theme.transitions.enabled ? theme.transitions.fadeSec : 0;
+    const willBurn = theme.captions.enabled;
+    ui.step('assembling');
+    let main = await ff.muxAudioVideo(
+      videoPath, audioTrack, path.join(workDir, 'main.mp4'), theme.video,
+      willBurn ? null : { fadeSec, durationSec: totalSec }
+    );
 
     // 5. Captions, as a post-process, so restyling never means re-recording.
-    if (args.captions && theme.captions.enabled) {
+    if (willBurn) {
       const font = theme.captions.font ? theme.fonts[theme.captions.font] : null;
-      const cues = captions.buildCues(flow.steps, timeline, await ff.probeDuration(main));
+      const mainSec = await ff.probeDuration(main);
+      const cues = captions.buildCues(flow.steps, timeline, mainSec);
       if (cues.length) {
         const style = captions.buildForceStyle(theme.captions, font, theme.video);
         const maxChars = captions.lineBudget(theme.captions, theme.video);
@@ -147,45 +316,58 @@ async function main(argv) {
           maxChars
         );
         // Keep the .srt next to the video: it is useful on its own.
-        fs.copyFileSync(srtPath, outFile.replace(/\.[^.]+$/, '') + '.srt');
-        log(`burning captions (${font ? `"${font.family}"` : 'default font'}, ${cues.length} cues)...`);
-        main = await ff.burnSubtitles(main, assPath, null, theme.fontsDir, path.join(workDir, 'captioned.mp4'));
+        const srtOut = `${outFile.replace(/\.[^.]+$/, '')}.srt`;
+        fs.copyFileSync(srtPath, srtOut);
+        ui.step(`captions (${font ? `"${font.family}"` : 'default font'}, ${cues.length} cues)`);
+        main = await ff.burnSubtitles(
+          main, assPath, null, theme.fontsDir, path.join(workDir, 'captioned.mp4'),
+          { fadeSec, durationSec: mainSec }
+        );
       } else {
-        log('no narration to caption, skipping captions');
+        ui.detail('no narration to caption');
       }
     }
 
     // 6. Intro/outro cards, then join.
     const segments = [];
     if (theme.intro.enabled) {
-      log('rendering intro card...');
-      segments.push(await buildCardSegment('intro', theme, workDir));
+      ui.step('intro card');
+      segments.push(await buildCardSegment('intro', theme, workDir, fadeSec));
     }
     segments.push(main);
     if (theme.outro.enabled) {
-      log('rendering outro card...');
-      segments.push(await buildCardSegment('outro', theme, workDir));
+      ui.step('outro card');
+      segments.push(await buildCardSegment('outro', theme, workDir, fadeSec));
     }
 
-    const { method } = await ff.concatSegments(segments, outFile, theme.video, workDir, (m) => log(`  ${m}`));
-    if (segments.length > 1) log(`  joined ${segments.length} segments via concat ${method}`);
+    if (segments.length > 1) ui.step(`joining ${segments.length} segments`);
+    const { method } = await ff.concatSegments(segments, outFile, theme.video, workDir, ui.detail);
+    ui.finish();
 
     const finalSec = await ff.probeDuration(outFile);
-    log('');
-    log(`done: ${outFile}`);
-    log(`      ${finalSec.toFixed(2)}s, ${theme.video.width}x${theme.video.height} @ ${theme.video.fps}fps`);
+    const sizeMb = fs.statSync(outFile).size / (1024 * 1024);
+    write('');
+    write(`  ${outFile}`);
+    write(`  ${finalSec.toFixed(1)}s  ${theme.video.width}x${theme.video.height}  ` +
+      `${theme.video.fps}fps  ${sizeMb.toFixed(1)} MB` +
+      `${segments.length > 1 ? `  (${method} concat)` : ''}`);
+    write(`  built in ${((Date.now() - startedAt) / 1000).toFixed(0)}s`);
+    write('');
     return 0;
   } finally {
+    ui.finish();
     if (server) await server.close();
-    if (args.keepTemp) log(`temp kept: ${workDir}`);
+    if (args.keepTemp) write(`temp kept: ${workDir}`);
     else fs.rmSync(workDir, { recursive: true, force: true });
   }
 }
 
-async function buildCardSegment(which, theme, workDir) {
+async function buildCardSegment(which, theme, workDir, fadeSec) {
   const card = theme[which];
   const png = await renderCard(card, theme, path.join(workDir, `${which}.png`));
-  return ff.imageToVideo(png, card.durationSec, path.join(workDir, `${which}.mp4`), theme.video);
+  return ff.imageToVideo(
+    png, card.durationSec, path.join(workDir, `${which}.mp4`), theme.video, fadeSec
+  );
 }
 
 if (require.main === module) {
@@ -199,4 +381,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { main, parseArgs };
+module.exports = { main, parseArgs, applyOverrides, initProject };

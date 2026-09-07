@@ -185,3 +185,85 @@ test('filter paths with colons and quotes are escaped', () => {
   assert.strictEqual(ff.escapeFilterPath('C:/tmp/a.srt'), 'C\\:/tmp/a.srt');
   assert.strictEqual(ff.escapeFilterValue("FontName=A,B"), "'FontName=A,B'");
 });
+
+test('fadeFilters places the fades at both ends', () => {
+  const { video, audio } = ff.fadeFilters({ fadeSec: 0.4, durationSec: 10 });
+  assert.deepStrictEqual(video, ['fade=t=in:st=0:d=0.400', 'fade=t=out:st=9.600:d=0.400']);
+  assert.strictEqual(audio.length, 2, 'audio fades too, so narration does not click');
+  assert.match(audio[0], /^afade=t=in/);
+});
+
+test('fadeFilters yields nothing when there is no fade to apply', () => {
+  assert.deepStrictEqual(ff.fadeFilters(null), { video: [], audio: [] });
+  assert.deepStrictEqual(ff.fadeFilters({ fadeSec: 0, durationSec: 10 }), { video: [], audio: [] });
+  assert.deepStrictEqual(ff.fadeFilters({ fadeSec: 0.4, durationSec: 0 }), { video: [], audio: [] });
+});
+
+test('a fade never swallows a short segment whole', () => {
+  // 0.4s of fade at each end of a 0.8s clip would leave no clear frame at all.
+  const { video } = ff.fadeFilters({ fadeSec: 0.4, durationSec: 0.8 });
+  const inD = Number(video[0].match(/d=([\d.]+)/)[1]);
+  const outStart = Number(video[1].match(/st=([\d.]+)/)[1]);
+  assert.ok(inD < 0.4, 'the fade is shortened to fit');
+  assert.ok(outStart > inD, 'and the two fades do not overlap');
+});
+
+/** Mean luma of one frame, 0-255. Used to prove a fade actually darkens. */
+function frameBrightness(file, atSec) {
+  // -ss before -i, so decoding starts at the timestamp. As an output option it
+  // discards frames after the filter graph, and metadata=print has already
+  // logged every one of them - the first reading would always be frame 0.
+  const out = runCapturingStderr('ffmpeg', [
+    '-hide_banner', '-ss', String(atSec), '-i', file,
+    '-frames:v', '1', '-vf', 'signalstats,metadata=print:key=lavfi.signalstats.YAVG',
+    '-f', 'null', '-',
+  ]);
+  const match = out.match(/lavfi\.signalstats\.YAVG=([\d.]+)/);
+  assert.ok(match, `no luma reading from ${file} at ${atSec}s`);
+  return Number(match[1]);
+}
+
+test('a faded card really is dark at its edges and bright in the middle', async () => {
+  execFileSync('ffmpeg', [
+    '-hide_banner', '-loglevel', 'error', '-y',
+    '-f', 'lavfi', '-i', 'color=c=white:s=320x240', '-frames:v', '1', tmp('white.png'),
+  ]);
+  await ff.imageToVideo(tmp('white.png'), 3, tmp('faded.mp4'), VIDEO, 0.5);
+
+  const opening = frameBrightness(tmp('faded.mp4'), 0.03);
+  const middle = frameBrightness(tmp('faded.mp4'), 1.5);
+  const closing = frameBrightness(tmp('faded.mp4'), 2.85);
+
+  assert.ok(middle > 200, `the middle should be white, got ${middle}`);
+  assert.ok(opening < middle / 2, `the opening should be dark, got ${opening} vs ${middle}`);
+  assert.ok(closing < middle / 2, `the close should be dark, got ${closing} vs ${middle}`);
+});
+
+test('without a fade the same card stays bright end to end', async () => {
+  await ff.imageToVideo(tmp('white.png'), 2, tmp('unfaded.mp4'), VIDEO, 0);
+  assert.ok(frameBrightness(tmp('unfaded.mp4'), 0.03) > 200);
+  assert.ok(frameBrightness(tmp('unfaded.mp4'), 1.85) > 200);
+});
+
+test('the letterbox uses the theme colour rather than black', async () => {
+  // A 4:3 source in a 16:9 frame gets pillarboxed; the bars should be themed.
+  execFileSync('ffmpeg', [
+    '-hide_banner', '-loglevel', 'error', '-y',
+    '-f', 'lavfi', '-i', 'color=c=white:s=240x240:r=15',
+    '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=48000',
+    '-t', '1', '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p',
+    '-c:a', 'aac', tmp('square.mp4'),
+  ]);
+  await ff.generateSilence(1, tmp('sil2.m4a'));
+  await ff.muxAudioVideo(
+    tmp('square.mp4'), tmp('sil2.m4a'), tmp('boxed.mp4'),
+    { ...VIDEO, backgroundColor: '#FF0000' }
+  );
+  // Sample the far-left column, which is all pillarbox.
+  const rgb = execFileSync('ffmpeg', [
+    '-hide_banner', '-loglevel', 'error', '-i', tmp('boxed.mp4'),
+    '-frames:v', '1', '-vf', 'crop=8:8:0:100', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-',
+  ]);
+  assert.ok(rgb[0] > 180, `pillarbox should be red, got rgb(${rgb[0]},${rgb[1]},${rgb[2]})`);
+  assert.ok(rgb[1] < 70 && rgb[2] < 70, `pillarbox should be red, got rgb(${rgb[0]},${rgb[1]},${rgb[2]})`);
+});

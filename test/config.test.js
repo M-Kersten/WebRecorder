@@ -7,9 +7,9 @@ const os = require('os');
 const path = require('path');
 
 const { loadFlow, stripJsonComments } = require('../src/config');
-const { resolveUrl } = require('../src/recorder');
+const { resolveUrl, readingTimeMs } = require('../src/recorder');
 const { estimateDuration, cacheKey } = require('../src/tts');
-const { parseArgs } = require('../src/index');
+const { parseArgs, applyOverrides, initProject } = require('../src/index');
 
 const work = fs.mkdtempSync(path.join(os.tmpdir(), 'tutvid-config-'));
 test.after(() => fs.rmSync(work, { recursive: true, force: true }));
@@ -115,14 +115,83 @@ test('CLI defaults and flags', () => {
   assert.strictEqual(d.theme, 'theme.json');
   assert.strictEqual(d.flow, 'flow.json');
   assert.strictEqual(d.tts, true);
-  assert.strictEqual(d.captions, true);
+  // null, not false: an unset flag leaves the theme's own setting alone.
+  assert.strictEqual(d.captions, null);
+  assert.strictEqual(d.hints, null);
+  assert.strictEqual(d.fades, null);
 
-  const custom = parseArgs(['--theme', 'brand.json', '--flow', 'f.json', '--out', 'o.mp4', '--no-tts', '--no-captions']);
+  const custom = parseArgs(['--theme', 'brand.json', '--flow', 'f.json', '--out', 'o.mp4', '--no-tts', '--captions']);
   assert.strictEqual(custom.theme, 'brand.json');
   assert.strictEqual(custom.flow, 'f.json');
   assert.strictEqual(custom.out, 'o.mp4');
   assert.strictEqual(custom.tts, false);
-  assert.strictEqual(custom.captions, false);
+  assert.strictEqual(custom.captions, true);
+});
+
+test('CLI flags override the theme, and an unset flag does not', () => {
+  const theme = () => ({
+    captions: { enabled: false }, hints: { enabled: true }, transitions: { enabled: true },
+  });
+
+  const untouched = applyOverrides(theme(), parseArgs([]));
+  assert.strictEqual(untouched.captions.enabled, false, 'theme setting survives');
+  assert.strictEqual(untouched.hints.enabled, true);
+
+  const on = applyOverrides(theme(), parseArgs(['--captions']));
+  assert.strictEqual(on.captions.enabled, true);
+
+  const off = applyOverrides(theme(), parseArgs(['--no-hints', '--no-fades']));
+  assert.strictEqual(off.hints.enabled, false);
+  assert.strictEqual(off.transitions.enabled, false);
+});
+
+test('init is recognised as a command, not an unknown option', () => {
+  assert.strictEqual(parseArgs(['init']).command, 'init');
+  assert.strictEqual(parseArgs([]).command, null);
+  // Only in first position, so a stray "init" later is still an error.
+  assert.throws(() => parseArgs(['--no-tts', 'init']), /Unknown option "init"/);
+});
+
+test('init scaffolds a theme and a flow, and never overwrites', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tutvid-init-'));
+  try {
+    initProject(dir);
+    const themeFile = path.join(dir, 'theme.json');
+    const flowFile = path.join(dir, 'flow.json');
+    assert.ok(fs.existsSync(themeFile) && fs.existsSync(flowFile));
+
+    // Both must be loadable by the tools that consume them.
+    assert.doesNotThrow(() => loadFlow(flowFile));
+    const scaffolded = JSON.parse(fs.readFileSync(flowFile, 'utf8'));
+    assert.ok(scaffolded.steps.length >= 1);
+    assert.ok(scaffolded.steps.some((s) => s.hint), 'the sample should show what a hint looks like');
+
+    // The scaffolded theme references fonts and a pointer image; a scaffold
+    // that does not bring them along fails on the first command a new user runs.
+    const { loadTheme } = require('../src/theme');
+    assert.doesNotThrow(() => loadTheme(themeFile), 'the scaffold must validate as written');
+    assert.ok(fs.existsSync(path.join(dir, 'fonts', 'Inter-Regular.ttf')));
+    assert.ok(fs.existsSync(path.join(dir, 'assets', 'cursor.png')));
+
+    fs.writeFileSync(flowFile, '{"mine":true}');
+    initProject(dir);
+    assert.strictEqual(fs.readFileSync(flowFile, 'utf8'), '{"mine":true}', 'existing files are kept');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a step hint must be a string', () => {
+  assert.doesNotThrow(() => withFlow({ steps: [{ ...goto, hint: 'Look here' }] }));
+  assert.throws(() => withFlow({ steps: [{ ...goto, hint: 12 }] }), /"hint" must be a string/);
+});
+
+test('reading time scales with the hint, within bounds', () => {
+  const short = readingTimeMs('Go');
+  const long = readingTimeMs('word '.repeat(40));
+  assert.ok(short >= 1800, 'even a two-word hint stays up long enough to read');
+  assert.ok(long > short);
+  assert.ok(long <= 9000, 'a long hint does not stall the video indefinitely');
 });
 
 test('an unknown or valueless option is rejected', () => {

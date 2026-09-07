@@ -47,6 +47,13 @@ async function record(flow, theme, audio, options = {}) {
   let videoPath = null;
 
   try {
+    // Paint the stage colour before anything else. The recorder starts on
+    // about:blank, which is white, so without this the video opens on a flash
+    // of white before the first page loads.
+    await page.setContent(
+      `<!doctype html><html><body style="margin:0;height:100vh;background:${theme.video.backgroundColor}"></body></html>`,
+      { waitUntil: 'load' }
+    ).catch(() => {});
     // Let the recorder capture a frame or two before the first action, so the
     // video does not open mid-navigation.
     await page.waitForTimeout(400);
@@ -57,25 +64,39 @@ async function record(flow, theme, audio, options = {}) {
       const step = flow.steps[i];
       const clip = audio[i];
       const startSec = now();
-      log(`  [${String(i + 1).padStart(2)}/${flow.steps.length}] ${describe(step)}`);
+      log(`  [${String(i + 1).padStart(2)}/${flow.steps.length}] ${describeStep(step)}`);
 
-      await runStep(page, step, flow, theme);
+      const targetRect = await runStep(page, step, flow, theme);
+
+      // The hint goes up once the action has happened, so it explains what the
+      // viewer is looking at rather than covering it on the way in.
+      const hint = (step.hint || '').trim();
+      if (hint && theme.hints.enabled) {
+        await page.evaluate(
+          ({ text, rect }) => window.__tutShowHint && window.__tutShowHint(text, rect),
+          { text: hint, rect: targetRect }
+        ).catch(() => {});
+      }
 
       // Hold long enough for the narration to finish, plus a beat.
       const narrationMs = clip ? clip.durationSec * 1000 : 0;
-      const targetMs = Math.max(flow.minStepMs, narrationMs + flow.stepPaddingMs);
+      let targetMs = Math.max(flow.minStepMs, narrationMs + flow.stepPaddingMs);
+      // A hint nobody has time to read is worse than no hint, so give a silent
+      // step enough room to read it at a comfortable pace.
+      if (hint && theme.hints.enabled) {
+        targetMs = Math.max(targetMs, readingTimeMs(hint) + theme.hints.fadeMs);
+      }
       const elapsedMs = (now() - startSec) * 1000;
       const remainingMs = targetMs - elapsedMs;
       if (remainingMs > 0) await page.waitForTimeout(remainingMs);
 
       timeline.push({ index: i, startSec, endSec: now() });
-      if (theme.highlight.enabled) {
-        await page.evaluate(() => window.__tutClearHighlight && window.__tutClearHighlight())
-          .catch(() => {});
-      }
+
+      await clearDecorations(page, theme, !!hint);
     }
 
-    // A short tail so the last caption is not cut off by the final frame.
+    // A short tail so the last caption is not cut off by the final frame, and
+    // so the closing fade has something to fade out of.
     await page.waitForTimeout(700);
     const totalSec = now();
 
@@ -91,6 +112,10 @@ async function record(flow, theme, audio, options = {}) {
   }
 }
 
+/**
+ * Run one step. Returns the bounding box of whatever it acted on, so a hint can
+ * be anchored to it, or null when the step has no target.
+ */
 async function runStep(page, step, flow, theme) {
   switch (step.action) {
     case 'goto': {
@@ -98,22 +123,24 @@ async function runStep(page, step, flow, theme) {
       // The overlay remounts itself after navigation; give it a tick.
       await page.waitForFunction(() => window.__tutOverlayReady === true, null, { timeout: 5000 })
         .catch(() => {});
-      break;
+      return null;
     }
     case 'click': {
       const target = await point(page, step.selector, theme);
       await moveCursor(page, target, theme);
       if (theme.cursor.enabled) {
         await page.evaluate(() => window.__tutClickPulse && window.__tutClickPulse()).catch(() => {});
+        // Let the ripple start before the page changes under it.
+        await page.waitForTimeout(140);
       }
       await page.click(step.selector, { timeout: 15000 });
-      break;
+      return target && target.rect;
     }
     case 'hover': {
       const target = await point(page, step.selector, theme);
       await moveCursor(page, target, theme);
       await page.hover(step.selector, { timeout: 15000 });
-      break;
+      return target && target.rect;
     }
     case 'type': {
       const target = await point(page, step.selector, theme);
@@ -121,12 +148,19 @@ async function runStep(page, step, flow, theme) {
       await page.click(step.selector, { timeout: 15000 });
       // A visible per-character delay; instant fills do not read as typing.
       await page.type(step.selector, step.text, { delay: step.delayMs ?? 55 });
-      break;
+      return target && target.rect;
     }
     case 'scroll': {
+      let rect = null;
       if (step.selector) {
-        await page.locator(step.selector).first()
-          .scrollIntoViewIfNeeded({ timeout: 15000 });
+        const locator = page.locator(step.selector).first();
+        await locator.scrollIntoViewIfNeeded({ timeout: 15000 });
+        await page.waitForTimeout(400);
+        rect = await locator.boundingBox().catch(() => null);
+        if (rect && theme.highlight.enabled && step.highlight !== false) {
+          await page.evaluate((r) => window.__tutHighlight && window.__tutHighlight(r), rect)
+            .catch(() => {});
+        }
       } else {
         const to = Number.isFinite(step.to) ? step.to : null;
         await page.evaluate((amount) => {
@@ -135,15 +169,38 @@ async function runStep(page, step, flow, theme) {
         }, to);
       }
       await page.waitForTimeout(500);
-      break;
+      return rect;
     }
     case 'wait': {
       await page.waitForTimeout(Number.isFinite(step.durationMs) ? step.durationMs : 1000);
-      break;
+      return null;
     }
     default:
       throw new Error(`Unhandled action "${step.action}" (config.js should have caught this)`);
   }
+}
+
+/** Roughly how long a viewer needs to read a hint, at ~3.2 words a second. */
+function readingTimeMs(text) {
+  const words = text.trim().split(/\s+/).filter(Boolean).length;
+  return Math.min(9000, Math.max(1800, (words / 3.2) * 1000 + 700));
+}
+
+/**
+ * Take the ring and the hint down between steps, and wait out their fades so
+ * the next step does not start over the top of them.
+ */
+async function clearDecorations(page, theme, hadHint) {
+  const cleared = [];
+  if (theme.highlight.enabled) {
+    cleared.push(page.evaluate(() => window.__tutClearHighlight && window.__tutClearHighlight()));
+  }
+  if (hadHint && theme.hints.enabled) {
+    cleared.push(page.evaluate(() => window.__tutHideHint && window.__tutHideHint()));
+  }
+  if (!cleared.length) return;
+  await Promise.all(cleared.map((p) => p.catch(() => {})));
+  await page.waitForTimeout(Math.max(200, theme.hints.fadeMs));
 }
 
 /**
@@ -162,13 +219,12 @@ async function point(page, selector, theme) {
   const box = await locator.boundingBox();
   if (!box) return null;
 
+  const rect = { x: box.x, y: box.y, width: box.width, height: box.height };
   if (theme.highlight.enabled) {
-    await page.evaluate(
-      (rect) => window.__tutHighlight && window.__tutHighlight(rect),
-      { x: box.x, y: box.y, width: box.width, height: box.height }
-    ).catch(() => {});
+    await page.evaluate((r) => window.__tutHighlight && window.__tutHighlight(r), rect)
+      .catch(() => {});
   }
-  return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  return { x: box.x + box.width / 2, y: box.y + box.height / 2, rect };
 }
 
 async function moveCursor(page, target, theme) {
@@ -189,14 +245,15 @@ function resolveUrl(url, baseUrl) {
   return new URL(url, baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`).toString();
 }
 
-function describe(step) {
+/** One line describing a step, for the live log and for --check. */
+function describeStep(step) {
   switch (step.action) {
     case 'goto': return `goto ${step.url}`;
     case 'type': return `type "${step.text}" into ${step.selector}`;
     case 'wait': return `wait ${step.durationMs ?? 1000}ms`;
-    case 'scroll': return `scroll ${step.selector || (step.to ?? 'down')}`;
+    case 'scroll': return `scroll to ${step.selector || (step.to ?? 'one screen down')}`;
     default: return `${step.action} ${step.selector || ''}`.trim();
   }
 }
 
-module.exports = { record, resolveUrl };
+module.exports = { record, resolveUrl, readingTimeMs, describeStep };

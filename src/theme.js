@@ -13,7 +13,9 @@ const { readFontFamilies, readFontMetrics } = require('./fontname');
 const DEFAULTS = {
   fonts: {},
   captions: {
-    enabled: true,
+    // Off unless asked for: burned-in captions are a deliberate choice, not
+    // something every video should carry.
+    enabled: false,
     font: null,
     fontSize: 34,
     color: '#FFFFFF',
@@ -28,6 +30,17 @@ const DEFAULTS = {
     color: '#FFFFFF',
     strokeColor: '#000000',
     size: 28,
+    // Point at a .png/.svg to use your own pointer instead of the drawn arrow.
+    image: null,
+    // Which point of the pointer sits on the target, as a fraction of its box.
+    // The default suits a tip-at-top-left arrow.
+    hotspot: [0.18, 0.08],
+    // null = duration follows the distance travelled.
+    moveMs: null,
+    easing: 'easeInOut',
+    ripple: true,
+    rippleColor: null,
+    rippleMs: 620,
   },
   highlight: {
     enabled: true,
@@ -35,6 +48,28 @@ const DEFAULTS = {
     glow: true,
     borderWidth: 3,
     borderRadius: 10,
+  },
+  hints: {
+    enabled: true,
+    font: null,
+    fontSize: 28,
+    color: '#FFFFFF',
+    backgroundColor: '#1A1D29',
+    backgroundOpacity: 0.94,
+    accentColor: '#6C5CE7',
+    borderRadius: 12,
+    maxWidth: 520,
+    padding: 20,
+    // "auto" anchors the hint to the element being acted on; the fixed spots
+    // are top/bottom crossed with left/center/right.
+    position: 'auto',
+    offset: 20,
+    fadeMs: 260,
+  },
+  transitions: {
+    enabled: true,
+    // Fade to and from black at the start and end of every segment.
+    fadeSec: 0.4,
   },
   intro: {
     enabled: false,
@@ -62,7 +97,15 @@ const DEFAULTS = {
     titleColor: '#FFFFFF',
     subtitleColor: '#A0A6B8',
   },
-  video: { width: 1920, height: 1080, fps: 30 },
+  video: {
+    width: 1920,
+    height: 1080,
+    fps: 30,
+    // Painted behind the page before the first navigation, and used to letterbox
+    // a recording that does not fill the frame. Without it the video opens on a
+    // flash of blank white while the browser is still on about:blank.
+    backgroundColor: '#0F1115',
+  },
 };
 
 const HEX = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
@@ -110,6 +153,9 @@ function loadTheme(themePath) {
   theme.fonts = resolveFonts(theme.fonts, baseDir, abs);
   validateFontRefs(theme, abs);
   validateColors(theme, abs);
+  validateCursor(theme, baseDir, abs);
+  validateHints(theme, abs);
+  validateTransitions(theme, abs);
   validateCards(theme, baseDir, abs);
 
   // libass takes a single fontsdir, and captions are the only thing it renders,
@@ -186,6 +232,7 @@ function resolveFonts(fonts, baseDir, abs) {
 function validateFontRefs(theme, abs) {
   const refs = [
     ['captions.font', theme.captions.font],
+    ['hints.font', theme.hints.font],
     ['intro.titleFont', theme.intro.titleFont],
     ['intro.subtitleFont', theme.intro.subtitleFont],
     ['outro.titleFont', theme.outro.titleFont],
@@ -215,7 +262,14 @@ function validateColors(theme, abs) {
     ['cursor.color', theme.cursor.color],
     ['cursor.strokeColor', theme.cursor.strokeColor],
     ['highlight.color', theme.highlight.color],
+    ['video.backgroundColor', theme.video.backgroundColor],
+    ['hints.color', theme.hints.color],
+    ['hints.backgroundColor', theme.hints.backgroundColor],
+    ['hints.accentColor', theme.hints.accentColor],
   ];
+  if (theme.cursor.rippleColor !== null && theme.cursor.rippleColor !== undefined) {
+    fields.push(['cursor.rippleColor', theme.cursor.rippleColor]);
+  }
   for (const card of ['intro', 'outro']) {
     fields.push(
       [`${card}.backgroundColor`, theme[card].backgroundColor],
@@ -245,6 +299,87 @@ function validateColors(theme, abs) {
   }
   if (!(Number.isFinite(theme.captions.fontSize) && theme.captions.fontSize > 0)) {
     throw new ThemeError(`${abs}: captions.fontSize must be a positive number`);
+  }
+}
+
+const EASINGS = ['linear', 'easeOut', 'easeInOut'];
+
+function validateCursor(theme, baseDir, abs) {
+  const c = theme.cursor;
+  if (c.image) {
+    if (typeof c.image !== 'string') {
+      throw new ThemeError(`${abs}: cursor.image must be a path to a .png/.svg, or null`);
+    }
+    const imagePath = path.resolve(baseDir, c.image);
+    if (!fs.existsSync(imagePath)) {
+      throw new ThemeError(
+        `${abs}: cursor.image points at "${c.image}", which does not exist.\nLooked for: ${imagePath}`
+      );
+    }
+    const ext = path.extname(imagePath).toLowerCase();
+    if (!['.png', '.svg', '.gif', '.webp', '.jpg', '.jpeg'].includes(ext)) {
+      throw new ThemeError(
+        `${abs}: cursor.image is "${ext}", which the browser cannot draw. Use .png (with ` +
+        'transparency) or .svg.'
+      );
+    }
+    c.imagePath = imagePath;
+  }
+
+  if (!Array.isArray(c.hotspot) || c.hotspot.length !== 2 ||
+      !c.hotspot.every((v) => Number.isFinite(v) && v >= 0 && v <= 1)) {
+    throw new ThemeError(
+      `${abs}: cursor.hotspot must be two numbers between 0 and 1, as a fraction of the ` +
+      'pointer image - [0, 0] is its top-left corner. A plain arrow is about [0.18, 0.08].'
+    );
+  }
+  if (c.moveMs !== null && !(Number.isFinite(c.moveMs) && c.moveMs >= 0)) {
+    throw new ThemeError(`${abs}: cursor.moveMs must be a non-negative number, or null to follow the distance`);
+  }
+  if (!EASINGS.includes(c.easing)) {
+    throw new ThemeError(`${abs}: cursor.easing must be one of ${EASINGS.join(', ')} (got ${JSON.stringify(c.easing)})`);
+  }
+  if (!(Number.isFinite(c.rippleMs) && c.rippleMs > 0)) {
+    throw new ThemeError(`${abs}: cursor.rippleMs must be a positive number`);
+  }
+  if (!(Number.isFinite(c.size) && c.size > 0)) {
+    throw new ThemeError(`${abs}: cursor.size must be a positive number`);
+  }
+}
+
+const HINT_POSITIONS = [
+  'auto',
+  'top-left', 'top-center', 'top-right',
+  'bottom-left', 'bottom-center', 'bottom-right',
+];
+
+function validateHints(theme, abs) {
+  const h = theme.hints;
+  if (!HINT_POSITIONS.includes(h.position)) {
+    throw new ThemeError(
+      `${abs}: hints.position must be one of ${HINT_POSITIONS.join(', ')} ` +
+      `(got ${JSON.stringify(h.position)})`
+    );
+  }
+  if (!(Number.isFinite(h.backgroundOpacity) && h.backgroundOpacity >= 0 && h.backgroundOpacity <= 1)) {
+    throw new ThemeError(`${abs}: hints.backgroundOpacity must be between 0 and 1`);
+  }
+  for (const [name, value] of [['fontSize', h.fontSize], ['maxWidth', h.maxWidth],
+    ['padding', h.padding], ['borderRadius', h.borderRadius], ['offset', h.offset],
+    ['fadeMs', h.fadeMs]]) {
+    if (!(Number.isFinite(value) && value >= 0)) {
+      throw new ThemeError(`${abs}: hints.${name} must be a non-negative number (got ${JSON.stringify(value)})`);
+    }
+  }
+}
+
+function validateTransitions(theme, abs) {
+  const t = theme.transitions;
+  if (!(Number.isFinite(t.fadeSec) && t.fadeSec >= 0)) {
+    throw new ThemeError(`${abs}: transitions.fadeSec must be a non-negative number of seconds`);
+  }
+  if (t.fadeSec > 3) {
+    throw new ThemeError(`${abs}: transitions.fadeSec of ${t.fadeSec}s is longer than any segment wants; keep it under 3`);
   }
 }
 
@@ -287,7 +422,8 @@ function validateVideo(theme, abs) {
 /** Human-readable dump for --print-theme. */
 function describeTheme(theme) {
   const lines = [`theme: ${theme.path}`];
-  lines.push(`  video: ${theme.video.width}x${theme.video.height} @ ${theme.video.fps}fps`);
+  lines.push(`  video: ${theme.video.width}x${theme.video.height} @ ${theme.video.fps}fps ` +
+    `on ${theme.video.backgroundColor}`);
   const fontKeys = Object.keys(theme.fonts);
   lines.push(`  fonts: ${fontKeys.length ? '' : '(none declared)'}`);
   for (const key of fontKeys) {
@@ -297,8 +433,17 @@ function describeTheme(theme) {
   const capFont = theme.captions.font ? `"${theme.fonts[theme.captions.font].family}"` : '(libass default)';
   lines.push(`  captions: ${theme.captions.enabled ? 'on' : 'off'}, ${capFont} ` +
     `${theme.captions.fontSize}px ${theme.captions.color} at ${theme.captions.position}`);
-  lines.push(`  cursor: ${theme.cursor.enabled ? `on, ${theme.cursor.color} ${theme.cursor.size}px` : 'off'}`);
+  const cur = theme.cursor;
+  lines.push(`  cursor: ${cur.enabled
+    ? `on, ${cur.imagePath ? path.basename(cur.imagePath) : cur.color} ${cur.size}px, ` +
+      `${cur.easing}${cur.ripple ? ', ripple' : ''}`
+    : 'off'}`);
   lines.push(`  highlight: ${theme.highlight.enabled ? `on, ${theme.highlight.color}` : 'off'}`);
+  const hintFont = theme.hints.font ? `"${theme.fonts[theme.hints.font].family}"` : '(system)';
+  lines.push(`  hints: ${theme.hints.enabled
+    ? `on, ${hintFont} ${theme.hints.fontSize}px at ${theme.hints.position}`
+    : 'off'}`);
+  lines.push(`  transitions: ${theme.transitions.enabled ? `fade ${theme.transitions.fadeSec}s` : 'off'}`);
   for (const card of ['intro', 'outro']) {
     const c = theme[card];
     lines.push(`  ${card}: ${c.enabled ? `on, ${c.durationSec}s, "${c.title}" / "${c.subtitle}"` : 'off'}`);

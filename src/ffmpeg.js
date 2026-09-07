@@ -149,6 +149,26 @@ async function probeDuration(file) {
   return seconds;
 }
 
+/**
+ * Fade-to-black at both ends of a segment, plus the matching audio fade so the
+ * narration does not clip in or out.
+ *
+ * Returned as filter fragments rather than applied here, so the fade rides along
+ * with an encode that was happening anyway instead of costing a second pass.
+ * `fade` is { fadeSec, durationSec }; a zero or missing fadeSec yields nothing.
+ */
+function fadeFilters(fade) {
+  if (!fade || !fade.fadeSec || !(fade.durationSec > 0)) return { video: [], audio: [] };
+  // Never let the two fades meet in the middle of a very short segment.
+  const d = Math.min(fade.fadeSec, fade.durationSec / 2.5);
+  if (d <= 0.01) return { video: [], audio: [] };
+  const out = Math.max(0, fade.durationSec - d).toFixed(3);
+  return {
+    video: [`fade=t=in:st=0:d=${d.toFixed(3)}`, `fade=t=out:st=${out}:d=${d.toFixed(3)}`],
+    audio: [`afade=t=in:st=0:d=${d.toFixed(3)}`, `afade=t=out:st=${out}:d=${d.toFixed(3)}`],
+  };
+}
+
 /** Silent AAC of an exact length. Used for --no-tts and for title-card audio. */
 async function generateSilence(durationSec, outFile) {
   await ffmpeg([
@@ -201,30 +221,45 @@ async function buildNarrationTrack(clips, totalSec, outFile) {
  * Normalise the recorded video to the theme's resolution/fps and attach the
  * narration track. Everything downstream assumes these exact stream settings.
  */
-async function muxAudioVideo(videoFile, audioFile, outFile, video) {
+async function muxAudioVideo(videoFile, audioFile, outFile, video, fade) {
   const { width, height, fps } = video;
-  await ffmpeg([
+  const f = fadeFilters(fade);
+  // Letterbox in the theme's colour rather than ffmpeg's default black.
+  const pad = video.backgroundColor ? `:color=${video.backgroundColor}` : '';
+  const vf = [
+    `scale=${width}:${height}:force_original_aspect_ratio=decrease`,
+    `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2${pad}`,
+    `fps=${fps}`,
+    ...f.video,
+    'format=yuv420p',
+  ];
+  const args = [
     '-i', videoFile,
     '-i', audioFile,
     '-map', '0:v:0', '-map', '1:a:0',
-    '-vf', `scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
-           `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,fps=${fps},format=yuv420p`,
+    '-vf', vf.join(','),
+  ];
+  if (f.audio.length) args.push('-af', f.audio.join(','));
+  args.push(
     '-c:v', 'libx264', '-preset', 'medium', '-crf', '20',
     '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-ac', '2',
     '-shortest', '-movflags', '+faststart',
-    outFile,
-  ]);
+    outFile
+  );
+  await ffmpeg(args);
   return outFile;
 }
 
 /** A still image as a video segment, with the same streams as the main clip. */
-async function imageToVideo(imageFile, durationSec, outFile, video) {
+async function imageToVideo(imageFile, durationSec, outFile, video, fadeSec) {
   const { width, height, fps } = video;
+  const f = fadeFilters({ fadeSec, durationSec });
+  const vf = [`scale=${width}:${height}`, `fps=${fps}`, ...f.video, 'format=yuv420p'];
   await ffmpeg([
     '-loop', '1', '-i', imageFile,
     '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=48000',
     '-t', durationSec.toFixed(3),
-    '-vf', `scale=${width}:${height},fps=${fps},format=yuv420p`,
+    '-vf', vf.join(','),
     '-c:v', 'libx264', '-preset', 'medium', '-crf', '20',
     '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-ac', '2',
     '-movflags', '+faststart',
@@ -237,18 +272,25 @@ async function imageToVideo(imageFile, durationSec, outFile, video) {
  * Burn captions. `fontsDir` is what lets libass see the bundled fonts instead
  * of falling back to a system face.
  */
-async function burnSubtitles(videoFile, srtFile, forceStyle, fontsDir, outFile) {
+async function burnSubtitles(videoFile, srtFile, forceStyle, fontsDir, outFile, fade) {
   const opts = [`filename=${escapeFilterPath(srtFile)}`];
   if (fontsDir) opts.push(`fontsdir=${escapeFilterPath(fontsDir)}`);
   if (forceStyle) opts.push(`force_style=${escapeFilterValue(forceStyle)}`);
-  await ffmpeg([
-    '-i', videoFile,
-    '-vf', `subtitles=${opts.join(':')}`,
+  const f = fadeFilters(fade);
+  // The fade goes after the burn so the captions fade with the frame.
+  const vf = [`subtitles=${opts.join(':')}`, ...f.video];
+  const args = ['-i', videoFile, '-vf', vf.join(',')];
+  if (f.audio.length) {
+    args.push('-af', f.audio.join(','), '-c:a', 'aac', '-b:a', '192k');
+  } else {
+    args.push('-c:a', 'copy');
+  }
+  args.push(
     '-c:v', 'libx264', '-preset', 'medium', '-crf', '20',
-    '-c:a', 'copy',
     '-movflags', '+faststart',
-    outFile,
-  ]);
+    outFile
+  );
+  await ffmpeg(args);
   return outFile;
 }
 
@@ -356,6 +398,7 @@ module.exports = {
   probeDuration,
   probeStreams,
   concatCompatibility,
+  fadeFilters,
   generateSilence,
   buildNarrationTrack,
   muxAudioVideo,
