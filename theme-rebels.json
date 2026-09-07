@@ -1,16 +1,19 @@
 {
-  // Afgeleid van de screenshot van het portaal. De roze is geschat op #E6007E -
-  // vervang 'm door de echte brandkleur, dat is een regel.
-  // Poppins staat hier als stand-in voor het echte merkfont.
+  // Derived from a screenshot of the portal. The pink is an estimate at
+  // #E6007E; replace it with the real brand value, it is one line.
+  //
+  // Overused Grotesk, SIL Open Font License 1.1. "Roman" is the 400 weight -
+  // there is no file called Regular. Both files report the family name
+  // "Overused Grotesk", so libass picks between them by weight.
   "fonts": {
-    "heading": { "family": "Poppins", "file": "fonts/Poppins-Bold.ttf", "weight": 700 },
-    "body":    { "family": "Inter",   "file": "fonts/Inter-Regular.ttf", "weight": 400 }
+    "heading": { "family": "Overused Grotesk", "file": "fonts/OverusedGrotesk-Bold.ttf",  "weight": 700 },
+    "body":    { "family": "Overused Grotesk", "file": "fonts/OverusedGrotesk-Roman.ttf", "weight": 400 }
   },
 
   "transitions": { "enabled": true, "fadeSec": 0.35 },
 
-  // Wit met zwarte rand, want de pagina heeft lichtgrijze, witte, zwarte en
-  // roze vlakken door elkaar. Eén platte kleur verdwijnt op de helft daarvan.
+  // White with a black stroke: the page mixes light grey, white, black and pink
+  // panels, and any single flat colour disappears against half of them.
   "cursor": {
     "enabled": true,
     "color": "#FFFFFF",
@@ -27,19 +30,21 @@
     "color": "#E6007E",
     "glow": true,
     "borderWidth": 3,
-    // De tegels op dit dashboard hebben flink afgeronde hoeken.
     "borderRadius": "auto"
   },
 
-  // Zwart blok met roze accent, zoals de Document Box-tegel.
+  // A quiet dark surface with a hairline edge. Set "accent": "bar" for a
+  // coloured strip down the left instead.
   "hints": {
     "enabled": true,
     "font": "body",
     "fontSize": 28,
     "color": "#FFFFFF",
     "backgroundColor": "#0A0A0A",
-    "backgroundOpacity": 0.95,
+    "backgroundOpacity": 1,
+    "accent": "none",
     "accentColor": "#E6007E",
+    "borderColor": null,
     "borderRadius": 14,
     "maxWidth": 520,
     "padding": 20,
@@ -64,11 +69,11 @@
     "enabled": true,
     "durationSec": 3,
     "backgroundGradient": ["#0A0A0A", "#1C0713"],
-    // Zet hier het echte logo neer en het verschijnt boven de titel.
-    // "logo": "assets/rebels-logo.png",
-    "title": "Rebels",
+    // Drop the real logo in here and it appears above the title.
+    // "logo": "assets/logo.png",
+    "title": "Q Portal",
     "titleFont": "heading",
-    "subtitle": "Zo werkt je portaal",
+    "subtitle": "Your walkthrough",
     "subtitleFont": "body",
     "titleColor": "#FFFFFF",
     "subtitleColor": "#E6007E"
@@ -78,7 +83,7 @@
     "enabled": true,
     "durationSec": 3,
     "backgroundColor": "#0A0A0A",
-    "title": "Vragen?",
+    "title": "Questions?",
     "titleFont": "heading",
     "subtitle": "rebels.nl",
     "subtitleFont": "body",
@@ -86,6 +91,6 @@
     "subtitleColor": "#E6007E"
   },
 
-  // Het lichtgrijs van de pagina, zodat de opening niet naar wit flitst.
+  // The page grey, so the opening does not flash white.
   "video": { "width": 1920, "height": 1080, "fps": 30, "backgroundColor": "#F4F5F7" }
 }

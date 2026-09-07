@@ -82,7 +82,9 @@ function buildOverlayScript(theme, mask = []) {
       color: hints.color,
       backgroundColor: hints.backgroundColor,
       backgroundOpacity: hints.backgroundOpacity,
+      accent: hints.accent,
       accentColor: hints.accentColor,
+      borderColor: hints.borderColor,
       borderRadius: hints.borderRadius,
       maxWidth: hints.maxWidth,
       padding: hints.padding,
@@ -185,26 +187,43 @@ function buildOverlayScript(theme, mask = []) {
       hintEl = document.createElement('div');
       hintEl.setAttribute('data-tut-hint', '');
       const h = CFG.hints;
+
+      // A hairline rather than a slab of colour down one side. The border is
+      // derived from the text colour, which contrasts with the surface by
+      // definition, so it reads the same on a dark hint and a light one.
+      const hairline = h.borderColor || rgba(h.color, 0.14);
+      const border = ['border:1px solid ' + hairline];
+      if (h.accent === 'bar') {
+        border.push('border-left:' + Math.max(3, Math.round(h.fontSize * 0.16)) +
+          'px solid ' + h.accentColor);
+      }
+
       hintEl.style.cssText = [
         'position:fixed', 'left:0', 'top:0',
         'max-width:' + h.maxWidth + 'px',
-        'padding:' + h.padding + 'px ' + Math.round(h.padding * 1.25) + 'px',
+        'padding:' + h.padding + 'px ' + Math.round(h.padding * 1.15) + 'px',
         'background:' + rgba(h.backgroundColor, h.backgroundOpacity),
         'color:' + h.color,
         'border-radius:' + h.borderRadius + 'px',
-        'border-left:' + Math.max(3, Math.round(h.fontSize * 0.16)) + 'px solid ' + h.accentColor,
+      ].concat(border).concat([
         'font-family:' + (h.fontFamily ? "'" + h.fontFamily + "', " : '') +
           'system-ui, -apple-system, sans-serif',
         'font-weight:' + h.fontWeight,
         'font-size:' + h.fontSize + 'px',
-        'line-height:1.45',
-        'box-shadow:0 10px 34px rgba(0,0,0,.42)',
-        'backdrop-filter:blur(6px)',
+        'line-height:1.4',
+        'letter-spacing:-0.01em',
+        // Two layers: a wide soft one for depth, a tight one to seat it on the
+        // page. One heavy shadow reads as a sticker floating above it.
+        'box-shadow:0 24px 48px -18px rgba(0,0,0,.5), 0 2px 6px rgba(0,0,0,.16)',
+        // Whenever anything can show through at all. Without the blur, a hint at
+        // 0.95 opacity lets the page's own text ghost through it legibly, which
+        // reads as a rendering fault rather than as a translucent surface.
+        h.backgroundOpacity < 1 ? 'backdrop-filter:blur(14px) saturate(1.2)' : '',
         '-webkit-font-smoothing:antialiased',
-        'opacity:0', 'transform:translateY(8px)',
+        'opacity:0', 'transform:translateY(6px)',
         'transition:opacity ' + h.fadeMs + 'ms ease, transform ' + h.fadeMs + 'ms cubic-bezier(.22,.61,.36,1)',
         'pointer-events:none', 'white-space:pre-wrap',
-      ].join(';');
+      ]).filter(Boolean).join(';');
       root.appendChild(hintEl);
     }
 
@@ -410,7 +429,7 @@ function buildOverlayScript(theme, mask = []) {
     if (!CFG.hints.enabled || !ensure() || !hintEl) return;
     hintEl.textContent = text;
     hintEl.style.opacity = '0';
-    hintEl.style.transform = 'translateY(8px)';
+    hintEl.style.transform = 'translateY(6px)';
     // Measure after the text is in, then place, then fade in on the next frame.
     requestAnimationFrame(() => {
       place(hintEl, rect);
@@ -424,7 +443,7 @@ function buildOverlayScript(theme, mask = []) {
   window.__tutHideHint = () => {
     if (!hintEl) return;
     hintEl.style.opacity = '0';
-    hintEl.style.transform = 'translateY(8px)';
+    hintEl.style.transform = 'translateY(6px)';
   };
 
   function place(el, rect) {

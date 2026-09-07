@@ -420,3 +420,82 @@ test('an element with no radius gets a square ring, not a broken one', async () 
     assert.strictEqual(ring, '6px');
   } finally { await close(); }
 });
+
+// --- hint surface ------------------------------------------------------
+//
+// A slab of brand colour down the left edge is the callout pattern every
+// generated dashboard reaches for. The default is a hairline instead.
+
+test('by default a hint has an even hairline and no coloured bar', async () => {
+  const { page, close } = await withOverlay({ hints: { color: '#FFFFFF' } });
+  try {
+    await page.evaluate(() => window.__tutShowHint('Explaining something', null));
+    await settle(page);
+    const style = await page.evaluate(() => {
+      const s = getComputedStyle(document.querySelector('[data-tut-hint]'));
+      return {
+        left: s.borderLeftWidth, top: s.borderTopWidth,
+        right: s.borderRightWidth, bottom: s.borderBottomWidth,
+        leftColour: s.borderLeftColor, topColour: s.borderTopColor,
+      };
+    });
+    assert.strictEqual(style.left, '1px', 'no slab down one side');
+    assert.deepStrictEqual(
+      [style.top, style.right, style.bottom], ['1px', '1px', '1px'],
+      'the hairline runs all the way round'
+    );
+    assert.strictEqual(style.leftColour, style.topColour, 'and it is one colour');
+    // Derived from the text colour, so it works on a dark or a light surface.
+    assert.match(style.topColour, /rgba\(255,\s*255,\s*255/);
+  } finally { await close(); }
+});
+
+test('accent "bar" brings the coloured edge back', async () => {
+  const { page, close } = await withOverlay({
+    hints: { accent: 'bar', accentColor: '#E6007E', fontSize: 28 },
+  });
+  try {
+    await page.evaluate(() => window.__tutShowHint('Explaining something', null));
+    await settle(page);
+    const style = await page.evaluate(() => {
+      const s = getComputedStyle(document.querySelector('[data-tut-hint]'));
+      return { left: parseFloat(s.borderLeftWidth), colour: s.borderLeftColor, top: s.borderTopWidth };
+    });
+    assert.ok(style.left > 1, `expected a wider left edge, got ${style.left}px`);
+    assert.strictEqual(style.colour, 'rgb(230, 0, 126)');
+    assert.strictEqual(style.top, '1px', 'the other three stay hairlines');
+  } finally { await close(); }
+});
+
+// A hint at 0.95 opacity without a blur lets the page's own text read straight
+// through it, which looks like a rendering fault rather than a translucent card.
+test('anything that can show through a hint is blurred behind it', async () => {
+  const translucent = await withOverlay({ hints: { backgroundOpacity: 0.95 } });
+  try {
+    await translucent.page.evaluate(() => window.__tutShowHint('Text', null));
+    await settle(translucent.page);
+    const filter = await translucent.page.evaluate(() =>
+      getComputedStyle(document.querySelector('[data-tut-hint]')).backdropFilter);
+    assert.match(filter, /blur/);
+  } finally { await translucent.close(); }
+
+  const opaque = await withOverlay({ hints: { backgroundOpacity: 1 } });
+  try {
+    await opaque.page.evaluate(() => window.__tutShowHint('Text', null));
+    await settle(opaque.page);
+    const filter = await opaque.page.evaluate(() =>
+      getComputedStyle(document.querySelector('[data-tut-hint]')).backdropFilter);
+    assert.strictEqual(filter, 'none', 'nothing can show through, so nothing to blur');
+  } finally { await opaque.close(); }
+});
+
+test('an explicit border colour overrides the derived one', async () => {
+  const { page, close } = await withOverlay({ hints: { borderColor: '#E6007E' } });
+  try {
+    await page.evaluate(() => window.__tutShowHint('Text', null));
+    await settle(page);
+    const colour = await page.evaluate(() =>
+      getComputedStyle(document.querySelector('[data-tut-hint]')).borderTopColor);
+    assert.strictEqual(colour, 'rgb(230, 0, 126)');
+  } finally { await close(); }
+});

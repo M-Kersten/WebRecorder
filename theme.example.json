@@ -52,8 +52,13 @@
     "fontSize": 28,
     "color": "#FFFFFF",
     "backgroundColor": "#1A1D29",
-    "backgroundOpacity": 0.94,
+    "backgroundOpacity": 1,
+    // "none" is a hairline round the whole block; "bar" puts a coloured strip
+    // down the left instead.
+    "accent": "none",
     "accentColor": "#6C5CE7",
+    // null derives the hairline from the text colour, which suits any surface.
+    "borderColor": null,
     "borderRadius": 12,
     "maxWidth": 520,
     "padding": 20,

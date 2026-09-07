@@ -263,11 +263,23 @@ calls that would drive it.
   "enabled": true,
   "font": "body", "fontSize": 28, "color": "#FFFFFF",
   "backgroundColor": "#1A1D29", "backgroundOpacity": 0.94,
-  "accentColor": "#6C5CE7",
+  "accent": "none",           // "bar" for a coloured strip down the left
+  "accentColor": "#6C5CE7",   // only used by "bar"
+  "borderColor": null,        // null derives a hairline from the text colour
   "borderRadius": 12, "maxWidth": 520, "padding": 20,
   "position": "auto", "offset": 20, "fadeMs": 260
 }
 ```
+
+A hint is a quiet surface: a hairline round the whole block, a soft two-layer
+shadow, and nothing else. `accent: "bar"` puts a slab of brand colour down the
+left edge if you want it. Leaving `borderColor` unset derives the hairline from
+`color`, which contrasts with the surface by definition and so reads correctly
+on a dark hint and a light one alike.
+
+An opacity below 1 blurs whatever sits behind the hint. Without that, a hint at
+0.95 lets the page's own text read straight through it, which looks like a
+rendering fault rather than a translucent card.
 
 `position: "auto"` anchors each hint to the element its step is acting on -
 below it, or above when there is no room below, clamped to stay on screen. The
@@ -423,6 +435,7 @@ src/
   server.js     static server for --serve
   secrets.js    ${VAR} interpolation, and keeping the value out of the log
 fonts/          bundled .ttf/.otf, see fonts/README.md
+theme-rebels.json    a real-world theme: brand colour, Overused Grotesk
 assets/         logos and other card artwork
 demo/           demo site and flow, used by every test
   portal/       a login plus a dashboard, for the auth and masking examples

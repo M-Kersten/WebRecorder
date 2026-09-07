@@ -261,3 +261,25 @@ test('the shipped example themes all load', () => {
     assert.doesNotThrow(() => loadTheme(path.join(REPO, file)), file);
   }
 });
+
+test('the hint accent defaults to none and is validated', () => {
+  assert.strictEqual(withTheme({}).hints.accent, 'none');
+  assert.doesNotThrow(() => withTheme({ hints: { accent: 'bar' } }));
+  assert.throws(() => withTheme({ hints: { accent: 'stripe' } }), /hints\.accent must be one of none, bar/);
+});
+
+test('the hint border colour is optional and derived when unset', () => {
+  assert.strictEqual(withTheme({}).hints.borderColor, null);
+  assert.doesNotThrow(() => withTheme({ hints: { borderColor: '#333333' } }));
+  assert.throws(() => withTheme({ hints: { borderColor: 'grey' } }), /hints\.borderColor must be a hex/);
+});
+
+test('Overused Grotesk is bundled as two static weights of one family', () => {
+  const theme = loadTheme(path.join(REPO, 'theme-rebels.json'));
+  assert.strictEqual(theme.fonts.heading.family, 'Overused Grotesk');
+  assert.strictEqual(theme.fonts.body.family, 'Overused Grotesk');
+  // Its 400 is called Roman; there is no file called Regular.
+  assert.match(theme.fonts.body.file, /Roman/);
+  assert.strictEqual(theme.fonts.body.weight, 400);
+  assert.strictEqual(theme.fonts.heading.weight, 700);
+});

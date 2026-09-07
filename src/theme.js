@@ -58,8 +58,17 @@ const DEFAULTS = {
     fontSize: 28,
     color: '#FFFFFF',
     backgroundColor: '#1A1D29',
-    backgroundOpacity: 0.94,
+    // Opaque, so a hint reads identically wherever it lands. Below 1 the page
+    // shows through and the same block looks near-black over a dark card and
+    // mid-grey over a light one, which reads as an accident. Lower it if you
+    // want the glassy look; what is behind gets blurred either way.
+    backgroundOpacity: 1,
+    // A hairline round the whole block, not a slab of colour down one side.
+    // "bar" brings the coloured edge back for anyone who wants it.
+    accent: 'none',
     accentColor: '#6C5CE7',
+    // null derives it from the text colour, which works on any surface.
+    borderColor: null,
     borderRadius: 12,
     maxWidth: 520,
     padding: 20,
@@ -367,8 +376,20 @@ function validateHighlight(theme, abs) {
   }
 }
 
+const HINT_ACCENTS = ['none', 'bar'];
+
 function validateHints(theme, abs) {
   const h = theme.hints;
+  if (!HINT_ACCENTS.includes(h.accent)) {
+    throw new ThemeError(
+      `${abs}: hints.accent must be one of ${HINT_ACCENTS.join(', ')} (got ${JSON.stringify(h.accent)})`
+    );
+  }
+  if (h.borderColor !== null && h.borderColor !== undefined && !HEX.test(String(h.borderColor))) {
+    throw new ThemeError(
+      `${abs}: hints.borderColor must be a hex colour, or null to derive it from hints.color`
+    );
+  }
   if (!HINT_POSITIONS.includes(h.position)) {
     throw new ThemeError(
       `${abs}: hints.position must be one of ${HINT_POSITIONS.join(', ')} ` +
