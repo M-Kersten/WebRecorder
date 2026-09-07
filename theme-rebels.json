@@ -1,0 +1,91 @@
+{
+  // Afgeleid van de screenshot van het portaal. De roze is geschat op #E6007E -
+  // vervang 'm door de echte brandkleur, dat is een regel.
+  // Poppins staat hier als stand-in voor het echte merkfont.
+  "fonts": {
+    "heading": { "family": "Poppins", "file": "fonts/Poppins-Bold.ttf", "weight": 700 },
+    "body":    { "family": "Inter",   "file": "fonts/Inter-Regular.ttf", "weight": 400 }
+  },
+
+  "transitions": { "enabled": true, "fadeSec": 0.35 },
+
+  // Wit met zwarte rand, want de pagina heeft lichtgrijze, witte, zwarte en
+  // roze vlakken door elkaar. Eén platte kleur verdwijnt op de helft daarvan.
+  "cursor": {
+    "enabled": true,
+    "color": "#FFFFFF",
+    "strokeColor": "#0A0A0A",
+    "size": 30,
+    "easing": "easeInOut",
+    "ripple": true,
+    "rippleColor": "#E6007E",
+    "rippleMs": 620
+  },
+
+  "highlight": {
+    "enabled": true,
+    "color": "#E6007E",
+    "glow": true,
+    "borderWidth": 3,
+    // De tegels op dit dashboard hebben flink afgeronde hoeken.
+    "borderRadius": 20
+  },
+
+  // Zwart blok met roze accent, zoals de Document Box-tegel.
+  "hints": {
+    "enabled": true,
+    "font": "body",
+    "fontSize": 28,
+    "color": "#FFFFFF",
+    "backgroundColor": "#0A0A0A",
+    "backgroundOpacity": 0.95,
+    "accentColor": "#E6007E",
+    "borderRadius": 14,
+    "maxWidth": 520,
+    "padding": 20,
+    "position": "auto",
+    "offset": 20,
+    "fadeMs": 260
+  },
+
+  "captions": {
+    "enabled": false,
+    "font": "body",
+    "fontSize": 34,
+    "color": "#FFFFFF",
+    "backgroundColor": "#0A0A0A",
+    "backgroundOpacity": 0.72,
+    "position": "bottom",
+    "marginBottom": 60,
+    "outline": true
+  },
+
+  "intro": {
+    "enabled": true,
+    "durationSec": 3,
+    "backgroundGradient": ["#0A0A0A", "#1C0713"],
+    // Zet hier het echte logo neer en het verschijnt boven de titel.
+    // "logo": "assets/rebels-logo.png",
+    "title": "Rebels",
+    "titleFont": "heading",
+    "subtitle": "Zo werkt je portaal",
+    "subtitleFont": "body",
+    "titleColor": "#FFFFFF",
+    "subtitleColor": "#E6007E"
+  },
+
+  "outro": {
+    "enabled": true,
+    "durationSec": 3,
+    "backgroundColor": "#0A0A0A",
+    "title": "Vragen?",
+    "titleFont": "heading",
+    "subtitle": "rebels.nl",
+    "subtitleFont": "body",
+    "titleColor": "#FFFFFF",
+    "subtitleColor": "#E6007E"
+  },
+
+  // Het lichtgrijs van de pagina, zodat de opening niet naar wit flitst.
+  "video": { "width": 1920, "height": 1080, "fps": 30, "backgroundColor": "#F4F5F7" }
+}
