@@ -1,0 +1,34 @@
+{
+  "name": "Northwind dashboard walkthrough",
+  "baseUrl": "http://127.0.0.1:8099",
+  "minStepMs": 1400,
+  "stepPaddingMs": 600,
+  "steps": [
+    {
+      "action": "goto",
+      "url": "/",
+      "narration": "This is the Northwind dashboard, where every account lives."
+    },
+    {
+      "action": "hover",
+      "selector": ".cards .card:nth-child(1)",
+      "narration": "Revenue for the last thirty days sits at the top left."
+    },
+    {
+      "action": "type",
+      "selector": "#search",
+      "text": "hooli",
+      "narration": "Start typing to filter the account table instantly."
+    },
+    {
+      "action": "click",
+      "selector": "#run-report",
+      "narration": "Run report rebuilds the numbers against your current filter."
+    },
+    {
+      "action": "scroll",
+      "selector": "#deep-section",
+      "narration": "Further down you will find retention broken out by cohort."
+    }
+  ]
+}

@@ -1,0 +1,59 @@
+{
+  // Fonts are declared once and referenced by key everywhere else, so swapping
+  // a brand font means editing one line. "family" must match the name inside
+  // the font file - leave it out and it is read from the file for you.
+  "fonts": {
+    "heading": { "family": "Poppins", "file": "fonts/Poppins-Bold.ttf", "weight": 700 },
+    "body":    { "family": "Inter",   "file": "fonts/Inter-Regular.ttf", "weight": 400 }
+  },
+
+  "captions": {
+    "enabled": true,
+    "font": "body",
+    "fontSize": 34,
+    "color": "#FFFFFF",
+    "backgroundColor": "#000000",
+    "backgroundOpacity": 0.55,
+    "position": "bottom",
+    "marginBottom": 60,
+    "outline": true
+  },
+
+  "cursor": {
+    "enabled": true,
+    "color": "#FFFFFF",
+    "strokeColor": "#000000",
+    "size": 28
+  },
+
+  "highlight": {
+    "enabled": true,
+    "color": "#6C5CE7",
+    "glow": true,
+    "borderWidth": 3,
+    "borderRadius": 10
+  },
+
+  "intro": {
+    "enabled": true,
+    "durationSec": 3,
+    "backgroundColor": "#0F1115",
+    "backgroundGradient": ["#0F1115", "#1A1D29"],
+    "title": "Acme",
+    "titleFont": "heading",
+    "subtitle": "Product Walkthrough",
+    "subtitleFont": "body"
+  },
+
+  "outro": {
+    "enabled": true,
+    "durationSec": 3,
+    "backgroundColor": "#0F1115",
+    "title": "Try it free",
+    "titleFont": "heading",
+    "subtitle": "yoursite.com",
+    "subtitleFont": "body"
+  },
+
+  "video": { "width": 1920, "height": 1080, "fps": 30 }
+}

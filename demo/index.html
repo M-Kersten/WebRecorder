@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Northwind Analytics — Demo</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --line: #262b36;
+    --ink: #e8eaf0; --muted: #9aa3b8; --accent: #6c5ce7; --accent-2: #00d1b2;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  header {
+    display: flex; align-items: center; gap: 28px;
+    padding: 18px 40px; border-bottom: 1px solid var(--line);
+    position: sticky; top: 0; background: rgba(15,17,21,.92); backdrop-filter: blur(8px);
+  }
+  .brand { font-weight: 700; font-size: 20px; letter-spacing: -.3px; }
+  .brand span { color: var(--accent); }
+  nav { display: flex; gap: 22px; margin-left: auto; }
+  nav a { color: var(--muted); text-decoration: none; font-size: 15px; }
+  nav a:hover, nav a.active { color: var(--ink); }
+  main { padding: 40px; max-width: 1400px; margin: 0 auto; }
+  h1 { font-size: 34px; letter-spacing: -.8px; margin: 0 0 6px; }
+  .sub { color: var(--muted); margin: 0 0 30px; }
+  .toolbar { display: flex; gap: 12px; margin-bottom: 26px; flex-wrap: wrap; }
+  input[type=search], select {
+    background: var(--panel); border: 1px solid var(--line); color: var(--ink);
+    padding: 11px 14px; border-radius: 10px; font-size: 15px; min-width: 260px;
+  }
+  input[type=search]:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button {
+    background: var(--accent); color: #fff; border: 0; padding: 11px 20px;
+    border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer;
+  }
+  button.ghost { background: transparent; border: 1px solid var(--line); color: var(--muted); }
+  .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; margin-bottom: 34px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 20px 22px; }
+  .card .label { color: var(--muted); font-size: 13px; text-transform: uppercase; letter-spacing: .8px; }
+  .card .value { font-size: 32px; font-weight: 700; letter-spacing: -1px; margin-top: 8px; }
+  .card .delta { font-size: 13px; margin-top: 6px; color: var(--accent-2); }
+  table { width: 100%; border-collapse: collapse; background: var(--panel);
+          border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+  th, td { text-align: left; padding: 14px 20px; border-bottom: 1px solid var(--line); font-size: 15px; }
+  th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .8px; }
+  tr:last-child td { border-bottom: 0; }
+  .pill { display: inline-block; padding: 3px 11px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .pill.ok { background: rgba(0,209,178,.14); color: var(--accent-2); }
+  .pill.warn { background: rgba(255,183,77,.14); color: #ffb74d; }
+  #toast {
+    position: fixed; right: 32px; bottom: 32px; background: var(--accent);
+    color: #fff; padding: 15px 22px; border-radius: 12px; font-weight: 600;
+    opacity: 0; transform: translateY(14px); transition: all .3s ease; pointer-events: none;
+  }
+  #toast.show { opacity: 1; transform: translateY(0); }
+  .spacer { height: 520px; }
+  footer { padding: 40px; color: var(--muted); border-top: 1px solid var(--line); }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">Northwind<span>.</span></div>
+  <nav>
+    <a href="#" class="active" id="nav-dashboard">Dashboard</a>
+    <a href="#" id="nav-reports">Reports</a>
+    <a href="#" id="nav-settings">Settings</a>
+  </nav>
+</header>
+
+<main>
+  <h1>Dashboard</h1>
+  <p class="sub">Everything that moved in the last 30 days.</p>
+
+  <div class="toolbar">
+    <input type="search" id="search" placeholder="Search customers…" aria-label="Search customers">
+    <select id="range" aria-label="Date range">
+      <option>Last 30 days</option>
+      <option>Last 90 days</option>
+      <option>Year to date</option>
+    </select>
+    <button id="run-report">Run report</button>
+    <button class="ghost" id="export">Export CSV</button>
+  </div>
+
+  <div class="cards">
+    <div class="card"><div class="label">Revenue</div><div class="value">€248,910</div><div class="delta">▲ 12.4%</div></div>
+    <div class="card"><div class="label">Active accounts</div><div class="value">1,284</div><div class="delta">▲ 3.1%</div></div>
+    <div class="card"><div class="label">Churn</div><div class="value">1.9%</div><div class="delta">▼ 0.4pt</div></div>
+    <div class="card"><div class="label">Open tickets</div><div class="value">37</div><div class="delta">▲ 5</div></div>
+  </div>
+
+  <table id="accounts">
+    <thead><tr><th>Account</th><th>Plan</th><th>MRR</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td>Vandelay Industries</td><td>Enterprise</td><td>€4,200</td><td><span class="pill ok">Healthy</span></td></tr>
+      <tr><td>Initech BV</td><td>Growth</td><td>€1,150</td><td><span class="pill ok">Healthy</span></td></tr>
+      <tr><td>Soylent Foods</td><td>Growth</td><td>€980</td><td><span class="pill warn">At risk</span></td></tr>
+      <tr><td>Hooli Nederland</td><td>Enterprise</td><td>€6,750</td><td><span class="pill ok">Healthy</span></td></tr>
+      <tr><td>Wonka Logistics</td><td>Starter</td><td>€290</td><td><span class="pill warn">At risk</span></td></tr>
+    </tbody>
+  </table>
+
+  <div class="spacer"></div>
+  <h2 id="deep-section">Retention by cohort</h2>
+  <p class="sub">Scrolled this far down the page.</p>
+</main>
+
+<footer>Northwind Analytics — demo fixture for site-tutorial-video</footer>
+<div id="toast">Report generated</div>
+
+<script>
+  const toast = document.getElementById('toast');
+  function ping(msg) {
+    toast.textContent = msg;
+    toast.classList.add('show');
+    setTimeout(() => toast.classList.remove('show'), 2200);
+  }
+  document.getElementById('run-report').addEventListener('click', () => ping('Report generated'));
+  document.getElementById('export').addEventListener('click', () => ping('CSV exported'));
+  document.getElementById('search').addEventListener('input', (e) => {
+    const q = e.target.value.toLowerCase();
+    document.querySelectorAll('#accounts tbody tr').forEach((row) => {
+      row.style.display = row.cells[0].textContent.toLowerCase().includes(q) ? '' : 'none';
+    });
+  });
+</script>
+</body>
+</html>
