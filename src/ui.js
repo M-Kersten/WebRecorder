@@ -10,7 +10,6 @@ const { spawn } = require('child_process');
 const { capture } = require('./capture');
 const { loadFlow } = require('./config');
 const { loadTheme } = require('./theme');
-const { checkToolchain } = require('./ffmpeg');
 const { launch } = require('./browser');
 
 /**
@@ -106,14 +105,14 @@ function createApp(options = {}) {
 
   /** What the machine can and cannot do, checked before anything is promised. */
   async function readiness() {
-    const checks = { ffmpeg: true, ffmpegError: null, narration: !!process.env.ELEVENLABS_API_KEY };
-    try {
-      await checkToolchain();
-    } catch (err) {
-      checks.ffmpeg = false;
-      checks.ffmpegError = err.message;
-    }
-    return checks;
+    const { inspect } = require('./preflight');
+    const report = await inspect();
+    return {
+      ffmpeg: report.ffmpeg.ok,
+      ffmpegError: report.ffmpeg.error,
+      browser: report.browser.ok,
+      narration: report.narration,
+    };
   }
 
   async function startCapture(url) {
@@ -307,7 +306,8 @@ function friendly(err) {
     return 'ffmpeg is missing on this machine. It is needed to put the video together.';
   }
   if (/Executable doesn't exist|No usable Chromium/i.test(message)) {
-    return 'The browser this tool uses is not installed yet. Run "npx playwright install chromium".';
+    return 'The browser this tool needs has not finished downloading. Close this window ' +
+      'and start the recorder again; it will fetch it.';
   }
   if (/never became visible/.test(message)) {
     return `${message}\n\nThe page probably changed since it was recorded. ` +

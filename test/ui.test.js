@@ -141,7 +141,12 @@ test('failures are rewritten into something worth showing a colleague', () => {
   assert.match(friendly(new Error('ELEVENLABS_API_KEY is not set, so narration cannot be generated.')),
     /Turn narration off/);
   assert.match(friendly(new Error('ffmpeg is required but not usable.')), /needed to put the video together/);
-  assert.match(friendly(new Error("Executable doesn't exist at /opt/x")), /playwright install chromium/);
+  // The tool fetches the browser itself now, so this must not ask a colleague
+  // to run a command.
+  const browserMessage = friendly(new Error("Executable doesn't exist at /opt/x"));
+  assert.match(browserMessage, /start the recorder again/);
+  assert.ok(!/npx|npm|install chromium/.test(browserMessage),
+    `should not hand a colleague a command to run: ${browserMessage}`);
   assert.match(friendly(new Error('Selector "#gone" never became visible')), /Record the walkthrough again/);
   // Anything unrecognised is passed through rather than swallowed.
   assert.strictEqual(friendly(new Error('something odd')), 'something odd');

@@ -22,6 +22,7 @@ site-tutorial-video - turn a flow.json into a narrated, themed tutorial video
   site-tutorial-video [options]
   site-tutorial-video init                    scaffold theme.json and flow.json here
   site-tutorial-video ui                      open the app window (no terminal)
+  site-tutorial-video setup                   fetch what is missing, then report
   site-tutorial-video capture --url <url>     record a flow by walking the site
 
 Options
@@ -87,7 +88,7 @@ function parseArgs(argv) {
   const takesValue = {
     '--flow': 'flow', '--theme': 'theme', '--out': 'out', '--serve': 'serve', '--url': 'url',
   };
-  const COMMANDS = ['init', 'capture', 'ui'];
+  const COMMANDS = ['init', 'capture', 'ui', 'setup'];
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -246,6 +247,7 @@ async function main(argv) {
   if (args.command === 'init') return initProject(process.cwd());
   if (args.command === 'capture') return captureFlow(args);
   if (args.command === 'ui') return runUi();
+  if (args.command === 'setup') return runSetup();
 
   const theme = applyOverrides(loadTheme(args.theme), args);
   if (args.printTheme) { write(describeTheme(theme)); return 0; }
@@ -424,12 +426,50 @@ async function main(argv) {
 }
 
 /**
+ * Fetch anything missing, then say what the machine can do.
+ *
+ * Run by the launchers before the window opens, so nobody is ever shown an
+ * instruction to go and install something themselves.
+ */
+async function runSetup() {
+  const { ensureReady, describe } = require('./preflight');
+  write('');
+  try {
+    const report = await ensureReady({ log: write });
+    write('');
+    write(describe(report));
+    write('');
+    if (!report.ffmpeg.ok) {
+      write('  The video tools did not come through. Try "npm install" again.');
+      write('');
+      return 1;
+    }
+    return 0;
+  } catch (err) {
+    write('');
+    write(`  ${err.message}`);
+    write('');
+    return 1;
+  }
+}
+
+/**
  * Open the app window and keep the process alive while it is in use.
  *
  * For anyone who should not have to know that a terminal exists. The window
  * drives the same pipeline the flags do.
  */
 async function runUi() {
+  // Do the fetching before the window appears, with the progress visible in
+  // whatever terminal the launcher opened.
+  const { ensureReady } = require('./preflight');
+  await ensureReady({ log: write }).catch((err) => {
+    write('');
+    write(`  ${err.message}`);
+    write('  Opening anyway; recording may not work until that is sorted.');
+    write('');
+  });
+
   const { createApp, openWindow } = require('./ui');
   const app = createApp({ projectDir: process.cwd() });
   const url = await app.listen();

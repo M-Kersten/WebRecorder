@@ -24,4 +24,11 @@ if not exist node_modules (
   )
 )
 
+echo   Checking everything is in place...
+call node src/index.js setup
+if errorlevel 1 (
+  pause
+  exit /b 1
+)
+
 node src/index.js ui

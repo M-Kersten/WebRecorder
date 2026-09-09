@@ -23,4 +23,10 @@ if [ ! -d node_modules ]; then
   }
 fi
 
+echo "  Checking everything is in place..."
+node src/index.js setup || {
+  read -r -p "  Press Enter to close." _
+  exit 1
+}
+
 node src/index.js ui

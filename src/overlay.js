@@ -39,6 +39,17 @@ function fontFaceCss(font) {
     `font-weight:${font.weight};font-style:${font.style};font-display:block;}`;
 }
 
+/**
+ * How much of the frame the captions will occupy, top and bottom, in the
+ * viewport's own pixels. Two lines plus the margin is the worst case.
+ */
+function captionBand(theme) {
+  const c = theme.captions;
+  if (!c.enabled) return { top: 0, bottom: 0 };
+  const band = Math.round(c.marginBottom + c.fontSize * 3);
+  return c.position === 'top' ? { top: band, bottom: 0 } : { top: 0, bottom: band };
+}
+
 function buildOverlayScript(theme, mask = []) {
   const { cursor, highlight, hints } = theme;
   const hintFont = hints.enabled && hints.font ? theme.fonts[hints.font] : null;
@@ -91,6 +102,10 @@ function buildOverlayScript(theme, mask = []) {
       position: hints.position,
       offset: hints.offset,
       fadeMs: hints.fadeMs,
+      // Captions are burned on afterwards, so the overlay cannot see them.
+      // Without this a hint and a caption land in the same strip of screen and
+      // sit on top of each other.
+      reserve: captionBand(theme),
     },
     fontFace: hintFont ? fontFaceCss(hintFont) : '',
   });
@@ -453,26 +468,30 @@ function buildOverlayScript(theme, mask = []) {
     const vw = window.innerWidth;
     const vh = window.innerHeight;
     const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+    // The strip the captions will be burned into is not available.
+    const ceiling = gap + CFG.hints.reserve.top;
+    const floor = vh - gap - CFG.hints.reserve.bottom;
     let left;
     let top;
 
     if (CFG.hints.position === 'auto' && rect) {
       // Under the element if it fits, otherwise above it.
       const below = rect.y + rect.height + gap;
-      top = below + h <= vh - gap ? below : rect.y - h - gap;
+      top = below + h <= floor ? below : rect.y - h - gap;
       left = rect.x + rect.width / 2 - w / 2;
     } else {
       const spot = CFG.hints.position === 'auto' ? 'bottom-center' : CFG.hints.position;
       const [vert, horiz] = spot.split('-');
-      top = vert === 'top' ? gap : vh - h - gap;
+      top = vert === 'top' ? ceiling : floor - h;
       left = horiz === 'left' ? gap : horiz === 'right' ? vw - w - gap : (vw - w) / 2;
     }
     el.style.left = clamp(left, gap, Math.max(gap, vw - w - gap)) + 'px';
-    el.style.top = clamp(top, gap, Math.max(gap, vh - h - gap)) + 'px';
+    el.style.top = clamp(top, ceiling, Math.max(ceiling, floor - h)) + 'px';
   }
 
   window.__tutOverlayReady = true;
 })();`;
 }
 
-module.exports = { buildOverlayScript, dataUri, fontFaceCss };
+module.exports = { buildOverlayScript, dataUri, fontFaceCss, captionBand };

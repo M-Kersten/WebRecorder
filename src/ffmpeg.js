@@ -4,8 +4,40 @@ const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
-const FFMPEG = process.env.FFMPEG_PATH || 'ffmpeg';
-const FFPROBE = process.env.FFPROBE_PATH || 'ffprobe';
+/**
+ * Find a binary, preferring the one shipped with the project.
+ *
+ * ffmpeg-static and ffprobe-static download a build for this platform during
+ * npm install, which is what lets somebody run this without installing ffmpeg
+ * themselves. An explicit env var still wins, and a system install is the last
+ * resort rather than the first.
+ */
+function resolveBinary(envVar, packageName, onPath) {
+  const explicit = process.env[envVar];
+  if (explicit) return explicit;
+  try {
+    const exported = require(packageName);
+    const bin = typeof exported === 'string' ? exported : exported && exported.path;
+    if (bin && fs.existsSync(bin)) {
+      // The download does not always survive with its exec bit intact.
+      try { fs.accessSync(bin, fs.constants.X_OK); } catch { fs.chmodSync(bin, 0o755); }
+      return bin;
+    }
+  } catch {
+    // Not installed, or no build for this platform: fall through to PATH.
+  }
+  return onPath;
+}
+
+const FFMPEG = resolveBinary('FFMPEG_PATH', 'ffmpeg-static', 'ffmpeg');
+const FFPROBE = resolveBinary('FFPROBE_PATH', 'ffprobe-static', 'ffprobe');
+
+/** Where the binaries came from, for the setup report. */
+const binaries = () => ({
+  ffmpeg: FFMPEG,
+  ffprobe: FFPROBE,
+  bundled: FFMPEG !== 'ffmpeg' && FFMPEG.includes('node_modules'),
+});
 
 /**
  * Run a binary and buffer its output. Rejects with the tail of stderr, which is
@@ -40,7 +72,7 @@ async function checkToolchain() {
   } catch (err) {
     throw new Error(
       `ffmpeg is required but not usable.\n${err.message}\n` +
-      'Install it (e.g. "apt-get install ffmpeg" or "brew install ffmpeg"), ' +
+      'It normally comes with the project; try running "npm install" again, ' +
       'or point FFMPEG_PATH at a build that has libass and libx264.'
     );
   }
@@ -393,6 +425,8 @@ function escapeFilterValue(v) {
 
 module.exports = {
   ffmpeg,
+  binaries,
+  resolveBinary,
   run,
   checkToolchain,
   probeDuration,

@@ -71,12 +71,22 @@ export ELEVENLABS_API_KEY=...    # not needed for --no-tts
 node src/index.js --flow flow.json --theme theme.json --out out/tutorial.mp4
 ```
 
-`ffmpeg` and `ffprobe` must be on `PATH`, built with **libass** and **libx264**.
-Startup checks for both and says so if either is missing. The stripped-down
-ffmpeg that ships inside Playwright will not work.
+`npm install` brings its own `ffmpeg` and `ffprobe` (via `ffmpeg-static`), built
+with **libass** and **libx264**, so neither has to be installed on the machine.
+`FFMPEG_PATH` and `FFPROBE_PATH` override them if you would rather use your own;
+the stripped-down ffmpeg that ships inside Playwright will not work.
 
-If Chromium is already installed somewhere the tool cannot guess, point
-`CHROMIUM_EXECUTABLE_PATH` at it; otherwise `npx playwright install chromium`.
+Chromium is fetched on first run. `site-tutorial-video setup` does that and
+reports what the machine can do:
+
+```
+  video tools   ready (bundled with the project)
+  browser       ready
+  narration     off (no ELEVENLABS_API_KEY, videos will be silent)
+```
+
+`CHROMIUM_EXECUTABLE_PATH` points at an existing Chromium if you already have
+one somewhere the tool cannot guess.
 
 ## The app window
 
@@ -89,8 +99,9 @@ press **Make the video**, watch it back. It drives the same pipeline the flags
 do, so there is nothing it can produce that the CLI cannot.
 
 The **Start Recorder** launchers exist so a colleague never sees a terminal.
-They check for Node.js, run `npm install` on the first launch, and open the
-window. If Node is missing they say so and where to get it.
+They check for Node.js, run `npm install` on the first launch, fetch the
+browser, and open the window. If Node is missing they say so and where to get
+it. Nothing in that path ever asks somebody to run a command themselves.
 
 What the window handles for you: styles are read from the `theme*.json` files
 next to it, one that fails to load is shown greyed out with its reason rather
@@ -413,6 +424,7 @@ opens on a flash of blank white while the browser is still on `about:blank`.
 
 ```
 site-tutorial-video ui                       open the app window
+site-tutorial-video setup                    fetch what is missing, then report
 site-tutorial-video init                     scaffold theme.json and flow.json here
 site-tutorial-video capture --url <url>      record a flow by walking the site
 site-tutorial-video [options]
@@ -516,6 +528,7 @@ src/
   capture-panel.js  the panel you fill in while walking the site
   selector.js   picks a selector that will still work next month
   ui.js         the local app: state machine, small HTTP API, window
+  preflight.js  checks and fetches what the machine is missing
 ui/app.html     the window itself
 Start Recorder.command / .bat    double-click launchers
 fonts/          bundled .ttf/.otf, see fonts/README.md

@@ -256,8 +256,12 @@
 
     const notes = [];
     if (!setup.ready.ffmpeg) {
-      notes.push('<div class="notice warn"><b>ffmpeg is missing.</b> ' +
-        'Recording will work, but the video cannot be put together until it is installed.</div>');
+      notes.push('<div class="notice warn"><b>The video tools are missing.</b> ' +
+        'Close this window and start the recorder again, or ask whoever set it up.</div>');
+    }
+    if (setup.ready.browser === false) {
+      notes.push('<div class="notice warn"><b>The browser is still downloading.</b> ' +
+        'Close this window and start the recorder again once it has finished.</div>');
     }
     if (!setup.ready.narration) {
       $('narration').disabled = true;

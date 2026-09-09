@@ -499,3 +499,53 @@ test('an explicit border colour overrides the derived one', async () => {
     assert.strictEqual(colour, 'rgb(230, 0, 126)');
   } finally { await close(); }
 });
+
+// Captions are burned on after recording, so the overlay cannot see them. With
+// both switched on, a hint and a caption landed in the same strip of screen and
+// sat on top of each other.
+test('a hint keeps clear of where the captions will be burned', async () => {
+  const withCaptions = {
+    captions: { enabled: true, position: 'bottom', marginBottom: 60, fontSize: 34 },
+    hints: { position: 'auto', offset: 20 },
+  };
+  const { page, close } = await withOverlay(withCaptions);
+  try {
+    // No target, so it falls back to the bottom - straight into the captions.
+    await page.evaluate(() => window.__tutShowHint('Explaining something here', null));
+    await settle(page);
+    const box = await page.evaluate(() =>
+      document.querySelector('[data-tut-hint]').getBoundingClientRect().toJSON());
+    const viewportHeight = await page.evaluate(() => window.innerHeight);
+    const band = 60 + 34 * 3;
+    assert.ok(box.bottom <= viewportHeight - band + 1,
+      `the hint ends at ${box.bottom}, inside the caption band that starts at ${viewportHeight - band}`);
+  } finally { await close(); }
+});
+
+test('with captions at the top the hint stays below them', async () => {
+  const { page, close } = await withOverlay({
+    captions: { enabled: true, position: 'top', marginBottom: 60, fontSize: 34 },
+    hints: { position: 'top-center', offset: 20 },
+  });
+  try {
+    await page.evaluate(() => window.__tutShowHint('Explaining something here', null));
+    await settle(page);
+    const box = await page.evaluate(() =>
+      document.querySelector('[data-tut-hint]').getBoundingClientRect().toJSON());
+    assert.ok(box.top >= 60 + 34 * 3, `the hint starts at ${box.top}, inside the caption band`);
+  } finally { await close(); }
+});
+
+test('without captions the hint uses the whole frame again', async () => {
+  const { page, close } = await withOverlay({
+    captions: { enabled: false }, hints: { position: 'bottom-center', offset: 20 },
+  });
+  try {
+    await page.evaluate(() => window.__tutShowHint('Explaining something here', null));
+    await settle(page);
+    const box = await page.evaluate(() =>
+      document.querySelector('[data-tut-hint]').getBoundingClientRect().toJSON());
+    const viewportHeight = await page.evaluate(() => window.innerHeight);
+    assert.ok(box.bottom > viewportHeight - 60, 'it should sit near the bottom edge');
+  } finally { await close(); }
+});
