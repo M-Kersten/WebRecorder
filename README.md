@@ -5,9 +5,17 @@ website. Playwright drives a real browser through the steps, ElevenLabs reads
 the narration, and ffmpeg assembles the result with captions and intro/outro
 cards. Everything about how it looks lives in one `theme.json`.
 
+**Not a developer?** Double-click **Start Recorder** (`.command` on macOS,
+`.bat` on Windows; on Linux run it from a file manager or `./"Start Recorder.command"`). A window opens: paste a web address, press one
+button, and you get a video. Nothing else to install beyond
+[Node.js](https://nodejs.org); the first run sets itself up.
+
+For everyone else:
+
 ```bash
 npm install
 npm run demo          # finished video in out/demo.mp4
+npm run ui            # the same window, from a terminal
 ```
 
 That needs no API key and no network: it serves the bundled demo site, uses
@@ -69,6 +77,32 @@ ffmpeg that ships inside Playwright will not work.
 
 If Chromium is already installed somewhere the tool cannot guess, point
 `CHROMIUM_EXECUTABLE_PATH` at it; otherwise `npx playwright install chromium`.
+
+## The app window
+
+```bash
+site-tutorial-video ui
+```
+
+One window, five screens: paste a URL, walk through the site, pick a style,
+press **Make the video**, watch it back. It drives the same pipeline the flags
+do, so there is nothing it can produce that the CLI cannot.
+
+The **Start Recorder** launchers exist so a colleague never sees a terminal.
+They check for Node.js, run `npm install` on the first launch, and open the
+window. If Node is missing they say so and where to get it.
+
+What the window handles for you: styles are read from the `theme*.json` files
+next to it, one that fails to load is shown greyed out with its reason rather
+than silently missing. Narration is switched off and explained when no
+ElevenLabs key is set. A missing ffmpeg is flagged before you record rather
+than after. Failures are rewritten into something worth reading, so
+`Selector "#gone" never became visible` arrives as a suggestion to record the
+walkthrough again.
+
+The server binds to `127.0.0.1` and every action needs a token that only the
+window it opened was given. Anything on localhost is otherwise reachable from
+any page the browser has open, and this one launches browsers and writes files.
 
 ## Recording a flow
 
@@ -378,6 +412,7 @@ opens on a flash of blank white while the browser is still on `about:blank`.
 ## CLI
 
 ```
+site-tutorial-video ui                       open the app window
 site-tutorial-video init                     scaffold theme.json and flow.json here
 site-tutorial-video capture --url <url>      record a flow by walking the site
 site-tutorial-video [options]
@@ -480,6 +515,9 @@ src/
   capture.js    the capture session: holds the steps, writes the flow
   capture-panel.js  the panel you fill in while walking the site
   selector.js   picks a selector that will still work next month
+  ui.js         the local app: state machine, small HTTP API, window
+ui/app.html     the window itself
+Start Recorder.command / .bat    double-click launchers
 fonts/          bundled .ttf/.otf, see fonts/README.md
 theme-rebels.json    a real-world theme: brand colour, Overused Grotesk
 assets/         logos and other card artwork

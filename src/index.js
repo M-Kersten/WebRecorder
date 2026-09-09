@@ -21,6 +21,7 @@ site-tutorial-video - turn a flow.json into a narrated, themed tutorial video
 
   site-tutorial-video [options]
   site-tutorial-video init                    scaffold theme.json and flow.json here
+  site-tutorial-video ui                      open the app window (no terminal)
   site-tutorial-video capture --url <url>     record a flow by walking the site
 
 Options
@@ -55,6 +56,7 @@ Environment
   CHROMIUM_EXECUTABLE_PATH  optional, if Chromium is somewhere unusual
 
 Examples
+  site-tutorial-video ui
   site-tutorial-video init
   site-tutorial-video capture --url https://app.example.com
   site-tutorial-video --no-tts                     # fast, free preview
@@ -85,7 +87,7 @@ function parseArgs(argv) {
   const takesValue = {
     '--flow': 'flow', '--theme': 'theme', '--out': 'out', '--serve': 'serve', '--url': 'url',
   };
-  const COMMANDS = ['init', 'capture'];
+  const COMMANDS = ['init', 'capture', 'ui'];
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -120,7 +122,16 @@ function parseArgs(argv) {
   return args;
 }
 
-const write = (msg = '') => process.stdout.write(`${msg}\n`);
+/**
+ * Where the run's progress goes. The terminal by default; the app window
+ * redirects it so the same pipeline can report into a UI without every call
+ * site having to know about it.
+ */
+const toStdout = (msg) => process.stdout.write(`${msg}\n`);
+let sink = toStdout;
+const write = (msg = '') => sink(msg);
+
+function setOutput(fn) { sink = fn || toStdout; }
 
 /** Timing wrapper, so the console shows where a slow run actually went. */
 function stepLogger(quiet) {
@@ -136,7 +147,7 @@ function stepLogger(quiet) {
       done();
       label = text;
       startedAt = Date.now();
-      if (!quiet) process.stdout.write(`${text}\n`);
+      if (!quiet) write(text);
     },
     detail(text) { if (!quiet) write(`    ${text}`); },
     finish: done,
@@ -234,6 +245,7 @@ async function main(argv) {
   if (args.help) { write(USAGE); return 0; }
   if (args.command === 'init') return initProject(process.cwd());
   if (args.command === 'capture') return captureFlow(args);
+  if (args.command === 'ui') return runUi();
 
   const theme = applyOverrides(loadTheme(args.theme), args);
   if (args.printTheme) { write(describeTheme(theme)); return 0; }
@@ -412,6 +424,35 @@ async function main(argv) {
 }
 
 /**
+ * Open the app window and keep the process alive while it is in use.
+ *
+ * For anyone who should not have to know that a terminal exists. The window
+ * drives the same pipeline the flags do.
+ */
+async function runUi() {
+  const { createApp, openWindow } = require('./ui');
+  const app = createApp({ projectDir: process.cwd() });
+  const url = await app.listen();
+
+  write('');
+  write('  Walkthrough Recorder is running.');
+  write(`  If no window opened, go to: ${url}`);
+  write('  Close the window, or press Ctrl+C here, to stop.');
+  write('');
+
+  const window = await openWindow(url, write);
+  await new Promise((resolve) => {
+    if (window.context) window.context.on('close', resolve);
+    process.on('SIGINT', resolve);
+    process.on('SIGTERM', resolve);
+  });
+
+  await window.close();
+  await app.close();
+  return 0;
+}
+
+/**
  * Walk the site, and write down what you did as a flow.
  *
  * Deliberately does not touch the theme: capture is about what happens, not
@@ -473,4 +514,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { main, parseArgs, applyOverrides, initProject, captureFlow };
+module.exports = { main, parseArgs, applyOverrides, initProject, captureFlow, setOutput };

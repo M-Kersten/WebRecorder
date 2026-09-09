@@ -6,6 +6,7 @@
   "bin": { "site-tutorial-video": "src/index.js" },
   "scripts": {
     "test": "node --test test/*.test.js",
+    "ui": "node src/index.js ui",
     "demo": "node src/index.js --flow demo/flow.json --theme theme.json --serve demo --no-tts --out out/demo.mp4"
   },
   "dependencies": {
