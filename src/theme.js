@@ -51,6 +51,9 @@ const DEFAULTS = {
     // you want on a page built out of rounded cards of differing radii. A number
     // pins it instead.
     borderRadius: 'auto',
+    // How long the ring takes to appear once the cursor has arrived. It never
+    // travels: it is placed while invisible and then faded in.
+    fadeMs: 200,
   },
   hints: {
     enabled: true,
@@ -367,6 +370,9 @@ const HINT_POSITIONS = [
 ];
 
 function validateHighlight(theme, abs) {
+  if (!(Number.isFinite(theme.highlight.fadeMs) && theme.highlight.fadeMs >= 0)) {
+    throw new ThemeError(`${abs}: highlight.fadeMs must be a non-negative number of milliseconds`);
+  }
   const r = theme.highlight.borderRadius;
   if (r !== 'auto' && !(Number.isFinite(r) && r >= 0)) {
     throw new ThemeError(

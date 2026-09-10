@@ -31,7 +31,7 @@
   .card + .card { margin-top: 14px; }
 
   label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 7px; }
-  input[type=text], input[type=url], select {
+  input[type=text], input[type=url], input[type=number], input[type=password], select {
     width: 100%; padding: 12px 14px; font-size: 15px; font-family: inherit;
     background: #0B0D12; color: var(--ink);
     border: 1px solid #2A3140; border-radius: 10px;
@@ -89,6 +89,25 @@
   .notice + .notice { margin-top: 10px; }
   .notice b { font-weight: 600; }
 
+  .settings-head { display: flex; align-items: baseline; gap: 12px; margin: 0 0 14px; }
+  .settings-head h2 { margin: 0; font-size: 18px; font-weight: 620; letter-spacing: -.3px; }
+  .settings-head .back { margin-left: auto; }
+  .settings-head button { padding: 7px 14px; font-size: 13px; }
+  .group { font-size: 12px; text-transform: uppercase; letter-spacing: .9px;
+           color: var(--muted); margin: 0 0 14px; font-weight: 600; }
+  .row2 { display: grid; grid-template-columns: 1fr auto; gap: 14px; align-items: start; }
+  .unit { color: var(--muted); font-size: 12.5px; margin-top: 6px; display: block; text-align: right; }
+  .row2 .num { width: 130px; text-align: right; }
+  .fname { font-size: 14px; }
+  .fhelp { font-size: 12.5px; color: var(--muted); line-height: 1.5; margin-top: 3px; }
+  .field-row + .field-row { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--line-soft); }
+  .secret { display: grid; grid-template-columns: 1fr 190px; gap: 14px; align-items: center; }
+  .secret + .secret { margin-top: 14px; }
+  .tag { font-size: 11px; padding: 2px 8px; border-radius: 999px; margin-left: 8px;
+         background: rgba(52,211,153,.14); color: var(--good); vertical-align: 2px; }
+  .tag.unset { background: rgba(255,255,255,.06); color: var(--muted); }
+  .mono { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 13px; }
+  .saved { color: var(--good); font-size: 13px; }
   video { width: 100%; border-radius: 10px; display: block; background: #000; margin-bottom: 16px; }
   .path { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12px;
           color: var(--muted); word-break: break-all; margin-top: 12px; }
@@ -115,7 +134,8 @@
     </div>
     <div id="idle-note"></div>
     <div class="actions">
-      <button class="primary wide" id="start">Open the site and start recording</button>
+      <button class="primary" id="start" style="flex:3">Open the site and start recording</button>
+      <button id="open-settings" style="flex:1">Settings</button>
     </div>
     <ol class="walk">
       <li>A browser window opens with your site in it.</li>
@@ -182,6 +202,20 @@
     </div>
   </section>
 
+  <!-- settings -->
+  <section id="view-settings" class="card" hidden>
+    <div class="settings-head">
+      <h2>Settings</h2>
+      <span class="saved" id="settings-saved" hidden>Saved</span>
+      <span class="back"><button id="close-settings">Back</button></span>
+    </div>
+    <div id="settings-body"></div>
+    <div class="actions">
+      <button id="settings-cancel">Back without saving</button>
+      <button class="primary" id="settings-save">Save</button>
+    </div>
+  </section>
+
   <!-- error -->
   <section id="view-error" class="card" hidden>
     <div class="notice warn" id="error-text"></div>
@@ -204,6 +238,9 @@
   });
 
   let setup = { themes: [], ready: {} };
+  let settings = null;
+  let inSettings = false;
+  let lastPhase = 'idle';
 
   function show(phase) {
     for (const el of document.querySelectorAll('section.card')) el.hidden = true;
@@ -243,7 +280,118 @@
     if (state.phase === 'idle' && state.message) {
       $('idle-note').innerHTML = '<div class="notice info">' + escapeHtml(state.message) + '</div>';
     }
-    show(state.phase);
+    lastPhase = state.phase;
+    // A run finishing must not yank the settings screen out from under
+    // somebody halfway through typing a password into it.
+    if (!inSettings) show(state.phase);
+  }
+
+  // --- settings ---------------------------------------------------------
+
+  function fieldControl(field, value) {
+    const id = 'set-' + field.key.replace(/\./g, '-');
+    if (field.type === 'boolean') {
+      return '<input type="checkbox" id="' + id + '" data-key="' + field.key + '"' +
+        (value ? ' checked' : '') + ' style="width:18px;height:18px;accent-color:var(--accent)">';
+    }
+    if (field.type === 'select') {
+      return '<select id="' + id + '" data-key="' + field.key + '">' +
+        field.options.map((o) => '<option value="' + escapeHtml(o.value) + '"' +
+          (o.value === value ? ' selected' : '') + '>' + escapeHtml(o.label) + '</option>').join('') +
+        '</select>';
+    }
+    const shown = value === null || value === undefined ? '' : value;
+    return '<input class="num" type="number" id="' + id + '" data-key="' + field.key + '"' +
+      ' value="' + escapeHtml(shown) + '"' +
+      (field.nullable ? ' placeholder="auto"' : '') +
+      (field.min !== undefined ? ' min="' + field.min + '"' : '') +
+      (field.max !== undefined ? ' max="' + field.max + '"' : '') +
+      (field.step !== undefined ? ' step="' + field.step + '"' : '') + '>';
+  }
+
+  function renderSettings() {
+    const sections = [];
+    for (const field of settings.fields) {
+      let group = sections.find((g) => g.name === field.section);
+      if (!group) sections.push(group = { name: field.section, fields: [] });
+      group.fields.push(field);
+    }
+
+    let html = settings.problem
+      ? '<div class="notice warn">' + escapeHtml(settings.problem) + '</div>'
+      : '';
+
+    for (const group of sections) {
+      html += '<div class="card" style="margin-bottom:14px"><div class="group">' +
+        escapeHtml(group.name) + '</div>';
+      html += group.fields.map((f) =>
+        '<div class="field-row"><div class="row2"><div>' +
+        '<div class="fname">' + escapeHtml(f.label) + '</div>' +
+        (f.help ? '<div class="fhelp">' + escapeHtml(f.help) + '</div>' : '') +
+        '</div><div>' + fieldControl(f, settings.values[f.key]) +
+        (f.unit ? '<span class="unit">' + escapeHtml(f.unit) + '</span>' : '') +
+        '</div></div></div>'
+      ).join('');
+      html += '</div>';
+    }
+
+    html += '<div class="card"><div class="group">Passwords</div>';
+    if (!settings.secrets.length) {
+      html += '<div class="fhelp">This walkthrough does not sign in anywhere, so there is ' +
+        'nothing to fill in. Anything it needs will appear here after you record it.</div>';
+    } else {
+      html += '<div class="fhelp" style="margin-bottom:16px">Kept on this machine only, ' +
+        'never written into the recording. Leave one empty to keep what is already saved.</div>';
+      html += settings.secrets.map((sec) =>
+        '<div class="secret"><div>' +
+        '<span class="mono">' + escapeHtml(sec.name) + '</span>' +
+        (sec.set ? '<span class="tag">saved</span>'
+          : sec.fromEnvironment ? '<span class="tag">from this machine</span>'
+          : '<span class="tag unset">not set</span>') +
+        (sec.usedByFlow ? '' : '<div class="fhelp">Not used by the current recording.</div>') +
+        '</div>' +
+        '<input type="password" data-secret="' + escapeHtml(sec.name) + '" ' +
+        'placeholder="' + (sec.set ? 'unchanged' : 'not set') + '" autocomplete="off">' +
+        '</div>'
+      ).join('');
+    }
+    html += '</div>';
+
+    $('settings-body').innerHTML = html;
+  }
+
+  async function openSettings() {
+    settings = await api('/api/settings');
+    inSettings = true;
+    renderSettings();
+    $('settings-saved').hidden = true;
+    show('settings');
+  }
+
+  function closeSettings() {
+    inSettings = false;
+    // Back to whatever the run was doing while the settings were open.
+    show(lastPhase);
+  }
+
+  async function saveSettings() {
+    const values = {};
+    for (const el of $('settings-body').querySelectorAll('[data-key]')) {
+      values[el.dataset.key] = el.type === 'checkbox' ? el.checked : el.value;
+    }
+    const secrets = {};
+    for (const el of $('settings-body').querySelectorAll('[data-secret]')) {
+      if (el.value) secrets[el.dataset.secret] = el.value;
+    }
+    try {
+      settings = await api('/api/settings', { values, secrets });
+      renderSettings();
+      $('settings-saved').hidden = false;
+      setTimeout(() => { $('settings-saved').hidden = true; }, 2200);
+    } catch (err) {
+      $('settings-body').insertAdjacentHTML('afterbegin',
+        '<div class="notice warn">' + escapeHtml(err.message) + '</div>');
+    }
   }
 
   async function boot() {
@@ -297,6 +445,10 @@
     name: $('name').value,
   }).catch((err) => { $('idle-note').textContent = err.message; }));
 
+  $('open-settings').addEventListener('click', () => openSettings());
+  $('close-settings').addEventListener('click', closeSettings);
+  $('settings-cancel').addEventListener('click', closeSettings);
+  $('settings-save').addEventListener('click', saveSettings);
   $('rerecord').addEventListener('click', () => show('idle'));
   $('again').addEventListener('click', () => { $('player').removeAttribute('src'); show('idle'); });
   $('reveal').addEventListener('click', () => api('/api/reveal', {}));

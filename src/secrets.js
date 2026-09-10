@@ -74,7 +74,24 @@ function resolveFlowSecrets(flow, env = process.env) {
   return [...used];
 }
 
+/**
+ * Which environment variables a flow refers to, without needing them to be set.
+ * The app window uses this to ask for exactly the passwords a flow wants,
+ * rather than offering a blank key/value editor.
+ */
+function listPlaceholders(flow) {
+  const found = new Set();
+  const scan = (value) => {
+    if (typeof value !== 'string') return;
+    for (const match of value.matchAll(placeholders())) found.add(match[1]);
+  };
+  scan(flow.baseUrl);
+  for (const step of flow.steps || []) { scan(step.text); scan(step.url); }
+  for (const step of (flow.auth && flow.auth.steps) || []) { scan(step.text); scan(step.url); }
+  return [...found];
+}
+
 /** Stand-in for a secret in anything that gets printed. */
 const REDACTED = '•••••';
 
-module.exports = { interpolate, resolveFlowSecrets, hasPlaceholder, REDACTED };
+module.exports = { interpolate, resolveFlowSecrets, listPlaceholders, hasPlaceholder, REDACTED };

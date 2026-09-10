@@ -166,3 +166,67 @@ test('the default style is offered first', async () => {
       'the dropdown should open on the default, not on whatever readdir returned');
   });
 });
+
+// --- settings ----------------------------------------------------------
+
+test('the settings screen is told the fields, the values and which passwords are wanted', async () => {
+  await withApp(async ({ call, dir }) => {
+    fs.copyFileSync(path.join(REPO, 'demo', 'portal-flow.json'), path.join(dir, 'flow.json'));
+    const s = await call('/api/settings').then((r) => r.json());
+    assert.ok(s.fields.length >= 10);
+    assert.strictEqual(s.problem, null);
+    assert.ok('theme.cursor.moveMs' in s.values);
+    const names = s.secrets.map((x) => x.name).sort();
+    assert.deepStrictEqual(names, ['PORTAL_EMAIL', 'PORTAL_PASSWORD']);
+    assert.ok(s.secrets.every((x) => x.set === false));
+  });
+});
+
+// A stored password is never handed back to the page. The window is told which
+// names are set and that is all it needs to draw the form.
+test('a saved password is never sent back to the window', async () => {
+  await withApp(async ({ call, dir }) => {
+    fs.copyFileSync(path.join(REPO, 'demo', 'portal-flow.json'), path.join(dir, 'flow.json'));
+    await call('/api/settings', { secrets: { PORTAL_PASSWORD: 'hunter2' } });
+
+    const s = await call('/api/settings').then((r) => r.json());
+    assert.ok(!JSON.stringify(s).includes('hunter2'), 'the value leaked to the page');
+    assert.strictEqual(s.secrets.find((x) => x.name === 'PORTAL_PASSWORD').set, true);
+  });
+});
+
+test('saving settings writes settings.json and never the theme', async () => {
+  await withApp(async ({ call, dir }) => {
+    const themeBefore = fs.readFileSync(path.join(dir, 'theme.json'), 'utf8');
+    const res = await call('/api/settings', {
+      values: { 'theme.cursor.moveMs': 820, 'flow.minStepMs': 2200 },
+    });
+    assert.strictEqual(res.status, 200);
+
+    const written = JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8'));
+    assert.strictEqual(written.theme.cursor.moveMs, 820);
+    assert.strictEqual(written.flow.minStepMs, 2200);
+    assert.strictEqual(fs.readFileSync(path.join(dir, 'theme.json'), 'utf8'), themeBefore);
+  });
+});
+
+test('a value the tool will not accept comes back as a sentence, not a stack trace', async () => {
+  await withApp(async ({ call }) => {
+    const res = await call('/api/settings', { values: { 'theme.video.width': 1921 } });
+    assert.strictEqual(res.status, 400);
+    const { error } = await res.json();
+    assert.match(error, /even number of pixels/);
+  });
+});
+
+test('settings need the token like everything else', async () => {
+  await withApp(async ({ base }) => {
+    assert.strictEqual((await fetch(`${base}/api/settings`)).status, 403);
+    const posted = await fetch(`${base}/api/settings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ secrets: { X: 'y' } }),
+    });
+    assert.strictEqual(posted.status, 403);
+  });
+});

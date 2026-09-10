@@ -78,6 +78,7 @@ function buildOverlayScript(theme, mask = []) {
       borderWidth: highlight.borderWidth,
       // "auto" means take it from the element being highlighted.
       borderRadius: highlight.borderRadius,
+      fadeMs: highlight.fadeMs,
     },
     mask: mask.map((rule) => ({
       selector: rule.selector,
@@ -187,9 +188,11 @@ function buildOverlayScript(theme, mask = []) {
         'border:' + CFG.highlight.borderWidth + 'px solid ' + CFG.highlight.color,
         'border-radius:' + ringRadius(null),
         'box-sizing:border-box', 'opacity:0', 'pointer-events:none',
-        'transition:opacity 200ms ease, left 260ms cubic-bezier(.22,.61,.36,1), ' +
-          'top 260ms cubic-bezier(.22,.61,.36,1), width 260ms cubic-bezier(.22,.61,.36,1), ' +
-          'height 260ms cubic-bezier(.22,.61,.36,1)',
+        // Opacity only. Transitioning the geometry made the ring travel across
+        // the page from the last element to this one, which reads as the ring
+        // being a thing that moves rather than a marker on what is being
+        // pointed at.
+        'transition:opacity ' + CFG.highlight.fadeMs + 'ms ease',
         CFG.highlight.glow
           ? 'box-shadow:0 0 0 4px ' + rgba(CFG.highlight.color, 0.22) +
             ', 0 0 20px 2px ' + rgba(CFG.highlight.color, 0.5)
@@ -428,11 +431,18 @@ function buildOverlayScript(theme, mask = []) {
 
   window.__tutHighlight = (rect) => {
     if (!CFG.highlight.enabled || !ensure() || !ringEl) return;
+
+    // Move it while it cannot be seen, then fade in where it landed. The
+    // transition is suppressed for the write itself so the ring snaps even if
+    // it happened to still be visible from the step before.
+    ringEl.style.transition = 'none';
     ringEl.style.left = (rect.x - RING_PAD) + 'px';
     ringEl.style.top = (rect.y - RING_PAD) + 'px';
     ringEl.style.width = (rect.width + RING_PAD * 2) + 'px';
     ringEl.style.height = (rect.height + RING_PAD * 2) + 'px';
     ringEl.style.borderRadius = ringRadius(rect.radius);
+    void ringEl.offsetWidth;                       // commit the move
+    ringEl.style.transition = 'opacity ' + CFG.highlight.fadeMs + 'ms ease';
     ringEl.style.opacity = '1';
   };
 

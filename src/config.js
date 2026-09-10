@@ -123,6 +123,8 @@ function loadFlow(flowPath) {
     minStepMs: Number.isFinite(flow.minStepMs) ? flow.minStepMs : 1200,
     // Breathing room after the narration finishes, before the next step fires.
     stepPaddingMs: Number.isFinite(flow.stepPaddingMs) ? flow.stepPaddingMs : 600,
+    // Per-keystroke delay for "type" steps, unless a step overrides it.
+    typeDelayMs: Number.isFinite(flow.typeDelayMs) ? flow.typeDelayMs : 55,
     steps: flow.steps,
     mask,
     auth,

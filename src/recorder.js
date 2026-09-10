@@ -133,6 +133,7 @@ async function runStep(page, step, flow, theme) {
     case 'click': {
       const target = await point(page, step.selector, theme);
       await moveCursor(page, target, theme);
+      await showHighlight(page, target, theme);
       if (theme.cursor.enabled) {
         await page.evaluate(() => window.__tutClickPulse && window.__tutClickPulse()).catch(() => {});
         // Let the ripple start before the page changes under it.
@@ -144,15 +145,19 @@ async function runStep(page, step, flow, theme) {
     case 'hover': {
       const target = await point(page, step.selector, theme);
       await moveCursor(page, target, theme);
+      await showHighlight(page, target, theme);
       await page.hover(step.selector, { timeout: 15000 });
       return target && target.rect;
     }
     case 'type': {
       const target = await point(page, step.selector, theme);
       await moveCursor(page, target, theme);
+      await showHighlight(page, target, theme);
       await page.click(step.selector, { timeout: 15000 });
       // A visible per-character delay; instant fills do not read as typing.
-      await page.type(step.selector, step.text, { delay: step.delayMs ?? 55 });
+      await page.type(step.selector, step.text, {
+        delay: step.delayMs ?? flow.typeDelayMs ?? 55,
+      });
       return target && target.rect;
     }
     case 'scroll': {
@@ -166,10 +171,7 @@ async function runStep(page, step, flow, theme) {
           rect.radius = await locator.evaluate((el) => getComputedStyle(el).borderRadius)
             .catch(() => null);
         }
-        if (rect && theme.highlight.enabled && step.highlight !== false) {
-          await page.evaluate((r) => window.__tutHighlight && window.__tutHighlight(r), rect)
-            .catch(() => {});
-        }
+        if (step.highlight !== false) await showHighlight(page, { rect }, theme);
       } else {
         const to = Number.isFinite(step.to) ? step.to : null;
         await page.evaluate((amount) => {
@@ -236,11 +238,21 @@ async function point(page, selector, theme) {
     rect.radius = await locator.evaluate((el) => getComputedStyle(el).borderRadius)
       .catch(() => null);
   }
-  if (theme.highlight.enabled) {
-    await page.evaluate((r) => window.__tutHighlight && window.__tutHighlight(r), rect)
-      .catch(() => {});
-  }
   return { x: box.x + box.width / 2, y: box.y + box.height / 2, rect };
+}
+
+/**
+ * Put the ring on the target.
+ *
+ * Called after the cursor has finished travelling, never before. Showing it
+ * first tells the viewer where to look before the pointer gets there, and the
+ * eye goes to the ring instead of following the movement that is supposed to
+ * carry the explanation.
+ */
+async function showHighlight(page, target, theme) {
+  if (!theme.highlight.enabled || !target || !target.rect) return;
+  await page.evaluate((r) => window.__tutHighlight && window.__tutHighlight(r), target.rect)
+    .catch(() => {});
 }
 
 async function moveCursor(page, target, theme) {
@@ -326,6 +338,6 @@ function sessionPath(flow) {
 }
 
 module.exports = {
-  record, resolveUrl, readingTimeMs, describeStep,
+  record, runStep, resolveUrl, readingTimeMs, describeStep, showHighlight,
   authenticate, sessionIsFresh, sessionPath,
 };

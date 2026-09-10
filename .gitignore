@@ -7,3 +7,7 @@ tmp/
 # Saved login sessions. These hold live cookies; treat them like keys.
 .auth/
 **/.auth/
+
+# Passwords typed into the app window. Local to one machine.
+.secrets.json
+**/.secrets.json

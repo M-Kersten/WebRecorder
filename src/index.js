@@ -6,7 +6,7 @@ const path = require('path');
 const os = require('os');
 
 const { loadFlow, ConfigError } = require('./config');
-const { loadTheme, describeTheme } = require('./theme');
+const { loadTheme, describeTheme, deepMerge } = require('./theme');
 const { synthesizeAll } = require('./tts');
 const { record, describeStep, authenticate, sessionIsFresh, sessionPath } = require('./recorder');
 const { resolveFlowSecrets } = require('./secrets');
@@ -15,6 +15,7 @@ const { renderCard } = require('./titlecard');
 const ff = require('./ffmpeg');
 const { serveStatic } = require('./server');
 const { createWorkDir, removeWorkDir } = require('./workdir');
+const { loadSettings, applySecrets, SETTINGS_FILE } = require('./settings');
 const { capture } = require('./capture');
 
 const USAGE = `
@@ -32,6 +33,7 @@ Options
   --out <path>        Output video                        (default: out/tutorial.mp4)
   --serve <dir>       Serve <dir> statically and use it as the flow's baseUrl
   --url <url>         Where "capture" starts (capture only)
+  --settings <path>   Values set from the app window  (default: settings.json)
 
   --no-tts            Timed silence instead of ElevenLabs. Free, and the
                       pacing comes out the same, so use it while iterating.
@@ -78,6 +80,7 @@ function parseArgs(argv) {
     fades: null,
     serve: null,
     url: null,
+    settings: SETTINGS_FILE,
     headed: false,
     relogin: false,
     keepTemp: false,
@@ -88,6 +91,7 @@ function parseArgs(argv) {
   };
   const takesValue = {
     '--flow': 'flow', '--theme': 'theme', '--out': 'out', '--serve': 'serve', '--url': 'url',
+    '--settings': 'settings',
   };
   const COMMANDS = ['init', 'capture', 'ui', 'setup'];
 
@@ -250,10 +254,16 @@ async function main(argv) {
   if (args.command === 'ui') return runUi();
   if (args.command === 'setup') return runSetup();
 
-  const theme = applyOverrides(loadTheme(args.theme), args);
+  // Values set from the app window sit in their own file and are merged over
+  // the theme and the flow here, so theme.json is never rewritten from a form.
+  const settings = loadSettings(args.settings);
+
+  const theme = applyOverrides(deepMerge(loadTheme(args.theme), settings.theme), args);
   if (args.printTheme) { write(describeTheme(theme)); return 0; }
 
-  const flow = loadFlow(args.flow);
+  const flow = Object.assign(loadFlow(args.flow), settings.flow);
+  // Passwords saved from the window, for anything the environment has not set.
+  applySecrets(path.dirname(path.resolve(args.settings)));
   const secretsUsed = resolveFlowSecrets(flow);
   if (args.check) {
     write(describeTheme(theme));

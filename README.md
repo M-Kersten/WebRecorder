@@ -115,6 +115,33 @@ The server binds to `127.0.0.1` and every action needs a token that only the
 window it opened was given. Anything on localhost is otherwise reachable from
 any page the browser has open, and this one launches browsers and writes files.
 
+## Settings
+
+The app window has a settings screen: cursor travel time and easing, typing
+speed, how long a step is held, the pause after each one, the fades, the video
+size, and the passwords a walkthrough needs.
+
+These are written to `settings.json`, a thin layer merged over the theme and the
+flow at load time. `theme.json` is meant to be read and edited by hand and is
+full of comments explaining itself; rewriting it from a form would throw all of
+that away, so nothing does. The CLI reads the same layer:
+
+```bash
+site-tutorial-video --settings settings.json
+```
+
+```jsonc
+{
+  "theme": { "cursor": { "moveMs": 700 }, "highlight": { "fadeMs": 300 } },
+  "flow":  { "minStepMs": 1800, "typeDelayMs": 30 }
+}
+```
+
+Passwords go to `.secrets.json`, written `0600` and gitignored. The window is
+told which names are set, never what they are, and a value already in the
+environment always wins over a saved one, so a CI secret is never quietly
+replaced by something typed into a window months ago.
+
 ## Recording a flow
 
 ```bash
@@ -332,6 +359,12 @@ back to the middle of the screen every time the site navigates.
 page, so nothing has to load at record time. `hotspot` is the point that sits on
 the target, as a fraction of the image: `[0, 0]` is its top-left corner, `[0.5,
 0.5]` its centre. A tip-at-top-left arrow wants roughly `[0.19, 0.08]`.
+
+The ring never travels. It is placed on its target while invisible and faded in
+once the cursor has finished moving; showing it first tells the viewer where to
+look before the pointer gets there, and the eye goes to the ring instead of
+following the movement that is supposed to be carrying the explanation.
+`highlight.fadeMs` is how long that fade takes.
 
 `highlight.borderRadius: "auto"` takes the corners from the element being
 highlighted and grows them to stay concentric with the ring. On a page built out

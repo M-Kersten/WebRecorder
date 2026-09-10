@@ -549,3 +549,64 @@ test('without captions the hint uses the whole frame again', async () => {
     assert.ok(box.bottom > viewportHeight - 60, 'it should sit near the bottom edge');
   } finally { await close(); }
 });
+
+// --- highlight timing --------------------------------------------------
+//
+// The ring used to have CSS transitions on left/top/width/height, so it
+// travelled across the page from the last element to this one. It read as a
+// thing that moves rather than a marker on what is being pointed at.
+
+test('the ring snaps to its target instead of travelling', async () => {
+  const two = '<!doctype html><body style="margin:0">' +
+    '<div id="a" style="position:absolute;left:40px;top:40px;width:120px;height:60px"></div>' +
+    '<div id="b" style="position:absolute;left:700px;top:500px;width:200px;height:80px"></div>' +
+    '</body>';
+  const { page, close } = await withOverlay({ highlight: { fadeMs: 200 } }, two);
+  try {
+    const at = async (selector) => {
+      const rect = await page.locator(selector).boundingBox();
+      await page.evaluate((r) => window.__tutHighlight(r), rect);
+      return rect;
+    };
+    await at('#a');
+    await page.waitForTimeout(300);
+
+    // Move it far away and sample immediately: a transition would still have
+    // it somewhere between the two.
+    const target = await at('#b');
+    const landed = await page.evaluate(() =>
+      document.querySelector('[data-tut-ring]').getBoundingClientRect().toJSON());
+
+    assert.ok(Math.abs(landed.left - (target.x - 6)) < 2,
+      `expected it at ${target.x - 6}, found it at ${landed.left}`);
+    assert.ok(Math.abs(landed.top - (target.y - 6)) < 2,
+      `expected it at ${target.y - 6}, found it at ${landed.top}`);
+  } finally { await close(); }
+});
+
+test('only opacity is animated, so nothing about the ring can slide', async () => {
+  const { page, close } = await withOverlay({ highlight: { fadeMs: 240 } });
+  try {
+    await page.evaluate(() => window.__tutHighlight({ x: 10, y: 10, width: 80, height: 40 }));
+    await page.waitForTimeout(50);
+    const transition = await page.evaluate(() =>
+      getComputedStyle(document.querySelector('[data-tut-ring]')).transition);
+    assert.match(transition, /opacity/);
+    assert.ok(!/\b(left|top|width|height)\b/.test(transition),
+      `geometry must not be transitioned: ${transition}`);
+  } finally { await close(); }
+});
+
+test('the ring fades in rather than appearing at full strength', async () => {
+  const { page, close } = await withOverlay({ highlight: { fadeMs: 400 } });
+  try {
+    const during = await page.evaluate(async () => {
+      window.__tutClearHighlight();
+      await new Promise((r) => setTimeout(r, 250));
+      window.__tutHighlight({ x: 10, y: 10, width: 80, height: 40 });
+      await new Promise((r) => setTimeout(r, 120));
+      return Number(getComputedStyle(document.querySelector('[data-tut-ring]')).opacity);
+    });
+    assert.ok(during > 0 && during < 1, `expected a partial fade, saw ${during}`);
+  } finally { await close(); }
+});

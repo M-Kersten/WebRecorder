@@ -9,7 +9,9 @@ const { spawn } = require('child_process');
 
 const { capture } = require('./capture');
 const { loadFlow } = require('./config');
-const { loadTheme } = require('./theme');
+const { listPlaceholders } = require('./secrets');
+const { loadTheme, deepMerge } = require('./theme');
+const settingsStore = require('./settings');
 const { launch } = require('./browser');
 
 /**
@@ -28,6 +30,7 @@ function createApp(options = {}) {
     projectDir = process.cwd(),
     flowFile = path.join(projectDir, 'flow.json'),
     outDir = path.join(projectDir, 'out'),
+    settingsFile = path.join(projectDir, settingsStore.SETTINGS_FILE),
     // Injected so a test can drive a whole run without a person clicking
     // through a real site.
     captureFn = capture,
@@ -79,6 +82,52 @@ function createApp(options = {}) {
     durationSec: state.durationSec,
     error: state.error,
   });
+
+  /**
+   * Everything the settings screen shows.
+   *
+   * Saved passwords are reported by name only. A value that has been stored is
+   * never handed back to the page: the window is told which ones are set, and
+   * that is all it needs to render the form.
+   */
+  function readSettings() {
+    const themeFile = path.join(projectDir, 'theme.json');
+    const flowFile2 = flowFile;
+    let values = {};
+    let problem = null;
+    try {
+      const layer = settingsStore.loadSettings(settingsFile);
+      const theme = deepMerge(loadTheme(themeFile), layer.theme);
+      const flow = fs.existsSync(flowFile2)
+        ? Object.assign(loadFlow(flowFile2), layer.flow)
+        : { minStepMs: 1400, stepPaddingMs: 600, typeDelayMs: 55, ...layer.flow };
+      values = settingsStore.readValues(theme, flow);
+    } catch (err) {
+      problem = friendly(err);
+    }
+
+    const stored = new Set(Object.keys(settingsStore.loadSecrets(projectDir)));
+    let wanted = [];
+    try {
+      if (fs.existsSync(flowFile2)) wanted = listPlaceholders(loadFlow(flowFile2));
+    } catch {
+      // A flow that will not load has no passwords to ask about yet.
+    }
+    // Anything the flow wants, plus anything already saved from before.
+    const names = [...new Set([...wanted, ...stored])].sort();
+
+    return {
+      fields: settingsStore.FIELDS,
+      values,
+      problem,
+      secrets: names.map((name) => ({
+        name,
+        set: stored.has(name),
+        fromEnvironment: !!process.env[name] && !stored.has(name),
+        usedByFlow: wanted.includes(name),
+      })),
+    };
+  }
 
   /** Theme files sitting next to the project, for the style dropdown. */
   function listThemes() {
@@ -157,6 +206,7 @@ function createApp(options = {}) {
     const argv = [
       '--flow', flowFile,
       '--theme', path.join(projectDir, opts.theme || 'theme.json'),
+      '--settings', settingsFile,
       '--out', outFile,
     ];
     if (!opts.narration) argv.push('--no-tts');
@@ -221,6 +271,17 @@ function createApp(options = {}) {
         return undefined;
       }
 
+      if (url.pathname === '/api/settings' && req.method !== 'POST') {
+        return send(200, readSettings());
+      }
+
+      if (url.pathname === '/api/settings' && req.method === 'POST') {
+        const body = await readJsonBody(req);
+        if (body.values) settingsStore.saveSettings(settingsFile, body.values);
+        if (body.secrets) settingsStore.saveSecrets(projectDir, body.secrets);
+        return send(200, readSettings());
+      }
+
       if (url.pathname === '/api/setup') {
         return send(200, {
           themes: listThemes(),
@@ -277,6 +338,7 @@ function createApp(options = {}) {
     close: () => new Promise((done) => server.close(done)),
     publicState,
     listThemes,
+    readSettings,
     startCapture,
     startRender,
   };
