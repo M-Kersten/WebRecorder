@@ -14,6 +14,7 @@ const captions = require('./captions');
 const { renderCard } = require('./titlecard');
 const ff = require('./ffmpeg');
 const { serveStatic } = require('./server');
+const { createWorkDir, removeWorkDir } = require('./workdir');
 const { capture } = require('./capture');
 
 const USAGE = `
@@ -294,7 +295,7 @@ async function main(argv) {
 
   const outFile = path.resolve(args.out);
   fs.mkdirSync(path.dirname(outFile), { recursive: true });
-  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tutvid-'));
+  const workDir = createWorkDir();
   const ui = stepLogger(args.quiet);
   const startedAt = Date.now();
 
@@ -418,10 +419,14 @@ async function main(argv) {
     write('');
     return 0;
   } finally {
-    ui.finish();
-    if (server) await server.close();
+    // Nothing in here may throw. This runs after a successful render too, and
+    // an exception raised now would replace the result the caller is about to
+    // get - a finished video reported as a failure because a temp folder would
+    // not delete.
+    try { ui.finish(); } catch { /* the run already has its answer */ }
+    if (server) await server.close().catch(() => {});
     if (args.keepTemp) write(`temp kept: ${workDir}`);
-    else fs.rmSync(workDir, { recursive: true, force: true });
+    else removeWorkDir(workDir, (m) => write(`  ${m}`));
   }
 }
 

@@ -332,8 +332,11 @@ async function burnSubtitles(videoFile, srtFile, forceStyle, fontsDir, outFile, 
  */
 async function concatDemuxer(segments, outFile, workDir) {
   const listFile = path.join(workDir, 'concat-list.txt');
+  // Forward slashes even on Windows: the concat demuxer reads a backslash as an
+  // escape character, so C:\Users\... arrives mangled.
   const body = segments
-    .map((s) => `file '${path.resolve(s).replace(/'/g, "'\\''")}'`)
+    .map((s) => path.resolve(s).replace(/\\/g, '/').replace(/'/g, "'\\''"))
+    .map((p) => `file '${p}'`)
     .join('\n');
   fs.writeFileSync(listFile, body + '\n', 'utf8');
   await ffmpeg([

@@ -325,7 +325,8 @@ const slug = (s) => String(s || '').trim().toLowerCase()
  * machine uses, because a window that does not appear is worse than a tab.
  */
 async function openWindow(url, log = () => {}) {
-  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tutvid-ui-'));
+  const { createWorkDir, removeWorkDir } = require('./workdir');
+  const userDataDir = createWorkDir('tutvid-ui-');
   try {
     const { chromium } = require('playwright');
     const { resolveExecutablePath } = require('./browser');
@@ -336,8 +337,16 @@ async function openWindow(url, log = () => {}) {
       ...(executablePath ? { executablePath } : {}),
       args: [`--app=${url}`, '--window-size=980,880'],
     });
-    return { kind: 'app', context, close: () => context.close().catch(() => {}) };
+    return {
+      kind: 'app',
+      context,
+      close: async () => {
+        await context.close().catch(() => {});
+        removeWorkDir(userDataDir, log);
+      },
+    };
   } catch (err) {
+    removeWorkDir(userDataDir);
     log(`could not open an app window (${firstLine(err.message)}), using the default browser`);
     const opener = process.platform === 'darwin' ? 'open'
       : process.platform === 'win32' ? 'start' : 'xdg-open';
