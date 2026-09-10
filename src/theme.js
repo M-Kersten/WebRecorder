@@ -160,19 +160,34 @@ function loadTheme(themePath) {
   }
 
   const theme = deepMerge(DEFAULTS, raw);
-  const baseDir = path.dirname(abs);
   theme.path = abs;
-  theme.baseDir = baseDir;
+  theme.baseDir = path.dirname(abs);
+  return validateTheme(theme, abs);
+}
 
-  validateVideo(theme, abs);
-  theme.fonts = resolveFonts(theme.fonts, baseDir, abs);
-  validateFontRefs(theme, abs);
-  validateColors(theme, abs);
-  validateCursor(theme, baseDir, abs);
-  validateHighlight(theme, abs);
-  validateHints(theme, abs);
-  validateTransitions(theme, abs);
-  validateCards(theme, baseDir, abs);
+/**
+ * Check a theme over and finish resolving it.
+ *
+ * Separate from reading a file so that a theme assembled in memory - one with
+ * the app window's settings layered on top of it - can be checked before it is
+ * saved, rather than breaking three minutes into a render.
+ *
+ * Fonts are only resolved once; a theme handed back through here keeps the
+ * objects it already has.
+ */
+function validateTheme(theme, label = theme.path || '(theme)') {
+  const baseDir = theme.baseDir || (theme.path ? path.dirname(theme.path) : process.cwd());
+
+  validateVideo(theme, label);
+  const alreadyResolved = Object.values(theme.fonts || {}).every((f) => f && f.path);
+  if (!alreadyResolved) theme.fonts = resolveFonts(theme.fonts, baseDir, label);
+  validateFontRefs(theme, label);
+  validateColors(theme, label);
+  validateCursor(theme, baseDir, label);
+  validateHighlight(theme, label);
+  validateHints(theme, label);
+  validateTransitions(theme, label);
+  validateCards(theme, baseDir, label);
 
   // libass takes a single fontsdir, and captions are the only thing it renders,
   // so the caption font's own directory is the one that matters.
@@ -496,4 +511,4 @@ function describeTheme(theme) {
   return lines.join('\n');
 }
 
-module.exports = { loadTheme, describeTheme, deepMerge, DEFAULTS, ThemeError };
+module.exports = { loadTheme, validateTheme, describeTheme, deepMerge, DEFAULTS, ThemeError };

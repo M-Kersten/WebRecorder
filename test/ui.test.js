@@ -230,3 +230,63 @@ test('settings need the token like everything else', async () => {
     assert.strictEqual(posted.status, 403);
   });
 });
+
+// Some combinations only break later: switching the opening card on without
+// giving it a title renders nothing and stops the run three minutes in.
+test('a combination that would break the render is refused while saving', async () => {
+  await withApp(async ({ call }) => {
+    const res = await call('/api/settings', {
+      values: { 'theme.intro.enabled': true, 'theme.intro.title': '', 'theme.intro.subtitle': '' },
+    });
+    assert.strictEqual(res.status, 400);
+    const { error } = await res.json();
+    assert.match(error, /no title, subtitle or logo/);
+  });
+});
+
+test('the settings screen is offered the fonts this theme declares', async () => {
+  await withApp(async ({ call }) => {
+    const s = await call('/api/settings').then((r) => r.json());
+    const families = s.fonts.map((f) => f.family).sort();
+    assert.deepStrictEqual(families, ['Inter', 'Poppins']);
+    assert.ok(s.fonts.every((f) => f.key && f.family));
+  });
+});
+
+test('a font the theme does not have is refused with what it does have', async () => {
+  await withApp(async ({ call }) => {
+    const res = await call('/api/settings', { values: { 'theme.intro.titleFont': 'Comic Sans' } });
+    assert.strictEqual(res.status, 400);
+    assert.match((await res.json()).error, /This theme has: heading, body/);
+  });
+});
+
+test('colours and card text survive a save and come back', async () => {
+  await withApp(async ({ call, dir }) => {
+    await call('/api/settings', {
+      values: {
+        'theme.highlight.color': '#e6007e',
+        'theme.intro.title': 'Q Portal',
+        'theme.intro.titleFont': 'heading',
+      },
+    });
+    const s = await call('/api/settings').then((r) => r.json());
+    assert.strictEqual(s.values['theme.highlight.color'], '#E6007E');
+    assert.strictEqual(s.values['theme.intro.title'], 'Q Portal');
+    assert.strictEqual(s.values['theme.intro.titleFont'], 'heading');
+
+    // And the theme file itself is still the hand-written one.
+    assert.ok(fs.readFileSync(path.join(dir, 'theme.json'), 'utf8').includes('//'));
+  });
+});
+
+// The passwords list is built by reading the flow. A mistake there used to be
+// swallowed and shown as "this walkthrough does not sign in anywhere".
+test('a flow that will not parse says so instead of showing no passwords', async () => {
+  await withApp(async ({ call, dir }) => {
+    fs.writeFileSync(path.join(dir, 'flow.json'), '{ "steps": [ ');
+    const s = await call('/api/settings').then((r) => r.json());
+    assert.ok(s.problem, 'the broken flow should be reported');
+    assert.match(s.problem, /not valid JSON/);
+  });
+});

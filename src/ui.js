@@ -10,7 +10,7 @@ const { spawn } = require('child_process');
 const { capture } = require('./capture');
 const { loadFlow } = require('./config');
 const { listPlaceholders } = require('./secrets');
-const { loadTheme, deepMerge } = require('./theme');
+const { loadTheme, validateTheme, deepMerge } = require('./theme');
 const settingsStore = require('./settings');
 const { launch } = require('./browser');
 
@@ -91,27 +91,30 @@ function createApp(options = {}) {
    * that is all it needs to render the form.
    */
   function readSettings() {
-    const themeFile = path.join(projectDir, 'theme.json');
-    const flowFile2 = flowFile;
     let values = {};
+    let fonts = [];
     let problem = null;
     try {
-      const layer = settingsStore.loadSettings(settingsFile);
-      const theme = deepMerge(loadTheme(themeFile), layer.theme);
-      const flow = fs.existsSync(flowFile2)
-        ? Object.assign(loadFlow(flowFile2), layer.flow)
-        : { minStepMs: 1400, stepPaddingMs: 600, typeDelayMs: 55, ...layer.flow };
+      const { theme, flow } = currentConfig();
       values = settingsStore.readValues(theme, flow);
+      // The font dropdowns can only offer what this theme actually declares.
+      fonts = Object.entries(theme.fonts || {}).map(([key, font]) => ({
+        key, family: font.family,
+      }));
     } catch (err) {
       problem = friendly(err);
     }
 
     const stored = new Set(Object.keys(settingsStore.loadSecrets(projectDir)));
     let wanted = [];
-    try {
-      if (fs.existsSync(flowFile2)) wanted = listPlaceholders(loadFlow(flowFile2));
-    } catch {
-      // A flow that will not load has no passwords to ask about yet.
+    if (fs.existsSync(flowFile)) {
+      try {
+        wanted = listPlaceholders(loadFlow(flowFile));
+      } catch (err) {
+        // A flow that will not parse has no passwords to ask about yet, but say
+        // so rather than showing an empty list as though it wanted none.
+        problem = problem || friendly(err);
+      }
     }
     // Anything the flow wants, plus anything already saved from before.
     const names = [...new Set([...wanted, ...stored])].sort();
@@ -119,6 +122,7 @@ function createApp(options = {}) {
     return {
       fields: settingsStore.FIELDS,
       values,
+      fonts,
       problem,
       secrets: names.map((name) => ({
         name,
@@ -127,6 +131,36 @@ function createApp(options = {}) {
         usedByFlow: wanted.includes(name),
       })),
     };
+  }
+
+  /** The theme and flow as they stand, with the saved settings layered on. */
+  function currentConfig() {
+    const layer = settingsStore.loadSettings(settingsFile);
+    const theme = deepMerge(loadTheme(path.join(projectDir, 'theme.json')), layer.theme);
+    const flow = fs.existsSync(flowFile)
+      ? Object.assign(loadFlow(flowFile), layer.flow)
+      : { minStepMs: 1400, stepPaddingMs: 600, typeDelayMs: 55, ...layer.flow };
+    return { theme, flow, layer };
+  }
+
+  /**
+   * Save, but only once the result is known to work.
+   *
+   * Some combinations only break later: switching the opening card on without
+   * giving it a title renders nothing and stops the run three minutes in. The
+   * new values are merged onto the theme and checked here, so the form says so
+   * while the person is still looking at it.
+   */
+  function writeSettings(values, secrets) {
+    if (values) {
+      const base = loadTheme(path.join(projectDir, 'theme.json'));
+      const fontKeys = Object.keys(base.fonts || {});
+      const layer = settingsStore.toLayer(values, { fontKeys });
+      validateTheme(deepMerge(base, layer.theme), 'These settings');
+      settingsStore.saveSettings(settingsFile, values, { fontKeys });
+    }
+    if (secrets) settingsStore.saveSecrets(projectDir, secrets);
+    return readSettings();
   }
 
   /** Theme files sitting next to the project, for the style dropdown. */
@@ -277,9 +311,7 @@ function createApp(options = {}) {
 
       if (url.pathname === '/api/settings' && req.method === 'POST') {
         const body = await readJsonBody(req);
-        if (body.values) settingsStore.saveSettings(settingsFile, body.values);
-        if (body.secrets) settingsStore.saveSecrets(projectDir, body.secrets);
-        return send(200, readSettings());
+        return send(200, writeSettings(body.values, body.secrets));
       }
 
       if (url.pathname === '/api/setup') {
@@ -339,6 +371,7 @@ function createApp(options = {}) {
     publicState,
     listThemes,
     readSettings,
+    writeSettings,
     startCapture,
     startRender,
   };

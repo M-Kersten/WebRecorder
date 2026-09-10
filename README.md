@@ -117,9 +117,21 @@ any page the browser has open, and this one launches browsers and writes files.
 
 ## Settings
 
-The app window has a settings screen: cursor travel time and easing, typing
-speed, how long a step is held, the pause after each one, the fades, the video
-size, and the passwords a walkthrough needs.
+The app window has a settings screen, grouped into sections:
+
+| | |
+| --- | --- |
+| Movement | cursor travel time and easing, typing speed, click ripple, highlight fade |
+| Pacing | shortest a step can be, pause after each one, hint fade, fade between segments |
+| Colours | highlight ring, pointer and its outline, click ripple, hint background and text, the colour behind the page |
+| Type | which bundled font the hints and subtitles use, and at what size |
+| Opening card | on or off, title, subtitle, their fonts and colours, background, how long it shows |
+| Closing card | the same |
+| Video | size and frame rate |
+| Passwords | one field per `${VAR}` the walkthrough needs |
+
+Font dropdowns offer what the theme declares, by family name. Colours take a
+hex, with a swatch beside the field for picking one.
 
 These are written to `settings.json`, a thin layer merged over the theme and the
 flow at load time. `theme.json` is meant to be read and edited by hand and is
@@ -136,6 +148,14 @@ site-tutorial-video --settings settings.json
   "flow":  { "minStepMs": 1800, "typeDelayMs": 30 }
 }
 ```
+
+Some combinations only break later: switching the opening card on without
+giving it a title renders nothing and would stop a run minutes in. The new
+values are merged onto the theme and checked before anything is written, so the
+form says so while you are still looking at it.
+
+Only what the settings list names can be reached from the form. Anything else in
+the theme, including every field that takes a file path, stays out of its hands.
 
 Passwords go to `.secrets.json`, written `0600` and gitignored. The window is
 told which names are set, never what they are, and a value already in the

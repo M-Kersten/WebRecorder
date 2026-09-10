@@ -95,6 +95,32 @@
   .settings-head button { padding: 7px 14px; font-size: 13px; }
   .group { font-size: 12px; text-transform: uppercase; letter-spacing: .9px;
            color: var(--muted); margin: 0 0 14px; font-weight: 600; }
+  details.group-card { background: var(--panel); border: 1px solid var(--line);
+                       border-radius: var(--radius); margin-bottom: 14px; }
+  details.group-card > summary {
+    list-style: none; cursor: pointer; padding: 16px 22px;
+    font-size: 12px; text-transform: uppercase; letter-spacing: .9px;
+    color: var(--muted); font-weight: 600; display: flex; align-items: center; gap: 9px;
+  }
+  details.group-card > summary::-webkit-details-marker { display: none; }
+  details.group-card > summary::before {
+    content: '›'; font-size: 17px; line-height: 1; transform: rotate(0deg);
+    transition: transform .16s ease; color: var(--muted);
+  }
+  details[open].group-card > summary::before { transform: rotate(90deg); }
+  details.group-card > summary:hover { color: var(--ink); }
+  .group-body { padding: 0 22px 20px; }
+  .swatch {
+    -webkit-appearance: none; appearance: none; width: 38px; height: 34px; padding: 0;
+    border: 1px solid #2A3140; border-radius: 8px; background: none; cursor: pointer;
+    vertical-align: top;
+  }
+  .swatch::-webkit-color-swatch-wrapper { padding: 3px; }
+  .swatch::-webkit-color-swatch { border: 0; border-radius: 5px; }
+  .colour { display: flex; gap: 8px; align-items: center; }
+  .colour input[type=text] { width: 104px; font-family: ui-monospace, SFMono-Regular, monospace;
+                             font-size: 12.5px; text-transform: uppercase; }
+  .wide-text { width: 260px; }
   .row2 { display: grid; grid-template-columns: 1fr auto; gap: 14px; align-items: start; }
   .unit { color: var(--muted); font-size: 12.5px; margin-top: 6px; display: block; text-align: right; }
   .row2 .num { width: 130px; text-align: right; }
@@ -300,6 +326,34 @@
           (o.value === value ? ' selected' : '') + '>' + escapeHtml(o.label) + '</option>').join('') +
         '</select>';
     }
+    if (field.type === 'font') {
+      const options = [
+        field.nullable
+          ? '<option value=""' + (value ? '' : ' selected') + '>Whatever the browser picks</option>'
+          : '',
+        ...(settings.fonts || []).map((f) => '<option value="' + escapeHtml(f.key) + '"' +
+          (f.key === value ? ' selected' : '') + '>' + escapeHtml(f.family) + '</option>'),
+      ].filter(Boolean);
+      return '<select id="' + id + '" data-key="' + field.key + '">' + options.join('') + '</select>';
+    }
+    if (field.type === 'text') {
+      return '<input class="wide-text" type="text" id="' + id + '" data-key="' + field.key + '"' +
+        ' value="' + escapeHtml(value == null ? '' : value) + '"' +
+        (field.maxLength ? ' maxlength="' + field.maxLength + '"' : '') + '>';
+    }
+    if (field.type === 'color') {
+      // The hex field is what gets read; the swatch just fills it in. People
+      // paste brand colours as hex, and a picker alone cannot express "empty".
+      const hex = value == null ? '' : String(value);
+      return '<span class="colour">' +
+        '<input type="color" class="swatch" data-fills="' + id + '"' +
+        ' value="' + escapeHtml(hex || '#000000') + '">' +
+        '<input type="text" id="' + id + '" data-key="' + field.key + '"' +
+        ' value="' + escapeHtml(hex) + '"' +
+        ' placeholder="' + (field.nullable ? 'auto' : '#RRGGBB') + '"' +
+        ' spellcheck="false" autocomplete="off">' +
+        '</span>';
+    }
     const shown = value === null || value === undefined ? '' : value;
     return '<input class="num" type="number" id="' + id + '" data-key="' + field.key + '"' +
       ' value="' + escapeHtml(shown) + '"' +
@@ -321,9 +375,11 @@
       ? '<div class="notice warn">' + escapeHtml(settings.problem) + '</div>'
       : '';
 
-    for (const group of sections) {
-      html += '<div class="card" style="margin-bottom:14px"><div class="group">' +
-        escapeHtml(group.name) + '</div>';
+    // Open the first two; the rest are there when wanted. Forty-odd controls
+    // in one column is a wall, and most runs only ever touch the pacing.
+    sections.forEach((group, i) => {
+      html += '<details class="group-card"' + (i < 2 ? ' open' : '') + '>' +
+        '<summary>' + escapeHtml(group.name) + '</summary><div class="group-body">';
       html += group.fields.map((f) =>
         '<div class="field-row"><div class="row2"><div>' +
         '<div class="fname">' + escapeHtml(f.label) + '</div>' +
@@ -332,10 +388,10 @@
         (f.unit ? '<span class="unit">' + escapeHtml(f.unit) + '</span>' : '') +
         '</div></div></div>'
       ).join('');
-      html += '</div>';
-    }
+      html += '</div></details>';
+    });
 
-    html += '<div class="card"><div class="group">Passwords</div>';
+    html += '<details class="group-card" open><summary>Passwords</summary><div class="group-body">';
     if (!settings.secrets.length) {
       html += '<div class="fhelp">This walkthrough does not sign in anywhere, so there is ' +
         'nothing to fill in. Anything it needs will appear here after you record it.</div>';
@@ -355,9 +411,20 @@
         '</div>'
       ).join('');
     }
-    html += '</div>';
+    html += '</div></details>';
 
     $('settings-body').innerHTML = html;
+
+    // Keep each swatch and its hex field showing the same thing.
+    for (const swatch of $('settings-body').querySelectorAll('[data-fills]')) {
+      const text = $(swatch.dataset.fills);
+      swatch.addEventListener('input', () => { text.value = swatch.value.toUpperCase(); });
+      text.addEventListener('input', () => {
+        if (/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(text.value.trim())) {
+          swatch.value = text.value.trim();
+        }
+      });
+    }
   }
 
   async function openSettings() {

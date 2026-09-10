@@ -25,14 +25,21 @@ async function withPage(overrides = {}) {
   await ctx.addInitScript(buildOverlayScript(theme, []));
   // Sample the cursor position and the ring's opacity together, so the two can
   // be compared on one timeline.
+  //
+  // The position comes from the inline transform, not from the bounding box.
+  // The click pulse scales the cursor through the animation API, which leaves
+  // the inline style alone but does move the box, so a sample taken during the
+  // pulse would read as the pointer having jumped when it has not.
   await ctx.addInitScript(() => {
     window.__samples = [];
     setInterval(() => {
       const cursor = document.querySelector('[data-tut-cursor]');
       const ring = document.querySelector('[data-tut-ring]');
       if (!cursor || !ring) return;
+      const match = /translate3d\(([-\d.]+)px/.exec(cursor.style.transform || '');
+      if (!match) return;
       window.__samples.push({
-        x: Math.round(cursor.getBoundingClientRect().left),
+        x: Math.round(Number(match[1])),
         opacity: Number(getComputedStyle(ring).opacity),
       });
     }, 16);
@@ -44,6 +51,12 @@ async function withPage(overrides = {}) {
 }
 
 const FLOW = { baseUrl: null, typeDelayMs: 5, steps: [] };
+
+/** Where the cursor will have translated to once it has arrived. */
+async function restingX(page, selector, theme) {
+  const box = await page.locator(selector).boundingBox();
+  return Math.round(box.x + box.width / 2 - theme.cursor.size * theme.cursor.hotspot[0]);
+}
 
 // The ring appearing first tells the viewer where to look before the pointer
 // gets there, and the eye goes to the ring instead of following the movement
@@ -66,9 +79,9 @@ test('the ring stays hidden until the cursor has finished travelling', async () 
     const firstVisible = samples.findIndex((s) => s.opacity > 0);
     assert.notStrictEqual(firstVisible, -1, 'the ring should have appeared');
 
-    const restingX = samples[samples.length - 1].x;
-    assert.strictEqual(samples[firstVisible].x, restingX,
-      'the ring appeared while the cursor was still moving');
+    const arrived = await restingX(page, '#far', theme);
+    assert.strictEqual(samples[firstVisible].x, arrived,
+      'the ring appeared while the cursor was still on its way');
 
     // And nothing before that frame showed the ring at all.
     assert.ok(samples.slice(0, firstVisible).every((s) => s.opacity === 0));
@@ -85,7 +98,8 @@ test('a click marks its target the same way round', async () => {
     const samples = await page.evaluate(() => window.__samples);
     const firstVisible = samples.findIndex((s) => s.opacity > 0);
     assert.notStrictEqual(firstVisible, -1);
-    assert.strictEqual(samples[firstVisible].x, samples[samples.length - 1].x);
+    assert.strictEqual(samples[firstVisible].x, await restingX(page, '#far', theme),
+      'the ring appeared while the cursor was still on its way');
   } finally { await close(); }
 });
 

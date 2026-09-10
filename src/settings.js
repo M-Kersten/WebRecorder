@@ -87,6 +87,200 @@ const FIELDS = [
   },
 
   {
+    key: 'theme.highlight.color',
+    section: 'Colours',
+    label: 'Highlight ring',
+    help: 'The ring drawn around whatever is being pointed at.',
+    type: 'color',
+  },
+  {
+    key: 'theme.cursor.color',
+    section: 'Colours',
+    label: 'Pointer',
+    type: 'color',
+  },
+  {
+    key: 'theme.cursor.strokeColor',
+    section: 'Colours',
+    label: 'Pointer outline',
+    help: 'Keeps the pointer visible over light and dark parts of the page alike.',
+    type: 'color',
+  },
+  {
+    key: 'theme.cursor.rippleColor',
+    section: 'Colours',
+    label: 'Click ripple',
+    help: 'Leave empty to use the highlight colour.',
+    type: 'color', nullable: true,
+  },
+  {
+    key: 'theme.hints.backgroundColor',
+    section: 'Colours',
+    label: 'Hint background',
+    type: 'color',
+  },
+  {
+    key: 'theme.hints.color',
+    section: 'Colours',
+    label: 'Hint text',
+    type: 'color',
+  },
+  {
+    key: 'theme.video.backgroundColor',
+    section: 'Colours',
+    label: 'Behind the page',
+    help: 'Painted before the site loads, and used to fill any space the page does not cover.',
+    type: 'color',
+  },
+
+  {
+    key: 'theme.hints.font',
+    section: 'Type',
+    label: 'Hints',
+    type: 'font', nullable: true,
+  },
+  {
+    key: 'theme.hints.fontSize',
+    section: 'Type',
+    label: 'Hint size',
+    type: 'number', unit: 'px', min: 10, max: 120,
+  },
+  {
+    key: 'theme.captions.font',
+    section: 'Type',
+    label: 'Subtitles',
+    type: 'font', nullable: true,
+  },
+  {
+    key: 'theme.captions.fontSize',
+    section: 'Type',
+    label: 'Subtitle size',
+    type: 'number', unit: 'px', min: 10, max: 120,
+  },
+  {
+    key: 'theme.captions.color',
+    section: 'Type',
+    label: 'Subtitle text',
+    type: 'color',
+  },
+  {
+    key: 'theme.captions.backgroundColor',
+    section: 'Type',
+    label: 'Subtitle background',
+    type: 'color',
+  },
+
+  {
+    key: 'theme.intro.enabled',
+    section: 'Opening card',
+    label: 'Start with a title card',
+    type: 'boolean',
+  },
+  {
+    key: 'theme.intro.title',
+    section: 'Opening card',
+    label: 'Title',
+    type: 'text', maxLength: 120,
+  },
+  {
+    key: 'theme.intro.subtitle',
+    section: 'Opening card',
+    label: 'Subtitle',
+    type: 'text', maxLength: 160,
+  },
+  {
+    key: 'theme.intro.titleFont',
+    section: 'Opening card',
+    label: 'Title font',
+    type: 'font', nullable: true,
+  },
+  {
+    key: 'theme.intro.subtitleFont',
+    section: 'Opening card',
+    label: 'Subtitle font',
+    type: 'font', nullable: true,
+  },
+  {
+    key: 'theme.intro.titleColor',
+    section: 'Opening card',
+    label: 'Title colour',
+    type: 'color',
+  },
+  {
+    key: 'theme.intro.subtitleColor',
+    section: 'Opening card',
+    label: 'Subtitle colour',
+    type: 'color',
+  },
+  {
+    key: 'theme.intro.backgroundColor',
+    section: 'Opening card',
+    label: 'Background',
+    type: 'color',
+  },
+  {
+    key: 'theme.intro.durationSec',
+    section: 'Opening card',
+    label: 'How long it shows',
+    type: 'number', unit: 'seconds', min: 0.5, max: 20, step: 0.5,
+  },
+
+  {
+    key: 'theme.outro.enabled',
+    section: 'Closing card',
+    label: 'End with a card',
+    type: 'boolean',
+  },
+  {
+    key: 'theme.outro.title',
+    section: 'Closing card',
+    label: 'Title',
+    type: 'text', maxLength: 120,
+  },
+  {
+    key: 'theme.outro.subtitle',
+    section: 'Closing card',
+    label: 'Subtitle',
+    type: 'text', maxLength: 160,
+  },
+  {
+    key: 'theme.outro.titleFont',
+    section: 'Closing card',
+    label: 'Title font',
+    type: 'font', nullable: true,
+  },
+  {
+    key: 'theme.outro.subtitleFont',
+    section: 'Closing card',
+    label: 'Subtitle font',
+    type: 'font', nullable: true,
+  },
+  {
+    key: 'theme.outro.titleColor',
+    section: 'Closing card',
+    label: 'Title colour',
+    type: 'color',
+  },
+  {
+    key: 'theme.outro.subtitleColor',
+    section: 'Closing card',
+    label: 'Subtitle colour',
+    type: 'color',
+  },
+  {
+    key: 'theme.outro.backgroundColor',
+    section: 'Closing card',
+    label: 'Background',
+    type: 'color',
+  },
+  {
+    key: 'theme.outro.durationSec',
+    section: 'Closing card',
+    label: 'How long it shows',
+    type: 'number', unit: 'seconds', min: 0.5, max: 20, step: 0.5,
+  },
+
+  {
     key: 'theme.video.width',
     section: 'Video',
     label: 'Width',
@@ -142,12 +336,12 @@ function readValues(theme, flow) {
  * this file is edited by a form, and a form should not be able to put anything
  * it likes into the theme.
  */
-function toLayer(values) {
+function toLayer(values, context = {}) {
   const layer = { theme: {}, flow: {} };
   for (const [key, raw] of Object.entries(values || {})) {
     const field = BY_KEY.get(key);
     if (!field) throw new ConfigError(`"${key}" is not a setting this tool has`);
-    const value = coerce(field, raw);
+    const value = coerce(field, raw, context);
     if (value === undefined) continue;
 
     const [root, ...rest] = key.split('.');
@@ -158,8 +352,45 @@ function toLayer(values) {
   return layer;
 }
 
-function coerce(field, raw) {
+const HEX = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
+
+function coerce(field, raw, context = {}) {
   if (field.type === 'boolean') return !!raw;
+
+  if (field.type === 'text') {
+    const text = raw === null || raw === undefined ? '' : String(raw);
+    if (field.maxLength && text.length > field.maxLength) {
+      throw new ConfigError(`${field.label} is longer than ${field.maxLength} characters`);
+    }
+    return text;
+  }
+
+  if (field.type === 'color') {
+    const text = String(raw === null || raw === undefined ? '' : raw).trim();
+    if (!text) {
+      if (field.nullable) return null;
+      return undefined;                     // leave it as it was
+    }
+    if (!HEX.test(text)) {
+      throw new ConfigError(
+        `${field.label}: "${text}" is not a colour. Use a hex value such as #6C5CE7.`
+      );
+    }
+    return text.toUpperCase();
+  }
+
+  if (field.type === 'font') {
+    const key = String(raw === null || raw === undefined ? '' : raw).trim();
+    if (!key) return field.nullable ? null : undefined;
+    const known = context.fontKeys || [];
+    if (!known.includes(key)) {
+      throw new ConfigError(
+        `${field.label}: there is no font called "${key}"` +
+        (known.length ? `. This theme has: ${known.join(', ')}.` : ' in this theme.')
+      );
+    }
+    return key;
+  }
 
   if (field.type === 'select') {
     const allowed = field.options.map((o) => o.value);
@@ -193,8 +424,8 @@ function coerce(field, raw) {
   return number;
 }
 
-function saveSettings(file, values) {
-  const layer = toLayer(values);
+function saveSettings(file, values, context = {}) {
+  const layer = toLayer(values, context);
   fs.writeFileSync(path.resolve(file), `${JSON.stringify(layer, null, 2)}\n`, 'utf8');
   return layer;
 }

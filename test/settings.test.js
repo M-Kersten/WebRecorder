@@ -23,7 +23,8 @@ test('every field names a real place in the theme or the flow', () => {
   const values = settings.readValues(theme, flow);
   for (const field of settings.FIELDS) {
     assert.ok(field.key in values, `${field.key} was not read`);
-    assert.ok(['number', 'boolean', 'select'].includes(field.type), field.key);
+    assert.ok(['number', 'boolean', 'select', 'color', 'text', 'font'].includes(field.type),
+      `${field.key} has an unknown type "${field.type}"`);
     assert.ok(field.label && field.section, `${field.key} needs a label and a section`);
     if (field.type === 'select') assert.ok(field.options.length, `${field.key} needs options`);
   }
@@ -46,8 +47,13 @@ test('a flat form becomes a nested layer', () => {
 
 // The form should not be able to put whatever it likes into the theme.
 test('a key that is not a setting is refused', () => {
-  assert.throws(() => settings.toLayer({ 'theme.intro.title': 'anything' }), /is not a setting/);
+  // The form can only reach what FIELDS lists. Everything else in the theme,
+  // including anything that takes a file path, stays out of its hands.
+  assert.throws(() => settings.toLayer({ 'theme.cursor.image': '/etc/passwd' }), /is not a setting/);
+  assert.throws(() => settings.toLayer({ 'theme.intro.logo': 'x.png' }), /is not a setting/);
+  assert.throws(() => settings.toLayer({ 'theme.fonts.body.file': 'x.ttf' }), /is not a setting/);
   assert.throws(() => settings.toLayer({ '__proto__.x': 1 }), /is not a setting/);
+  assert.throws(() => settings.toLayer({ 'flow.steps': [] }), /is not a setting/);
 });
 
 test('numbers are range-checked with the reason spelled out', () => {
@@ -139,4 +145,58 @@ test('the flow says which passwords to ask for', () => {
     ['HOST', 'PORTAL_EMAIL', 'PORTAL_PASSWORD']);
   assert.deepStrictEqual(listPlaceholders({ steps: [{ action: 'click' }] }), [],
     'a flow that signs in nowhere asks for nothing');
+});
+
+// --- colours, type and card text ---------------------------------------
+
+test('colours are taken as hex, upper-cased, and checked', () => {
+  const layer = settings.toLayer({ 'theme.highlight.color': '#e6007e' });
+  assert.strictEqual(layer.theme.highlight.color, '#E6007E');
+  assert.strictEqual(settings.toLayer({ 'theme.hints.color': '#fff' }).theme.hints.color, '#FFF');
+
+  assert.throws(() => settings.toLayer({ 'theme.highlight.color': 'bright pink' }),
+    /is not a colour. Use a hex value/);
+  assert.throws(() => settings.toLayer({ 'theme.cursor.color': '#12345' }), /is not a colour/);
+});
+
+test('an empty colour means the default where one is allowed, and nothing where it is not', () => {
+  // The click ripple falls back to the highlight colour.
+  assert.strictEqual(settings.toLayer({ 'theme.cursor.rippleColor': '' }).theme.cursor.rippleColor, null);
+  // The ring itself has no "unset", so leave it as it was rather than blanking it.
+  assert.deepStrictEqual(settings.toLayer({ 'theme.highlight.color': '  ' }), { theme: {}, flow: {} });
+});
+
+test('a font has to be one the theme declares', () => {
+  const context = { fontKeys: ['heading', 'body'] };
+  assert.strictEqual(settings.toLayer({ 'theme.intro.titleFont': 'heading' }, context)
+    .theme.intro.titleFont, 'heading');
+  assert.strictEqual(settings.toLayer({ 'theme.captions.font': '' }, context)
+    .theme.captions.font, null);
+
+  assert.throws(() => settings.toLayer({ 'theme.intro.titleFont': 'Comic Sans' }, context),
+    /there is no font called "Comic Sans". This theme has: heading, body/);
+});
+
+test('card text is kept as typed, within a length', () => {
+  const layer = settings.toLayer({
+    'theme.intro.title': 'Q Portal',
+    'theme.outro.subtitle': '',
+  });
+  assert.strictEqual(layer.theme.intro.title, 'Q Portal');
+  assert.strictEqual(layer.theme.outro.subtitle, '', 'clearing a subtitle is allowed');
+  assert.throws(() => settings.toLayer({ 'theme.intro.title': 'x'.repeat(200) }), /longer than 120/);
+});
+
+test('every colour and font field points at something the theme really has', () => {
+  const theme = loadTheme(path.join(REPO, 'theme-rebels.json'));
+  const values = settings.readValues(theme, {});
+  for (const field of settings.FIELDS.filter((f) => ['color', 'font'].includes(f.type))) {
+    const value = values[field.key];
+    if (value === null || value === undefined) {
+      assert.ok(field.nullable, `${field.key} came back empty but is not nullable`);
+      continue;
+    }
+    if (field.type === 'color') assert.match(String(value), /^#[0-9A-Fa-f]{3,6}$/, field.key);
+    else assert.ok(theme.fonts[value], `${field.key} names a font the theme does not have`);
+  }
 });
