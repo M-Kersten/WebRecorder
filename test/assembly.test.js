@@ -9,6 +9,8 @@ const { execFileSync, spawnSync } = require('child_process');
 
 const ff = require('../src/ffmpeg');
 
+const ffmpegPath = () => ff.binaries().ffmpeg;
+
 const work = fs.mkdtempSync(path.join(os.tmpdir(), 'tutvid-test-'));
 const tmp = (name) => path.join(work, name);
 const VIDEO = { width: 320, height: 240, fps: 15 };
@@ -181,9 +183,77 @@ test('imageToVideo produces the target geometry with an audio track attached', a
   assert.ok(streams.some((s) => s.startsWith('audio')));
 });
 
-test('filter paths with colons and quotes are escaped', () => {
-  assert.strictEqual(ff.escapeFilterPath('C:/tmp/a.srt'), 'C\\:/tmp/a.srt');
-  assert.strictEqual(ff.escapeFilterValue("FontName=A,B"), "'FontName=A,B'");
+test('a filter option value containing a comma is quoted', () => {
+  assert.strictEqual(ff.escapeFilterValue('FontName=A,B'), "'FontName=A,B'");
+});
+
+// A Windows path cannot be escaped into a filtergraph reliably: options are
+// split on ":", which a drive letter contains, and the graph is unescaped
+// twice. Colons are legal in filenames here, so the failure reproduces exactly.
+test('captions burn from a folder whose path contains a colon', async () => {
+  const drive = path.join(work, 'C:', 'Users', 'GEBRUI~1', 'Temp');
+  fs.mkdirSync(drive, { recursive: true });
+  const fontsHere = path.join(work, 'C:', 'Users', 'brand fonts');
+  fs.mkdirSync(fontsHere, { recursive: true });
+  fs.copyFileSync(
+    path.join(__dirname, '..', 'fonts', 'OverusedGrotesk-Roman.ttf'),
+    path.join(fontsHere, 'OverusedGrotesk-Roman.ttf')
+  );
+
+  const captions = require('../src/captions');
+  const video = { width: 320, height: 240, fps: 15 };
+  const font = {
+    family: 'Overused Grotesk', weight: 400, style: 'normal',
+    metrics: { lineSpan: 1.35 },
+  };
+  const style = captions.buildForceStyle({
+    enabled: true, font: 'body', fontSize: 20, color: '#FFFFFF',
+    backgroundColor: '#000000', backgroundOpacity: 0.6,
+    position: 'bottom', marginBottom: 20, outline: true,
+  }, font, video);
+  const cues = captions.buildCues([{ narration: 'Hello there' }], [{ startSec: 0, endSec: 2 }], 3);
+  const { assPath } = captions.writeCaptionFiles(
+    cues, style, video,
+    path.join(drive, 'captions.srt'), path.join(drive, 'captions.ass'), 42
+  );
+
+  const source = makeSegment('blue', 3, path.join(drive, 'in.mp4'));
+  const out = path.join(drive, 'out.mp4');
+  await ff.burnSubtitles(source, assPath, null, fontsHere, out, { fadeSec: 0.35, durationSec: 3 });
+
+  assert.ok(fs.existsSync(out), 'a video came out the other side');
+  assert.ok(Math.abs(await ff.probeDuration(out) - 3) < 0.3);
+
+  // And every frame of it decodes, so the burn really happened.
+  const decoded = runCapturingStderr(ffmpegPath(), [
+    '-hide_banner', '-v', 'error', '-i', out, '-f', 'null', '-',
+  ]);
+  assert.strictEqual(decoded.trim(), '', decoded);
+});
+
+test('the fonts are placed where libass will look for them', async () => {
+  const drive = path.join(work, 'C:', 'second run');
+  fs.mkdirSync(drive, { recursive: true });
+  const captionFile = path.join(drive, 'captions.ass');
+  fs.writeFileSync(captionFile, [
+    '[Script Info]', 'ScriptType: v4.00+', 'PlayResX: 320', 'PlayResY: 240', '',
+    '[V4+ Styles]',
+    'Format: Name, Fontname, Fontsize, PrimaryColour, Alignment',
+    'Style: Caption,Overused Grotesk,30,&H00FFFFFF,2', '',
+    '[Events]',
+    'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',
+    'Dialogue: 0,0:00:00.00,0:00:02.00,Caption,,0,0,0,,Hello',
+  ].join('\n'));
+
+  const source = makeSegment('red', 2, path.join(drive, 'in.mp4'));
+  const out = path.join(drive, 'out.mp4');
+  await ff.burnSubtitles(source, captionFile, null,
+    path.join(__dirname, '..', 'fonts'), out, null);
+
+  const copied = fs.readdirSync(path.join(drive, 'fonts'));
+  assert.ok(copied.includes('OverusedGrotesk-Roman.ttf'), `fonts were copied: ${copied}`);
+  assert.ok(!copied.some((f) => /\.(md|txt)$/i.test(f)),
+    `only font files, got ${copied.join(', ')}`);
 });
 
 test('fadeFilters places the fades at both ends', () => {

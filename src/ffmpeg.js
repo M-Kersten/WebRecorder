@@ -43,9 +43,9 @@ const binaries = () => ({
  * Run a binary and buffer its output. Rejects with the tail of stderr, which is
  * where ffmpeg puts the one line that actually explains the failure.
  */
-function run(bin, args, { label } = {}) {
+function run(bin, args, { label, cwd } = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'], ...(cwd ? { cwd } : {}) });
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (d) => { stdout += d; });
@@ -63,6 +63,9 @@ function run(bin, args, { label } = {}) {
 
 const ffmpeg = (args, opts) =>
   run(FFMPEG, ['-hide_banner', '-loglevel', 'error', '-y', ...args], { label: 'ffmpeg', ...opts });
+
+/** Font files worth handing to libass. */
+const FONT_FILE = /\.(ttf|otf|ttc)$/i;
 
 /** Verify ffmpeg/ffprobe exist and carry the features this tool depends on. */
 async function checkToolchain() {
@@ -305,13 +308,32 @@ async function imageToVideo(imageFile, durationSec, outFile, video, fadeSec) {
  * of falling back to a system face.
  */
 async function burnSubtitles(videoFile, srtFile, forceStyle, fontsDir, outFile, fade) {
-  const opts = [`filename=${escapeFilterPath(srtFile)}`];
-  if (fontsDir) opts.push(`fontsdir=${escapeFilterPath(fontsDir)}`);
+  // Both paths this filter takes are made relative and ffmpeg is run from the
+  // folder holding them, so no absolute path ever reaches the filter string.
+  //
+  // A Windows path cannot be escaped into a filtergraph reliably. Options are
+  // split on ":", which a drive letter contains, and the graph is unescaped
+  // twice: one backslash is eaten by the first pass and the colon then splits
+  // the arguments anyway ("No option name near '/Users/...'"), while two
+  // backslashes survive parsing on some builds and not others. Relative paths
+  // have no colon in them, so there is nothing left to get wrong.
+  const workDir = path.dirname(path.resolve(srtFile));
+  const opts = [`filename=${path.basename(srtFile)}`];
+
+  if (fontsDir && fs.existsSync(fontsDir)) {
+    const localFonts = path.join(workDir, 'fonts');
+    fs.mkdirSync(localFonts, { recursive: true });
+    for (const name of fs.readdirSync(fontsDir).filter((f) => FONT_FILE.test(f))) {
+      fs.copyFileSync(path.join(fontsDir, name), path.join(localFonts, name));
+    }
+    opts.push('fontsdir=fonts');
+  }
   if (forceStyle) opts.push(`force_style=${escapeFilterValue(forceStyle)}`);
+
   const f = fadeFilters(fade);
   // The fade goes after the burn so the captions fade with the frame.
   const vf = [`subtitles=${opts.join(':')}`, ...f.video];
-  const args = ['-i', videoFile, '-vf', vf.join(',')];
+  const args = ['-i', path.resolve(videoFile), '-vf', vf.join(',')];
   if (f.audio.length) {
     args.push('-af', f.audio.join(','), '-c:a', 'aac', '-b:a', '192k');
   } else {
@@ -320,9 +342,9 @@ async function burnSubtitles(videoFile, srtFile, forceStyle, fontsDir, outFile, 
   args.push(
     '-c:v', 'libx264', '-preset', 'medium', '-crf', '20',
     '-movflags', '+faststart',
-    outFile
+    path.resolve(outFile)
   );
-  await ffmpeg(args);
+  await ffmpeg(args, { cwd: workDir });
   return outFile;
 }
 
@@ -416,11 +438,6 @@ async function concatSegments(segments, outFile, video, workDir, log = () => {})
 
 const firstLine = (s) => String(s).split('\n').find((l) => l.trim()) || '';
 
-/** ffmpeg filter args: ':' and '\' are structural, and Windows drive colons bite. */
-function escapeFilterPath(p) {
-  return String(p).replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'");
-}
-
 /** A filter option value that itself contains commas has to be single-quoted. */
 function escapeFilterValue(v) {
   return `'${String(v).replace(/'/g, "\\'")}'`;
@@ -444,6 +461,5 @@ module.exports = {
   concatDemuxer,
   concatFilter,
   concatSegments,
-  escapeFilterPath,
   escapeFilterValue,
 };
