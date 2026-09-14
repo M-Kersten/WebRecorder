@@ -335,10 +335,13 @@ function createApp(options = {}) {
     // Deliberately not awaited: the request returns straight away and the
     // window follows along on the event stream.
     captureFn({ url, outFile: flowFile, log })
-      .then(({ flow, reason }) => {
-        if (reason === 'closed' && flow.steps.length <= 1) {
-          state.steps = [];
-          setPhase('idle', 'The browser was closed before anything was recorded.');
+      .then(({ flow, reason, saved }) => {
+        if (saved === false || (reason === 'closed' && flow.steps.length <= 1)) {
+          // Nothing was written, so whatever was on disk before is still there.
+          const kept = readStory();
+          state.steps = kept.exists ? loadFlow(flowFile).steps : [];
+          setPhase(kept.exists ? 'captured' : 'idle',
+            'The browser was closed before anything was recorded.');
           return;
         }
         state.steps = flow.steps;
@@ -536,7 +539,6 @@ function createApp(options = {}) {
     if (existing.exists) {
       state.steps = loadFlow(flowFile).steps;
       state.phase = 'captured';
-      state.message = `Picked up from last time: ${existing.steps.length} steps.`;
     }
   } catch {
     // A flow file that will not load is the storyboard's problem to report,

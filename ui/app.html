@@ -283,6 +283,11 @@
   .notice.bad { background: var(--warn-bg); color: var(--warn-ink); }
   .notice.tip { background: var(--card); box-shadow: var(--shadow); }
   .notice + .notice { margin-top: 12px; }
+  .notice-inline {
+    background: var(--open-bg); color: var(--open-ink); border-radius: var(--r-ctl);
+    padding: 11px 14px; font-size: 13px; line-height: 1.5; font-weight: 700;
+    margin: 12px 0 4px;
+  }
   .notice b { font-weight: 700; }
   ol.walk { margin: 14px 0 0; padding-left: 21px; color: var(--muted); font-size: 14px; line-height: 1.9; }
   ol.walk b { color: var(--ink); font-weight: 700; }
@@ -395,12 +400,19 @@
             A browser opens there. Everything you click is written down.
           </div>
         </div>
-        <button class="btn primary" id="start" type="button" style="margin-top:20px">
-          Open the site and start recording
-        </button>
+        <div style="display:flex;gap:10px;align-items:center;margin-top:20px;flex-wrap:wrap">
+          <button class="btn primary" id="start" type="button">
+            Open the site and start recording
+          </button>
+          <button class="btn" id="start-cancel" type="button" hidden>Back to the storyboard</button>
+        </div>
       </div>
       <div>
         <div class="label">What happens next</div>
+        <div class="notice-inline" id="start-warning" hidden>
+          Recording again replaces the walkthrough you have, along with every line
+          written on the storyboard.
+        </div>
         <ol class="walk">
           <li>A browser window opens with your site in it.</li>
           <li><b>Use the site as you normally would.</b> Every click is written down.</li>
@@ -622,6 +634,8 @@
   var live = { phase: 'idle', log: [], steps: [] };
   var selected = 0;
   var tab = 'board';
+  // Set while somebody is on their way to recording over what they have.
+  var restarting = false;
   var shotVersion = Date.now();
   var saveTimer = null;
   var dirty = false;
@@ -638,10 +652,13 @@
 
     var busy = live.phase === 'capturing' || live.phase === 'rendering';
     var hasBoard = story.exists && story.steps.length > 0;
+    var starting = !busy && (restarting || !hasBoard);
 
     $('card-busy').hidden = !busy;
-    $('card-start').hidden = busy || hasBoard;
-    $('board').hidden = busy || !hasBoard;
+    $('card-start').hidden = !starting;
+    $('board').hidden = busy || starting || !hasBoard;
+    $('start-cancel').hidden = !hasBoard;
+    $('start-warning').hidden = !hasBoard;
 
     if (busy) {
       var capturing = live.phase === 'capturing';
@@ -661,7 +678,7 @@
     if (story.problem) {
       notices.push('<div class="notice bad">' + esc(story.problem) + '</div>');
     }
-    if (!busy && !hasBoard && live.message) {
+    if (!busy && live.message) {
       notices.push('<div class="notice tip">' + esc(live.message) + '</div>');
     }
     $('board-notices').innerHTML = notices.join('');
@@ -1091,6 +1108,7 @@
   });
 
   function beginCapture(url) {
+    restarting = false;
     return api('/api/capture', { url: url }).catch(function (err) {
       $('board-notices').innerHTML = '<div class="notice bad">' + esc(err.message) + '</div>';
     });
@@ -1102,9 +1120,21 @@
   });
   $('url').addEventListener('keydown', function (e) { if (e.key === 'Enter') $('start').click(); });
 
+  // A native prompt() is useless here: the window runs under Playwright, which
+  // dismisses every dialog, so the box never appears and the answer is always
+  // null. The form the first recording used does the job and can carry a
+  // warning about what recording again costs.
   $('rerecord').addEventListener('click', function () {
-    var from = prompt('Record again, starting at:', story.startUrl);
-    if (from) beginCapture(from.trim());
+    restarting = true;
+    $('url').value = story.startUrl || '';
+    paint();
+    $('url').focus();
+    $('url').select();
+  });
+
+  $('start-cancel').addEventListener('click', function () {
+    restarting = false;
+    paint();
   });
 
   $('render').addEventListener('click', function () {

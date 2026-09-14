@@ -463,7 +463,8 @@ test('a flow already on disk is picked up when the window opens', async () => {
     const state = app.publicState();
     assert.strictEqual(state.phase, 'captured');
     assert.strictEqual(state.steps.length, 4);
-    assert.match(state.message, /last time/);
+    // The board says what it is; a message repeating it would sit there forever.
+    assert.strictEqual(state.message, '');
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

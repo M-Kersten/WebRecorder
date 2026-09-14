@@ -106,7 +106,11 @@ async function capture(options = {}) {
   await browser.close().catch(() => {});
 
   const flow = toFlow(steps, url);
-  if (outFile) {
+  // Closing the browser without recording anything is a change of mind, not a
+  // new walkthrough. Writing here would replace whatever is already on disk,
+  // and every line written on it, with a lone "goto".
+  const saved = reason === 'saved' || steps.length > 1;
+  if (outFile && saved) {
     fs.mkdirSync(path.dirname(path.resolve(outFile)), { recursive: true });
     fs.writeFileSync(path.resolve(outFile), `${JSON.stringify(flow, null, 2)}\n`, 'utf8');
     // Let any screenshot still in flight land before the manifest decides which
@@ -114,7 +118,7 @@ async function capture(options = {}) {
     await Promise.allSettled(pending);
     shots.writeManifest(outFile, steps.map((step) => step.shot || null));
   }
-  return { flow, steps, reason };
+  return { flow, steps, reason, saved };
 }
 
 /** Fill in the fields the panel and the flow schema both expect. */

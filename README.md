@@ -137,6 +137,12 @@ than after. Failures are rewritten into something worth reading, so
 `Selector "#gone" never became visible` arrives as a suggestion to record the
 walkthrough again.
 
+The window has no native dialogs in it, and cannot have any. It opens under
+Playwright, which dismisses every dialog when nothing has registered a handler,
+so an `alert`, `confirm` or `prompt` never reaches the person and always answers
+"no". Anything that needs an answer asks for it in the page. `test/window.test.js`
+drives the window in a real browser and fails if a dialog is raised at all.
+
 The server binds to `127.0.0.1` and every action needs a token that only the
 window it opened was given. Anything on localhost is otherwise reachable from
 any page the browser has open, and this one launches browsers and writes files.
@@ -608,6 +614,10 @@ segments — the normal case — still stream-copy.
 ```bash
 npm test
 ```
+
+A fourth set drives the app window itself, because it runs under Playwright
+like everything else here and that is exactly what makes a native dialog in it
+useless.
 
 Unit tests cover the ASS colour conversion (`&HAABBGGRR`: alpha first, BGR
 order, and alpha inverted), the theme validation and its error messages, and

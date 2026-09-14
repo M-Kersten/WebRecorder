@@ -315,3 +315,48 @@ test('the recording panel is cropped out of the picture, not hidden mid-session'
   assert.strictEqual(size.height, 900, 'full height of the recording viewport');
   assert.strictEqual(size.width, 1440 - 380, 'and everything left of the panel');
 });
+
+// Somebody presses "Record again", changes their mind, and closes the browser.
+// Writing the flow here would replace the walkthrough they already have, and
+// every line of narration written on it, with a lone "goto".
+test('a session abandoned before anything was recorded leaves the flow alone', async () => {
+  const outFile = path.join(work, 'kept.json');
+  const existing = {
+    name: 'The one I already had',
+    baseUrl: `${server.url}`,
+    steps: [
+      { action: 'goto', url: '/dashboard.html?auth=1' },
+      { action: 'click', selector: '#tile-hours', narration: 'Hours are top left.' },
+    ],
+  };
+  fs.writeFileSync(outFile, JSON.stringify(existing, null, 2));
+
+  const result = await capture({
+    url: `${server.url}/dashboard.html?auth=1`,
+    outFile,
+    headless: true,
+    onReady: async (page) => { await page.close(); },
+  });
+
+  assert.strictEqual(result.saved, false);
+  assert.deepStrictEqual(JSON.parse(fs.readFileSync(outFile, 'utf8')), existing);
+});
+
+test('a session with steps in it is written even without pressing Save flow', async () => {
+  const outFile = path.join(work, 'closed-with-steps.json');
+  const result = await capture({
+    url: `${server.url}/dashboard.html?auth=1`,
+    outFile,
+    headless: true,
+    onReady: async (page) => {
+      page.setDefaultTimeout(8000);
+      await page.waitForFunction(() => window.__tutPanelLoaded === true);
+      await page.click('#tile-hours');
+      await page.waitForTimeout(200);
+      await page.close();
+    },
+  });
+
+  assert.strictEqual(result.saved, true, 'work already done is not thrown away');
+  assert.strictEqual(JSON.parse(fs.readFileSync(outFile, 'utf8')).steps.length, 2);
+});
