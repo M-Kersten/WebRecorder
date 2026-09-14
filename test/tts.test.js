@@ -97,3 +97,136 @@ test('the models on offer say which of them take a language code', () => {
   // ElevenLabs ignores language_code on this one, and the help text says so.
   assert.strictEqual(MODELS.find((m) => m.id === 'eleven_multilingual_v2').languageCode, false);
 });
+
+// --- how a line is handed over ------------------------------------------
+
+const { polishLine, synthesizeAll } = require('../src/tts');
+
+// ElevenLabs reads prosody off the punctuation. A line with no full stop is an
+// unfinished clause, and the voice ends it suspended, as though drawing breath
+// for whatever comes next. Nobody types a full stop into a one-line box.
+test('a line is handed over as a finished sentence', () => {
+  assert.strictEqual(polishLine('Your hours are top left'), 'Your hours are top left.');
+  assert.strictEqual(polishLine('  spaces   collapse  '), 'spaces collapse.');
+
+  // Punctuation that already ends a sentence is left alone.
+  assert.strictEqual(polishLine('Already done.'), 'Already done.');
+  assert.strictEqual(polishLine('Right?'), 'Right?');
+  assert.strictEqual(polishLine('Klaar!'), 'Klaar!');
+  assert.strictEqual(polishLine('Wacht even...'), 'Wacht even...');
+
+  // A comma, colon or dash at the end is the written form of the very thing
+  // this is here to stop, and the next line is seconds away.
+  assert.strictEqual(polishLine('Let us look at this,'), 'Let us look at this.');
+  assert.strictEqual(polishLine('Three things:'), 'Three things.');
+  assert.strictEqual(polishLine('Kijk hier -'), 'Kijk hier.');
+
+  assert.strictEqual(polishLine(''), '');
+  assert.strictEqual(polishLine(null), '');
+  assert.strictEqual(polishLine('  -  '), '', 'punctuation alone is not a line');
+});
+
+/** Run a synthesis with the network stubbed, and return the request bodies. */
+async function capture(steps, options = {}) {
+  const os = require('os');
+  const fsp = require('fs');
+  const pathp = require('path');
+  const dir = fsp.mkdtempSync(pathp.join(os.tmpdir(), 'tutvid-tts-'));
+  const sent = [];
+  const real = global.fetch;
+  global.fetch = (url, init) => {
+    sent.push({ url: String(url), body: JSON.parse(init.body) });
+    return Promise.resolve({
+      ok: true,
+      status: 200,
+      // A second of silence, so probeDuration has something real to read.
+      arrayBuffer: () => Promise.resolve(fsp.readFileSync(SILENCE).buffer),
+    });
+  };
+  try {
+    const result = await synthesizeAll(steps, { apiKey: 'sk_test', cacheDir: dir, ...options });
+    return { sent, result };
+  } finally {
+    global.fetch = real;
+    fsp.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+// One mp3 of silence, so the stub can hand back something ffprobe will read.
+const SILENCE = (() => {
+  const os = require('os');
+  const fsp = require('fs');
+  const pathp = require('path');
+  const { execFileSync } = require('child_process');
+  const file = pathp.join(fsp.mkdtempSync(pathp.join(os.tmpdir(), 'tutvid-sil-')), 's.mp3');
+  execFileSync(require('../src/ffmpeg').binaries().ffmpeg, [
+    '-hide_banner', '-loglevel', 'error', '-y',
+    '-f', 'lavfi', '-i', 'anullsrc=channel_layout=mono:sample_rate=44100',
+    '-t', '1', file,
+  ]);
+  return file;
+})();
+
+// Each line used to go over on its own, with nothing around it, so the model
+// read every one as the opening of something.
+test('a line is told what was said before it, and not what comes after', async () => {
+  const { sent } = await capture([
+    { narration: 'This is your portal' },
+    { action: 'wait' },
+    { narration: 'Your hours are top left' },
+    { narration: 'And the registration is below' },
+  ]);
+
+  assert.strictEqual(sent.length, 3);
+  assert.strictEqual(sent[0].body.text, 'This is your portal.');
+  assert.ok(!('previous_text' in sent[0].body), 'the first line has nothing before it');
+
+  assert.strictEqual(sent[1].body.previous_text, 'This is your portal.',
+    'and it is the polished line, the one that was actually read');
+  assert.strictEqual(sent[2].body.previous_text, 'Your hours are top left.');
+
+  // next_text exists, and is deliberately not used: it is for chunks that get
+  // butted together, and these land seconds apart at measured timestamps.
+  assert.ok(sent.every((r) => !('next_text' in r.body)));
+});
+
+test('two lines that read the same in different places are different clips', async () => {
+  const { sent } = await capture([
+    { narration: 'Here.' },
+    { narration: 'Look at this.' },
+    { narration: 'Here.' },
+  ]);
+  // Same words, different context, so neither is a cache hit on the other.
+  assert.strictEqual(sent.length, 3);
+  assert.strictEqual(sent[0].body.previous_text, undefined);
+  assert.strictEqual(sent[2].body.previous_text, 'Look at this.');
+});
+
+test('the same walkthrough twice costs nothing the second time', async () => {
+  const os = require('os');
+  const fsp = require('fs');
+  const pathp = require('path');
+  const dir = fsp.mkdtempSync(pathp.join(os.tmpdir(), 'tutvid-tts-'));
+  const steps = [{ narration: 'One.' }, { narration: 'Two.' }];
+  try {
+    const first = await capture(steps, { cacheDir: dir });
+    assert.strictEqual(first.sent.length, 2);
+    const again = await capture(steps, { cacheDir: dir });
+    assert.strictEqual(again.sent.length, 0, 'nothing was asked for twice');
+    assert.ok(again.result.every((clip) => clip.cached));
+  } finally {
+    fsp.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('the voice, the model and the language all reach the request', async () => {
+  const { sent } = await capture([{ narration: 'Hallo daar' }], {
+    voiceId: 'nl_tom', modelId: 'eleven_v3', languageCode: 'nl',
+    voiceSettings: voiceSettingsFrom({ style: 0.26, speed: 0.9 }),
+  });
+  assert.match(sent[0].url, /\/nl_tom$/);
+  assert.strictEqual(sent[0].body.model_id, 'eleven_v3');
+  assert.strictEqual(sent[0].body.language_code, 'nl');
+  assert.strictEqual(sent[0].body.voice_settings.style, 0.26);
+  assert.strictEqual(sent[0].body.voice_settings.speed, 0.9);
+});
