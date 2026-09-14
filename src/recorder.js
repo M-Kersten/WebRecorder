@@ -69,10 +69,17 @@ async function record(flow, theme, audio, options = {}) {
     for (let i = 0; i < flow.steps.length; i++) {
       const step = flow.steps[i];
       const clip = audio[i];
-      const startSec = now();
+      const enteredAt = now();
       log(`  [${String(i + 1).padStart(2)}/${flow.steps.length}] ${describeStep(step)}`);
 
       const targetRect = await runStep(page, step, flow, theme);
+
+      // A navigation has nothing to look at until it has finished. Timing the
+      // line from the moment the address changed means the voice describes a
+      // page that is still blank, and everything after it sits a page load
+      // early. Every other action is visible as it happens, so it counts from
+      // the start.
+      const startSec = step.action === 'goto' ? now() : enteredAt;
 
       // The hint goes up once the action has happened, so it explains what the
       // viewer is looking at rather than covering it on the way in.
@@ -129,6 +136,9 @@ async function runStep(page, step, flow, theme) {
       // The overlay remounts itself after navigation; give it a tick.
       await page.waitForFunction(() => window.__tutOverlayReady === true, null, { timeout: 5000 })
         .catch(() => {});
+      // "load" fires before a site that fetches its own content has anything
+      // on screen. This is the beat that lets it arrive.
+      await page.waitForTimeout(Number.isFinite(flow.settleMs) ? flow.settleMs : 600);
       return null;
     }
     case 'click': {

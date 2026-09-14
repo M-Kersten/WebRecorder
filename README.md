@@ -50,6 +50,14 @@ theme.json ─┤                    │ durations            │
             └─► titlecard.js ─► intro/outro PNGs ──► ffmpeg.js ──► out.mp4
 ```
 
+**The switches on the storyboard are settings.** Narration and subtitles used
+to be a choice made afresh every time the window opened, remembered nowhere.
+Opening the tool the next day and finding the subtitles off again is how they
+came to be missing from a video. Subtitles are `theme.captions.enabled`, which
+makes them part of a style: one style can burn them in and another not.
+Narration is `flow.narration`, which holds for the project. Flipping a switch
+saves it, and the same switch is in the Settings and Styles tabs.
+
 **Narration is generated before the browser starts.** That ordering is the
 whole reason the timing works: each line's real duration is known up front, so
 the recorder can hold every step on screen for at least as long as it takes to
@@ -58,6 +66,14 @@ say. Nothing is estimated after the fact.
 **Each step's actual start time is recorded as it happens.** The narration
 track is then built by placing every clip at its measured timestamp with
 `adelay`, and mixing. Audio is never assumed to run end to end.
+
+A `goto` is stamped once its page is actually there. `load` fires before a site
+that fetches its own content has drawn anything, so timing the line from the
+moment the address changed meant the voice describing a blank page and
+everything after it sitting a page load early. `flow.settleMs` is the beat held
+after a page loads, before its line starts; 600ms by default, and longer for a
+site that takes its time. Every other action is visible as it happens, so it
+still counts from the start.
 
 **Captions are a post-process.** Restyling them regenerates a subtitle file and
 re-burns; it never re-records. That matters when you are iterating on how a font
@@ -157,7 +173,7 @@ Two pages, split by what a thing actually changes.
 | Cursor and ring | travel time, easing, click ripple, how fast the ring appears |
 | Fades | hint fade, fade between segments |
 | Colours | the ring, the pointer and its outline, the ripple, the hint, the colour behind the page |
-| Type | which bundled font the hints and subtitles use, and at what size |
+| Type | hints and subtitles on or off, which bundled font they use, and at what size |
 | Opening card | on or off, title, subtitle, their fonts and colours, background, a sound, how long it shows |
 | Closing card | the same |
 | Music | a track, how loud, how long it fades |
@@ -165,8 +181,8 @@ Two pages, split by what a thing actually changes.
 
 | Settings | the whole project |
 | --- | --- |
-| Narration | the ElevenLabs key, the model, the voice, its expression, speed and language |
-| Pacing | shortest a step can be, pause after each one, typing speed |
+| Narration | read out loud or not, the ElevenLabs key, the model, the voice, its expression, speed and language |
+| Pacing | shortest a step can be, pause after each one, typing speed, wait after a page loads |
 | Passwords | one field per `${VAR}` the walkthrough needs |
 
 The split is not a filing decision, it is the shape of the data: a `theme.` key

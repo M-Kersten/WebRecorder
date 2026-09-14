@@ -281,7 +281,8 @@ function createApp(options = {}) {
     const flow = fs.existsSync(flowFile)
       ? Object.assign(loadFlow(flowFile), layer.flow)
       : {
-        minStepMs: 1400, stepPaddingMs: 600, typeDelayMs: 55,
+        minStepMs: 1400, stepPaddingMs: 600, typeDelayMs: 55, settleMs: 600,
+        narration: true,
         voiceModel: 'eleven_multilingual_v2', voiceStyle: 0, voiceSpeed: 1,
         voiceId: null, voiceLanguage: null,
         ...layer.flow,
@@ -396,6 +397,22 @@ function createApp(options = {}) {
       });
   }
 
+  /**
+   * Whether this video gets a voice and subtitles.
+   *
+   * Both are settings rather than a choice made afresh each time the window
+   * opens: the switches on the storyboard show what was saved, and saving one
+   * in the Settings or Styles tab moves the same switch.
+   */
+  function renderOptions() {
+    try {
+      const { theme, flow } = currentConfig();
+      return { narration: flow.narration !== false, captions: !!theme.captions.enabled };
+    } catch {
+      return { narration: true, captions: false };
+    }
+  }
+
   /** What the machine can and cannot do, checked before anything is promised. */
   async function readiness() {
     const { inspect } = require('./preflight');
@@ -456,8 +473,18 @@ function createApp(options = {}) {
       '--settings', settingsFile,
       '--out', outFile,
     ];
-    if (!opts.narration) argv.push('--no-tts');
-    argv.push(opts.captions ? '--captions' : '--no-captions');
+    // Narration and subtitles are settings, not a choice made afresh each time
+    // the window opens. Whatever the switches show is what was saved, and the
+    // theme and the flow already carry it, so nothing is passed here to
+    // override them.
+    const spoken = (() => {
+      try {
+        return currentConfig().flow.narration !== false;
+      } catch {
+        return true;
+      }
+    })();
+    if (!spoken) argv.push('--no-tts');
 
     // Required lazily: index.js pulls in the whole pipeline, and the window
     // should open even on a machine where part of that is not usable yet.
@@ -581,13 +608,13 @@ function createApp(options = {}) {
 
       if (url.pathname === '/api/settings' && req.method !== 'POST') {
         const wanted = url.searchParams.get('style');
-        return send(200, { ...readSettings(wanted), ready: await readiness() });
+        return send(200, { ...readSettings(wanted), options: renderOptions(), ready: await readiness() });
       }
 
       if (url.pathname === '/api/settings' && req.method === 'POST') {
         const body = await readJsonBody(req);
         const saved = await writeSettings(body.values, body.secrets, body.style);
-        return send(200, { ...saved, ready: await readiness() });
+        return send(200, { ...saved, options: renderOptions(), ready: await readiness() });
       }
 
       // Which style the next video is made in. Stored, so it survives the
@@ -596,13 +623,16 @@ function createApp(options = {}) {
         const body = await readJsonBody(req);
         // Present but blank is still a create, so the error names the problem.
         if ('newName' in body) return send(200, createStyle(body.newName, body.from));
-        return send(200, { style: chooseStyle(body.style), story: readStory() });
+        // A different style can have different subtitles.
+        const picked = chooseStyle(body.style);
+        return send(200, { style: picked, story: readStory(), options: renderOptions() });
       }
 
       if (url.pathname === '/api/setup') {
         return send(200, {
           themes: listThemes(),
           style: currentStyle(),
+          options: renderOptions(),
           ready: await readiness(),
           projectDir,
           state: publicState(),

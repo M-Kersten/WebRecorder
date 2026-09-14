@@ -20,6 +20,14 @@ const { readJson, ConfigError } = require('./config');
 
 const FIELDS = [
   {
+    key: 'flow.narration',
+    section: 'Narration',
+    label: 'Read out loud',
+    help: 'Off makes the video silent and exactly as long, which costs nothing. ' +
+      'The switch on the storyboard is this one.',
+    type: 'boolean',
+  },
+  {
     key: 'flow.voiceModel',
     section: 'Narration',
     label: 'Model',
@@ -99,6 +107,15 @@ const FIELDS = [
   },
 
   {
+    key: 'flow.settleMs',
+    section: 'Pacing',
+    label: 'Wait after a page loads',
+    help: 'Held before the line for that step starts. A site that fetches its own ' +
+      'content has nothing on screen when the browser says it has loaded, and the ' +
+      'narration would talk over a blank page.',
+    type: 'number', unit: 'ms', min: 0, max: 10000,
+  },
+  {
     key: 'flow.minStepMs',
     section: 'Pacing',
     label: 'Shortest a step can be',
@@ -174,6 +191,13 @@ const FIELDS = [
   },
 
   {
+    key: 'theme.hints.enabled',
+    section: 'Type',
+    label: 'Hints',
+    help: 'The small block of text that goes up beside whatever a step acted on.',
+    type: 'boolean',
+  },
+  {
     key: 'theme.hints.font',
     section: 'Type',
     label: 'Hints',
@@ -184,6 +208,14 @@ const FIELDS = [
     section: 'Type',
     label: 'Hint size',
     type: 'number', unit: 'px', min: 10, max: 120,
+  },
+  {
+    key: 'theme.captions.enabled',
+    section: 'Type',
+    label: 'Subtitles',
+    help: 'The narration burned in along the bottom. The switch on the storyboard ' +
+      'is this one.',
+    type: 'boolean',
   },
   {
     key: 'theme.captions.font',

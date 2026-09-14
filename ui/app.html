@@ -1264,7 +1264,7 @@
     var query = styleFile ? '/api/settings?style=' + encodeURIComponent(styleFile) : '/api/settings';
     return api(query).then(function (data) {
       settings = data;
-      if (data.ready) applyReady(data.ready);
+      if (data.ready) applyReady(data.ready, data.options);
       paintPrefs(which);
     });
   }
@@ -1293,7 +1293,7 @@
       .then(function (data) {
         settings = data;
         paintPrefs(which);
-        if (data.ready) applyReady(data.ready);
+        if (data.ready) applyReady(data.ready, data.options);
         if (data.keyCheck && data.keyCheck.state === 'unchecked') {
           $(bodyId).insertAdjacentHTML('afterbegin',
             '<div class="notice tip" style="margin:16px 0">Key saved. ElevenLabs could not be ' +
@@ -1323,12 +1323,33 @@
     });
   }
 
+  var SWITCH_KEY = { narration: 'flow.narration', captions: 'theme.captions.enabled' };
+
   function wireSwitch(id, key) {
     $(id).addEventListener('click', function (e) {
       var b = e.target.closest('button');
       if (!b || b.disabled) return;
-      options[key] = !!b.dataset.on;
-      paintSwitch(id, options[key]);
+      var on = !!b.dataset.on;
+      if (on === options[key]) return;
+      options[key] = on;
+      paintSwitch(id, on);
+
+      // Saved, not remembered for this window only. Opening the tool tomorrow
+      // and finding the subtitles off again is how they came to be missing.
+      var body = { values: {} };
+      body.values[SWITCH_KEY[key]] = on;
+      if (SWITCH_KEY[key].indexOf('theme.') === 0) body.style = setup.style;
+      api('/api/settings', body).then(function (data) {
+        settings = data;
+        // Turning subtitles on adds a caption band the hints keep clear of,
+        // which moves nothing, but the length can shift with a style.
+        return api('/api/story');
+      }).then(function (next) {
+        story = next;
+        paintBoard();
+      }).catch(function (err) {
+        $('board-notices').innerHTML = '<div class="notice bad">' + esc(err.message) + '</div>';
+      });
     });
   }
 
@@ -1337,11 +1358,17 @@
    * after a save, so pasting a key unlocks narration without reopening
    * the window.
    */
-  function applyReady(ready) {
+  function applyReady(ready, stored) {
     var had = !!(setup.ready && setup.ready.narration);
     setup.ready = ready || {};
     var has = !!setup.ready.narration;
-    if (has !== had) options.narration = has;
+    if (stored) {
+      options.narration = has && stored.narration;
+      options.captions = !!stored.captions;
+      paintSwitch('sw-captions', options.captions);
+    } else if (has !== had) {
+      options.narration = has;
+    }
 
     Array.prototype.forEach.call($('sw-narration').children, function (b) { b.disabled = !has; });
     $('no-key').hidden = has;
@@ -1514,12 +1541,7 @@
 
   $('render').addEventListener('click', function () {
     flush().then(function () {
-      return api('/api/render', {
-        theme: $('theme').value,
-        narration: options.narration && !!setup.ready.narration,
-        captions: options.captions,
-        name: $('name').value
-      });
+      return api('/api/render', { theme: $('theme').value, name: $('name').value });
     }).catch(function (err) {
       $('board-notices').innerHTML = '<div class="notice bad">' + esc(err.message) + '</div>';
     });
@@ -1532,6 +1554,7 @@
     api('/api/style', { style: $('theme').value }).then(function (data) {
       setup.style = data.style;
       story = data.story || story;
+      if (data.options) applyReady(setup.ready, data.options);
       // A style can hold the hints on screen longer, which moves every timing.
       if (settings) { settings = null; }
       paintBoard();
@@ -1568,9 +1591,8 @@
 
       wireSwitch('sw-narration', 'narration');
       wireSwitch('sw-captions', 'captions');
-      paintSwitch('sw-captions', options.captions);
       setup.ready = null;
-      applyReady(data.ready);
+      applyReady(data.ready, data.options);
 
       var stream = new EventSource('/api/events?token=' + TOKEN);
       stream.onmessage = function (e) { apply(JSON.parse(e.data)); };

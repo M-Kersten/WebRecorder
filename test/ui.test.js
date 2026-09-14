@@ -840,7 +840,7 @@ test('the voice can be given a style, a speed and a language', async () => {
     const s = await call('/api/settings').then((r) => r.json());
     const narration = s.fields.filter((f) => f.section === 'Narration').map((f) => f.key);
     assert.deepStrictEqual(narration.sort(), [
-      'flow.voiceId', 'flow.voiceLanguage', 'flow.voiceModel',
+      'flow.narration', 'flow.voiceId', 'flow.voiceLanguage', 'flow.voiceModel',
       'flow.voiceSpeed', 'flow.voiceStyle',
     ]);
 
@@ -867,5 +867,56 @@ test('a speed ElevenLabs would refuse comes back as a sentence', async () => {
     const res = await call('/api/settings', { values: { 'flow.voiceSpeed': 2 } });
     assert.strictEqual(res.status, 400);
     assert.match((await res.json()).error, /cannot be above 1.2/);
+  });
+});
+
+// --- what the storyboard switches are ------------------------------------
+
+// They used to be a choice made afresh every time the window opened, and
+// nothing wrote them down. Opening the tool the next day and finding the
+// subtitles off again is how they came to be missing from a video.
+test('narration and subtitles are saved, not remembered for one window', async () => {
+  await withApp(async ({ call, dir }) => {
+    const setup = await call('/api/setup').then((r) => r.json());
+    assert.deepStrictEqual(setup.options, { narration: true, captions: false });
+
+    await call('/api/settings', { style: 'theme.json', values: { 'theme.captions.enabled': true } });
+    await call('/api/settings', { values: { 'flow.narration': false } });
+
+    const after = await call('/api/setup').then((r) => r.json());
+    assert.deepStrictEqual(after.options, { narration: false, captions: true });
+
+    // A fresh window opens on the same answer.
+    const reopened = createApp({ projectDir: dir });
+    assert.strictEqual(reopened.readSettings().values['theme.captions.enabled'], true);
+    assert.strictEqual(reopened.readSettings().values['flow.narration'], false);
+  });
+});
+
+// Subtitles are part of a style, so one style can burn them in and another not.
+test('subtitles belong to the style, narration to the project', async () => {
+  await withApp(async ({ call }) => {
+    await call('/api/settings', { style: 'theme.json', values: { 'theme.captions.enabled': true } });
+
+    const rebels = await call('/api/settings?style=theme-rebels.json').then((r) => r.json());
+    assert.strictEqual(rebels.values['theme.captions.enabled'], false, 'the other style is its own');
+
+    const picked = await call('/api/style', { style: 'theme-rebels.json' }).then((r) => r.json());
+    assert.strictEqual(picked.options.captions, false, 'and the storyboard follows the style');
+
+    await call('/api/style', { style: 'theme.json' });
+    const back = await call('/api/setup').then((r) => r.json());
+    assert.strictEqual(back.options.captions, true);
+  });
+});
+
+test('hints can be turned off, and are on until they are', async () => {
+  await withApp(async ({ call }) => {
+    const s = await call('/api/settings').then((r) => r.json());
+    assert.strictEqual(s.values['theme.hints.enabled'], true);
+
+    await call('/api/settings', { values: { 'theme.hints.enabled': false } });
+    const off = await call('/api/settings').then((r) => r.json());
+    assert.strictEqual(off.values['theme.hints.enabled'], false);
   });
 });

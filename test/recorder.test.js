@@ -141,3 +141,60 @@ test('with the highlight off nothing is drawn at all', async () => {
     assert.strictEqual(await page.evaluate(() => !!document.querySelector('[data-tut-ring]')), false);
   } finally { await close(); }
 });
+
+// --- when a line starts -------------------------------------------------
+
+const fs = require('fs');
+const os = require('os');
+const { record } = require('../src/recorder');
+const { loadTheme } = require('../src/theme');
+
+const REPO = path.join(__dirname, '..');
+
+// A page that answers slowly, the way a real one does.
+function slowSite(delayMs) {
+  const http = require('http');
+  const server = http.createServer((req, res) => {
+    setTimeout(() => {
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end('<!doctype html><body style="background:#fff"><h1 id="t">Here</h1></body>');
+    }, delayMs);
+  });
+  return new Promise((resolve) => {
+    server.listen(0, '127.0.0.1', () => resolve({
+      url: `http://127.0.0.1:${server.address().port}`,
+      close: () => new Promise((done) => server.close(done)),
+    }));
+  });
+}
+
+// The narration for a step is placed at the timestamp the recorder logged. A
+// goto used to be stamped the moment the address changed, so the voice
+// described a page that was still blank and everything after it sat a page
+// load early.
+test('a line for a page starts once the page is there', async () => {
+  const site = await slowSite(900);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tutvid-timing-'));
+  try {
+    const theme = loadTheme(path.join(REPO, 'theme.json'));
+    theme.video = { ...theme.video, width: 640, height: 480, fps: 15 };
+    const flow = {
+      baseUrl: site.url,
+      minStepMs: 200, stepPaddingMs: 100, typeDelayMs: 10, settleMs: 400,
+      steps: [{ action: 'goto', url: '/' }, { action: 'hover', selector: '#t' }],
+      mask: [],
+    };
+
+    const { timeline } = await record(flow, theme, [null, null], { outDir: dir, headless: true });
+
+    // 0.9s of loading plus the settle beat, before the line would have started.
+    assert.ok(timeline[0].startSec > 1.2,
+      `the page step was stamped at ${timeline[0].startSec.toFixed(2)}s, before it had loaded`);
+    assert.ok(timeline[0].startSec < 3, 'and not left waiting for no reason');
+    // The step that follows is timed from when it began, as it always was.
+    assert.ok(timeline[1].startSec >= timeline[0].startSec);
+  } finally {
+    await site.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

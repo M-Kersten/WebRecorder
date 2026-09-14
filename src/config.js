@@ -125,6 +125,12 @@ function loadFlow(flowPath) {
     stepPaddingMs: Number.isFinite(flow.stepPaddingMs) ? flow.stepPaddingMs : 600,
     // Per-keystroke delay for "type" steps, unless a step overrides it.
     typeDelayMs: Number.isFinite(flow.typeDelayMs) ? flow.typeDelayMs : 55,
+    // Held after a page has loaded, before its line starts. "load" fires before
+    // a site that fetches its own content has anything on screen.
+    settleMs: Number.isFinite(flow.settleMs) ? flow.settleMs : 600,
+    // Whether the narration is spoken. Off makes the video silent and exactly
+    // as long, which is what --no-tts does.
+    narration: flow.narration !== false,
     // How the narration is read. Spelled out rather than left undefined, so the
     // settings screen can show what the voice will actually do.
     voiceId: flow.voiceId || null,
