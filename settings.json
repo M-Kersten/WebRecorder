@@ -1,0 +1,80 @@
+{
+  "style": "theme-rebels.json",
+  "flow": {
+    "voiceId": "lyMhRNSScIYS9YRQitfK",
+    "typeDelayMs": 55,
+    "minStepMs": 1400,
+    "stepPaddingMs": 600,
+    "voiceModel": "eleven_v3",
+    "voiceLanguage": "nl",
+    "voiceStyle": 0.2,
+    "voiceSpeed": 0.85
+  },
+  "styles": {
+    "theme-rebels.json": {
+      "cursor": {
+        "moveMs": null,
+        "easing": "easeInOut",
+        "ripple": true,
+        "color": "#FFFFFF",
+        "strokeColor": "#0A0A0A",
+        "rippleColor": "#E6007E"
+      },
+      "highlight": {
+        "fadeMs": 200,
+        "color": "#E6007E"
+      },
+      "hints": {
+        "fadeMs": 260,
+        "backgroundColor": "#0A0A0A",
+        "color": "#FFFFFF",
+        "font": "overused-grotesk",
+        "fontSize": 28
+      },
+      "transitions": {
+        "fadeSec": 0.35
+      },
+      "video": {
+        "backgroundColor": "#F4F5F7",
+        "width": 1920,
+        "height": 1080,
+        "fps": 30
+      },
+      "captions": {
+        "font": "overused-grotesk",
+        "fontSize": 34,
+        "color": "#FFFFFF",
+        "backgroundColor": "#0A0A0A"
+      },
+      "intro": {
+        "enabled": true,
+        "title": "Q Portal",
+        "subtitle": "Your walkthrough",
+        "titleFont": "overused-grotesk-bold",
+        "subtitleFont": "overused-grotesk",
+        "titleColor": "#FFFFFF",
+        "subtitleColor": "#E6007E",
+        "backgroundColor": "#0F1115",
+        "audio": "Playstation-2.mp3",
+        "durationSec": 3
+      },
+      "outro": {
+        "enabled": true,
+        "title": "Questions?",
+        "subtitle": "rebels.nl",
+        "titleFont": "overused-grotesk-bold",
+        "subtitleFont": "overused-grotesk",
+        "titleColor": "#FFFFFF",
+        "subtitleColor": "#E6007E",
+        "backgroundColor": "#0A0A0A",
+        "audio": "Chime.mp3",
+        "durationSec": 3
+      },
+      "music": {
+        "file": "Music-Corporate.mp3",
+        "volume": 0.15,
+        "fadeSec": 1.5
+      }
+    }
+  }
+}
