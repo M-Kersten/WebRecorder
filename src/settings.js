@@ -305,6 +305,10 @@ const BY_KEY = new Map(FIELDS.map((f) => [f.key, f]));
 const SETTINGS_FILE = 'settings.json';
 const SECRETS_FILE = '.secrets.json';
 
+// The one secret that is not a password for the site being recorded. It buys
+// spoken narration, so the window offers it whether or not a flow asks for it.
+const NARRATION_KEY = 'ELEVENLABS_API_KEY';
+
 function settingsPath(dir) { return path.join(dir, SETTINGS_FILE); }
 function secretsPath(dir) { return path.join(dir, SECRETS_FILE); }
 
@@ -480,7 +484,7 @@ function applySecrets(dir, env = process.env) {
 }
 
 module.exports = {
-  FIELDS, SETTINGS_FILE, SECRETS_FILE,
+  FIELDS, SETTINGS_FILE, SECRETS_FILE, NARRATION_KEY,
   settingsPath, secretsPath,
   loadSettings, saveSettings, readValues, toLayer,
   loadSecrets, saveSecrets, applySecrets,

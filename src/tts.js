@@ -6,7 +6,8 @@ const crypto = require('crypto');
 const { probeDuration, generateSilence } = require('./ffmpeg');
 const { estimateDuration } = require('./pacing');
 
-const API_BASE = 'https://api.elevenlabs.io/v1/text-to-speech';
+const API_ROOT = 'https://api.elevenlabs.io/v1';
+const API_BASE = `${API_ROOT}/text-to-speech`;
 const DEFAULT_VOICE = '21m00Tcm4TlvDq8ikWAM'; // Rachel, ElevenLabs' stock voice
 const DEFAULT_MODEL = 'eleven_multilingual_v2';
 
@@ -140,6 +141,33 @@ async function synthesizeAll(steps, options = {}) {
   return results;
 }
 
+/**
+ * Will ElevenLabs accept this key?
+ *
+ * Worth one round trip. Without it a mistyped key is discovered three minutes
+ * into a render, after the browser has already walked the whole site. A network
+ * that cannot be reached is not the key's fault, so that answers "unchecked"
+ * rather than "rejected" and the key is still saved.
+ */
+async function verifyKey(apiKey, fetchImpl = fetch) {
+  if (!apiKey) return { state: 'rejected', reason: 'There is nothing there to check.' };
+  let res;
+  try {
+    res = await fetchImpl(`${API_ROOT}/user`, { headers: { 'xi-api-key': apiKey } });
+  } catch (err) {
+    return { state: 'unchecked', reason: firstLine(err.message) };
+  }
+  if (res.status === 401 || res.status === 403) {
+    return { state: 'rejected', reason: `ElevenLabs turned it down (${res.status}).` };
+  }
+  if (!res.ok) return { state: 'unchecked', reason: `ElevenLabs answered ${res.status}.` };
+  return { state: 'accepted', reason: '' };
+}
+
+const firstLine = (text) => String(text || '').split('\n')[0];
 const truncate = (s, n = 60) => (s.length > n ? `${s.slice(0, n - 1)}...` : s);
 
-module.exports = { synthesizeAll, estimateDuration, cacheKey, defaultVoiceSettings, DEFAULT_VOICE, DEFAULT_MODEL };
+module.exports = {
+  synthesizeAll, estimateDuration, cacheKey, defaultVoiceSettings, verifyKey,
+  DEFAULT_VOICE, DEFAULT_MODEL,
+};

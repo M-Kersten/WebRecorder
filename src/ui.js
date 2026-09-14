@@ -37,6 +37,8 @@ function createApp(options = {}) {
     // through a real site.
     captureFn = capture,
     renderFn = null,
+    // Injected so a test can save a narration key without reaching ElevenLabs.
+    verifyKeyFn = null,
   } = options;
 
   // Anything on 127.0.0.1 is reachable from any page the browser happens to
@@ -118,16 +120,22 @@ function createApp(options = {}) {
         problem = problem || friendly(err);
       }
     }
-    // Anything the flow wants, plus anything already saved from before.
-    const names = [...new Set([...wanted, ...stored])].sort();
+    // Anything the flow wants, plus anything already saved from before. The
+    // narration key is always offered: no flow asks for it, and somebody who
+    // wants a spoken video has nowhere else to put it.
+    const { NARRATION_KEY } = settingsStore;
+    const fromFlow = [...new Set([...wanted, ...stored])]
+      .filter((name) => name !== NARRATION_KEY)
+      .sort();
 
     return {
       fields: settingsStore.FIELDS,
       values,
       fonts,
       problem,
-      secrets: names.map((name) => ({
+      secrets: [NARRATION_KEY, ...fromFlow].map((name) => ({
         name,
+        role: name === NARRATION_KEY ? 'narration' : 'flow',
         set: stored.has(name),
         fromEnvironment: !!process.env[name] && !stored.has(name),
         usedByFlow: wanted.includes(name),
@@ -240,7 +248,18 @@ function createApp(options = {}) {
    * new values are merged onto the theme and checked here, so the form says so
    * while the person is still looking at it.
    */
-  function writeSettings(values, secrets) {
+  async function writeSettings(values, secrets) {
+    // A key that ElevenLabs will not accept is worth catching here rather than
+    // three minutes into a render, once the browser has walked the whole site.
+    let keyCheck = null;
+    const key = secrets && secrets[settingsStore.NARRATION_KEY];
+    if (key) {
+      const verify = verifyKeyFn || require('./tts').verifyKey;
+      keyCheck = await verify(key);
+      if (keyCheck.state === 'rejected') {
+        throw new Error(`That does not look like a working ElevenLabs key. ${keyCheck.reason}`);
+      }
+    }
     if (values) {
       const base = loadTheme(path.join(projectDir, 'theme.json'));
       const fontKeys = Object.keys(base.fonts || {});
@@ -249,7 +268,7 @@ function createApp(options = {}) {
       settingsStore.saveSettings(settingsFile, values, { fontKeys });
     }
     if (secrets) settingsStore.saveSecrets(projectDir, secrets);
-    return readSettings();
+    return { ...readSettings(), keyCheck };
   }
 
   /** Theme files sitting next to the project, for the style dropdown. */
@@ -278,7 +297,7 @@ function createApp(options = {}) {
   /** What the machine can and cannot do, checked before anything is promised. */
   async function readiness() {
     const { inspect } = require('./preflight');
-    const report = await inspect();
+    const report = await inspect({ projectDir });
     return {
       ffmpeg: report.ffmpeg.ok,
       ffmpegError: report.ffmpeg.error,
@@ -441,12 +460,13 @@ function createApp(options = {}) {
       }
 
       if (url.pathname === '/api/settings' && req.method !== 'POST') {
-        return send(200, readSettings());
+        return send(200, { ...readSettings(), ready: await readiness() });
       }
 
       if (url.pathname === '/api/settings' && req.method === 'POST') {
         const body = await readJsonBody(req);
-        return send(200, writeSettings(body.values, body.secrets));
+        const saved = await writeSettings(body.values, body.secrets);
+        return send(200, { ...saved, ready: await readiness() });
       }
 
       if (url.pathname === '/api/setup') {
@@ -557,8 +577,8 @@ function readJsonBody(req) {
 function friendly(err) {
   const message = String(err && err.message ? err.message : err);
   if (/ELEVENLABS_API_KEY/.test(message)) {
-    return 'Spoken narration needs an ElevenLabs API key. Turn narration off to make ' +
-      'the video without it.';
+    return 'Spoken narration needs an ElevenLabs API key. Add one under Style, or ' +
+      'turn narration off to make the video without it.';
   }
   if (/ffmpeg/i.test(message) && /not usable|not installed|missing/i.test(message)) {
     return 'ffmpeg is missing on this machine. It is needed to put the video together.';

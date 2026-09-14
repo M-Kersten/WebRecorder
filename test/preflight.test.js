@@ -94,3 +94,42 @@ test('the summary names what is missing rather than only what is fine', () => {
   };
   assert.match(preflight.describe(fine), /bundled with the project/);
 });
+
+// --- the narration key --------------------------------------------------
+
+const { hasNarrationKey } = require('../src/preflight');
+const { saveSecrets } = require('../src/settings');
+
+test('a key typed into the window counts as a key', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tutvid-key-'));
+  const had = process.env.ELEVENLABS_API_KEY;
+  delete process.env.ELEVENLABS_API_KEY;
+  try {
+    assert.strictEqual(hasNarrationKey(dir), false);
+    saveSecrets(dir, { ELEVENLABS_API_KEY: 'sk_saved' });
+    assert.strictEqual(hasNarrationKey(dir), true);
+
+    // The CLI has no window to have typed it into, so for it nothing changed.
+    assert.strictEqual(hasNarrationKey(null), false);
+
+    process.env.ELEVENLABS_API_KEY = 'sk_env';
+    assert.strictEqual(hasNarrationKey(null), true);
+  } finally {
+    if (had === undefined) delete process.env.ELEVENLABS_API_KEY;
+    else process.env.ELEVENLABS_API_KEY = had;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('an unreadable secrets file is no key rather than a crash', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tutvid-key-'));
+  const had = process.env.ELEVENLABS_API_KEY;
+  delete process.env.ELEVENLABS_API_KEY;
+  try {
+    fs.writeFileSync(path.join(dir, '.secrets.json'), 'not json');
+    assert.strictEqual(hasNarrationKey(dir), false);
+  } finally {
+    if (had !== undefined) process.env.ELEVENLABS_API_KEY = had;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

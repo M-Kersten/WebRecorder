@@ -169,6 +169,11 @@
   .out-row + .out-row { border-top: 1px solid var(--rule); }
   .out-row .k { font-weight: 700; font-size: 14px; }
   .out-row .v { color: var(--muted); font-size: 13.5px; }
+  .linkish {
+    border: 0; background: none; padding: 0; margin-left: 6px; cursor: pointer;
+    font-weight: 700; font-size: 13.5px; color: var(--pink); text-decoration: underline;
+    text-underline-offset: 3px;
+  }
   .seg-switch { display: inline-flex; background: var(--sunken); border-radius: var(--pill); padding: 3px; }
   .seg-switch button {
     border: 0; background: none; cursor: pointer; border-radius: var(--pill);
@@ -451,7 +456,10 @@
           </div>
           <div class="out-row">
             <div class="k">Narration</div>
-            <div class="v" id="narration-note">Read out loud by ElevenLabs.</div>
+            <div class="v">
+              <span id="narration-note">Read out loud by ElevenLabs.</span>
+              <button class="linkish" id="no-key" type="button" hidden>Set a key</button>
+            </div>
             <div class="seg-switch" id="sw-narration">
               <button type="button" data-on="1">Spoken</button>
               <button type="button" data-on="">Silent</button>
@@ -466,7 +474,7 @@
             </div>
           </div>
           <div class="out-foot">
-            Colours, fonts and the opening card live under <b>Style</b>.
+            The narration key, colours, fonts and the opening card live under <b>Style</b>.
           </div>
         </div>
       </section>
@@ -560,7 +568,7 @@
   <main id="tab-style" hidden>
     <div class="head">
       <h1>Style</h1>
-      <p>How the video looks and how fast it moves. Every walkthrough uses these.</p>
+      <p>How the video looks, how fast it moves, and the key that gives it a voice.</p>
     </div>
     <div id="style-body" class="groups"></div>
     <div class="style-foot">
@@ -858,6 +866,35 @@
     });
 
     var html = settings.problem ? '<div class="notice bad">' + esc(settings.problem) + '</div>' : '';
+
+    // First, because it decides whether the video has a voice at all.
+    var key = (settings.secrets || []).filter(function (s) { return s.role === 'narration'; })[0];
+    if (key) {
+      html += '<details class="grp" id="grp-narration" open><summary>Narration</summary>' +
+        '<div class="grp-body">' +
+        '<div class="d" style="padding-top:4px">An ElevenLabs key turns the narration you ' +
+        'write into speech. Without one the video is made in silence, and runs exactly as ' +
+        'long. Keys come from elevenlabs.io, under your profile.</div>' +
+        '<div class="row" style="align-items:center">' +
+        '<div><div class="k">API key</div>' +
+        '<div class="d">' +
+        (key.set ? 'Saved on this machine.'
+          : key.fromEnvironment ? 'Coming from this machine\u2019s environment, which wins over anything typed here.'
+          : 'Not set yet.') +
+        '</div></div>' +
+        '<div class="ctl">' +
+        (key.set ? '<span class="pill ok">saved</span>'
+          : key.fromEnvironment ? '<span class="pill">from this machine</span>'
+          : '<span class="pill open">not set</span>') +
+        '</div></div>' +
+        '<input type="password" id="narration-key" data-secret="' + esc(key.name) + '"' +
+        ' autocomplete="off" spellcheck="false" placeholder="' +
+        (key.set ? 'unchanged' : 'paste your key here') + '">' +
+        '<div class="d" style="margin-top:8px">Kept beside the project, readable only by you, ' +
+        'and never written into a recording. Emptying the box leaves what is already saved.</div>' +
+        '</div></details>';
+    }
+
     groups.forEach(function (g, i) {
       html += '<details class="grp"' + (i < 2 ? ' open' : '') + '><summary>' + esc(g.name) +
         '</summary><div class="grp-body">' + g.fields.map(function (f) {
@@ -868,14 +905,15 @@
         }).join('') + '</div></details>';
     });
 
+    var passwords = (settings.secrets || []).filter(function (s) { return s.role !== 'narration'; });
     html += '<details class="grp" open><summary>Passwords</summary><div class="grp-body">';
-    if (!settings.secrets.length) {
+    if (!passwords.length) {
       html += '<div class="d" style="padding-top:4px">This walkthrough does not sign in anywhere, ' +
         'so there is nothing to fill in. Anything it needs turns up here after you record it.</div>';
     } else {
       html += '<div class="d" style="padding-top:4px">Kept on this machine only, never written into ' +
         'the recording. Leave one empty to keep what is already saved.</div>';
-      html += settings.secrets.map(function (s) {
+      html += passwords.map(function (s) {
         return '<div class="secret-row"><div><span class="mono">' + esc(s.name) + '</span> ' +
           (s.set ? '<span class="pill ok">saved</span>'
             : s.fromEnvironment ? '<span class="pill">from this machine</span>'
@@ -920,10 +958,18 @@
     api('/api/settings', { values: values, secrets: secrets }).then(function (data) {
       settings = data;
       paintStyle();
+      if (data.ready) applyReady(data.ready);
+      // A key that could not be reached from here is still saved. Say which
+      // happened rather than letting "Saved" imply it was tried.
+      if (data.keyCheck && data.keyCheck.state === 'unchecked') {
+        $('style-body').insertAdjacentHTML('afterbegin',
+          '<div class="notice tip">Key saved. ElevenLabs could not be reached from here to ' +
+          'check it, so the first video will be the test. ' + esc(data.keyCheck.reason) + '</div>');
+      }
       $('style-saved').hidden = false;
       setTimeout(function () { $('style-saved').hidden = true; }, 2400);
       // Pacing lives in here too, so the board's timings may have just moved.
-      return api('/api/story').then(function (next) { story = next; });
+      return api('/api/story').then(function (next) { story = next; paint(); });
     }).catch(function (err) {
       $('style-body').insertAdjacentHTML('afterbegin', '<div class="notice bad">' + esc(err.message) + '</div>');
     });
@@ -949,6 +995,38 @@
     });
   }
 
+  /**
+   * What this machine can do, applied to the board. Called at boot and again
+   * after a save, so pasting a key unlocks narration without reopening
+   * the window.
+   */
+  function applyReady(ready) {
+    var had = !!(setup.ready && setup.ready.narration);
+    setup.ready = ready || {};
+    var has = !!setup.ready.narration;
+    if (has !== had) options.narration = has;
+
+    Array.prototype.forEach.call($('sw-narration').children, function (b) { b.disabled = !has; });
+    $('no-key').hidden = has;
+    $('narration-note').textContent = has
+      ? 'Read out loud by ElevenLabs.'
+      : 'No ElevenLabs key on this machine yet. The video will be silent, and just as long.';
+    paintSwitch('sw-narration', options.narration);
+
+    var pill = $('ready-pill');
+    if (setup.ready.ffmpeg === false) {
+      pill.textContent = 'Video tools missing';
+      pill.className = 'pill bad';
+      pill.hidden = false;
+    } else if (setup.ready.browser === false) {
+      pill.textContent = 'Browser still downloading';
+      pill.className = 'pill open';
+      pill.hidden = false;
+    } else {
+      pill.hidden = true;
+    }
+  }
+
   function paintThemeDetail() {
     var chosen = setup.themes.filter(function (t) { return t.file === $('theme').value; })[0];
     $('theme-detail').textContent = chosen ? chosen.detail : '';
@@ -960,6 +1038,14 @@
   $('tab-btn-board').addEventListener('click', function () { tab = 'board'; paint(); });
   $('tab-btn-style').addEventListener('click', function () {
     if (settings) { tab = 'style'; paint(); } else { openStyle().catch(function () {}); }
+  });
+  $('no-key').addEventListener('click', function () {
+    openStyle().then(function () {
+      var card = $('grp-narration');
+      if (card) card.scrollIntoView({ block: 'center' });
+      var box = $('narration-key');
+      if (box) box.focus();
+    }).catch(function () {});
   });
   $('style-save').addEventListener('click', saveStyle);
   $('style-reload').addEventListener('click', function () { openStyle().catch(function () {}); });
@@ -1049,29 +1135,11 @@
       }).join('') || '<option value="theme.json">default</option>';
       paintThemeDetail();
 
-      var ready = setup.ready || {};
-      options.narration = !!ready.narration;
-      if (!ready.narration) {
-        Array.prototype.forEach.call($('sw-narration').children, function (b) { b.disabled = true; });
-        $('narration-note').textContent =
-          'Needs an ElevenLabs key, which this machine does not have. The video will be silent, ' +
-          'and just as long.';
-      }
-      paintSwitch('sw-narration', options.narration);
-      paintSwitch('sw-captions', options.captions);
       wireSwitch('sw-narration', 'narration');
       wireSwitch('sw-captions', 'captions');
-
-      var pill = $('ready-pill');
-      if (ready.ffmpeg === false) {
-        pill.textContent = 'Video tools missing';
-        pill.className = 'pill bad';
-        pill.hidden = false;
-      } else if (ready.browser === false) {
-        pill.textContent = 'Browser still downloading';
-        pill.className = 'pill open';
-        pill.hidden = false;
-      }
+      paintSwitch('sw-captions', options.captions);
+      setup.ready = null;
+      applyReady(data.ready);
 
       var stream = new EventSource('/api/events?token=' + TOKEN);
       stream.onmessage = function (e) { apply(JSON.parse(e.data)); };

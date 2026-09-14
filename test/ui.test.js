@@ -138,8 +138,10 @@ test('the event stream sends the current state immediately', async () => {
 });
 
 test('failures are rewritten into something worth showing a colleague', () => {
-  assert.match(friendly(new Error('ELEVENLABS_API_KEY is not set, so narration cannot be generated.')),
-    /Turn narration off/);
+  const noKey = friendly(new Error('ELEVENLABS_API_KEY is not set, so narration cannot be generated.'));
+  assert.match(noKey, /turn narration off/);
+  // There is somewhere in the window to put one now, so say where.
+  assert.match(noKey, /under Style/);
   assert.match(friendly(new Error('ffmpeg is required but not usable.')), /needed to put the video together/);
   // The tool fetches the browser itself now, so this must not ask a colleague
   // to run a command.
@@ -176,7 +178,7 @@ test('the settings screen is told the fields, the values and which passwords are
     assert.ok(s.fields.length >= 10);
     assert.strictEqual(s.problem, null);
     assert.ok('theme.cursor.moveMs' in s.values);
-    const names = s.secrets.map((x) => x.name).sort();
+    const names = s.secrets.filter((x) => x.role === 'flow').map((x) => x.name).sort();
     assert.deepStrictEqual(names, ['PORTAL_EMAIL', 'PORTAL_PASSWORD']);
     assert.ok(s.secrets.every((x) => x.set === false));
   });
@@ -476,5 +478,126 @@ test('a flow on disk that will not load still lets the window open', () => {
     assert.match(app.readStory().problem, /not valid JSON/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// --- the narration key -------------------------------------------------
+
+/** An app whose key check answers however the test wants, without a network. */
+async function withKeyApp(answer, fn) {
+  const dir = makeProject();
+  const seen = [];
+  const app = createApp({
+    projectDir: dir,
+    verifyKeyFn: (key) => { seen.push(key); return Promise.resolve(answer); },
+  });
+  const url = await app.listen();
+  const base = new URL(url).origin;
+  const call = (p, body) => fetch(`${base}${p}`, {
+    method: body ? 'POST' : 'GET',
+    headers: { 'x-tutvid-token': app.token, 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  try {
+    return await fn({ app, call, dir, seen });
+  } finally {
+    await app.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+const keyOf = (s) => s.secrets.find((x) => x.name === 'ELEVENLABS_API_KEY');
+
+// No flow asks for it, so the old "what does the flow want" list never had it,
+// and there was nowhere in the window to put one.
+test('the narration key is offered even though no flow asks for it', async () => {
+  await withApp(async ({ call }) => {
+    const s = await call('/api/settings').then((r) => r.json());
+    const key = keyOf(s);
+    assert.ok(key, 'it should always be on the list');
+    assert.strictEqual(key.role, 'narration', 'and marked apart from site passwords');
+    assert.strictEqual(key.set, false);
+    assert.strictEqual(s.secrets[0].name, 'ELEVENLABS_API_KEY', 'offered first');
+  });
+});
+
+test('saving a key stores it and turns narration on', async () => {
+  await withKeyApp({ state: 'accepted', reason: '' }, async ({ call, dir, seen }) => {
+    const before = await call('/api/settings').then((r) => r.json());
+    assert.strictEqual(before.ready.narration, false, 'nothing to speak with yet');
+
+    const after = await call('/api/settings', {
+      secrets: { ELEVENLABS_API_KEY: 'sk_test_abc' },
+    }).then((r) => r.json());
+
+    assert.deepStrictEqual(seen, ['sk_test_abc'], 'the key is checked before it is kept');
+    assert.strictEqual(after.keyCheck.state, 'accepted');
+    assert.strictEqual(keyOf(after).set, true);
+    assert.strictEqual(after.ready.narration, true, 'the window can offer spoken narration now');
+
+    const saved = JSON.parse(fs.readFileSync(path.join(dir, '.secrets.json'), 'utf8'));
+    assert.strictEqual(saved.ELEVENLABS_API_KEY, 'sk_test_abc');
+  });
+});
+
+// The rule for every other secret holds for this one: the window is told which
+// names are set, never what they are.
+test('a saved key is never handed back to the window', async () => {
+  await withKeyApp({ state: 'accepted', reason: '' }, async ({ call }) => {
+    await call('/api/settings', { secrets: { ELEVENLABS_API_KEY: 'sk_do_not_leak' } });
+    for (const path_ of ['/api/settings', '/api/setup']) {
+      const body = await call(path_).then((r) => r.text());
+      assert.ok(!body.includes('sk_do_not_leak'), `${path_} must not carry the value`);
+    }
+  });
+});
+
+// Without this, a typo is only discovered three minutes into a render.
+test('a key ElevenLabs turns down is refused, not quietly kept', async () => {
+  await withKeyApp({ state: 'rejected', reason: 'ElevenLabs turned it down (401).' },
+    async ({ call, dir }) => {
+      const res = await call('/api/settings', { secrets: { ELEVENLABS_API_KEY: 'nope' } });
+      assert.strictEqual(res.status, 400);
+      assert.match((await res.json()).error, /ElevenLabs key/);
+      assert.ok(!fs.existsSync(path.join(dir, '.secrets.json')), 'nothing was written');
+    });
+});
+
+// Being offline is not the key's fault, and refusing to save would leave
+// somebody unable to set one up on a machine behind a proxy.
+test('a key that could not be checked is saved, and says so', async () => {
+  await withKeyApp({ state: 'unchecked', reason: 'fetch failed' }, async ({ call, dir }) => {
+    const after = await call('/api/settings', { secrets: { ELEVENLABS_API_KEY: 'sk_maybe' } })
+      .then((r) => r.json());
+    assert.strictEqual(after.keyCheck.state, 'unchecked');
+    assert.strictEqual(keyOf(after).set, true);
+    assert.strictEqual(after.ready.narration, true);
+    assert.strictEqual(
+      JSON.parse(fs.readFileSync(path.join(dir, '.secrets.json'), 'utf8')).ELEVENLABS_API_KEY,
+      'sk_maybe'
+    );
+  });
+});
+
+test('saving anything else does not go asking ElevenLabs about it', async () => {
+  await withKeyApp({ state: 'rejected', reason: 'should never be consulted' },
+    async ({ call, seen }) => {
+      const res = await call('/api/settings', { values: { 'flow.minStepMs': 1500 } });
+      assert.strictEqual(res.status, 200);
+      assert.deepStrictEqual(seen, []);
+    });
+});
+
+test('a key in the environment wins, and is reported as coming from there', async () => {
+  process.env.ELEVENLABS_API_KEY = 'from-the-shell';
+  try {
+    await withApp(async ({ call }) => {
+      const s = await call('/api/settings').then((r) => r.json());
+      assert.strictEqual(keyOf(s).fromEnvironment, true);
+      assert.strictEqual(keyOf(s).set, false);
+      assert.strictEqual(s.ready.narration, true);
+    });
+  } finally {
+    delete process.env.ELEVENLABS_API_KEY;
   }
 });

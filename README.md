@@ -154,6 +154,7 @@ The app window has a settings screen, grouped into sections:
 | Opening card | on or off, title, subtitle, their fonts and colours, background, how long it shows |
 | Closing card | the same |
 | Video | size and frame rate |
+| Narration | the ElevenLabs key |
 | Passwords | one field per `${VAR}` the walkthrough needs |
 
 Font dropdowns offer what the theme declares, by family name. Colours take a
@@ -187,6 +188,20 @@ Passwords go to `.secrets.json`, written `0600` and gitignored. The window is
 told which names are set, never what they are, and a value already in the
 environment always wins over a saved one, so a CI secret is never quietly
 replaced by something typed into a window months ago.
+
+The **ElevenLabs key** lives in the same store, under **Narration**, and is
+offered whether or not a flow asks for anything. No flow ever does, and somebody
+who wants a spoken video needs somewhere to put one that is not a shell profile.
+Saving it asks ElevenLabs whether the key works before keeping it: a key that
+comes back rejected is refused with the reason, rather than discovered three
+minutes into a render once the browser has already walked the whole site. A
+network that cannot be reached is not the key's fault, so that saves the key and
+says the check did not happen. Once a key is set the narration switch on the
+storyboard unlocks, without reopening the window.
+
+`ELEVENLABS_API_KEY` in the environment still works and still wins. Only the
+window counts a saved key; `site-tutorial-video setup` reports on the
+environment, because the CLI has no window to have typed one into.
 
 ## Recording a flow
 

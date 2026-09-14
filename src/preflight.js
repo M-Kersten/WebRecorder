@@ -6,6 +6,7 @@ const { spawn } = require('child_process');
 
 const { binaries, checkToolchain } = require('./ffmpeg');
 const { resolveExecutablePath } = require('./browser');
+const { loadSecrets, NARRATION_KEY } = require('./settings');
 
 /**
  * Get the machine ready before anybody is shown a window.
@@ -17,12 +18,17 @@ const { resolveExecutablePath } = require('./browser');
  * project, and the browser is fetched here, once, with visible progress.
  */
 
-/** What is present right now. Fast, no downloads. */
-async function inspect() {
+/**
+ * What is present right now. Fast, no downloads.
+ *
+ * Pass `projectDir` to count a narration key typed into the window. The CLI
+ * has no window, so for it the environment is still the whole story.
+ */
+async function inspect(options = {}) {
   const report = {
     ffmpeg: { ok: true, path: null, bundled: false, error: null },
     browser: { ok: true, path: null },
-    narration: !!process.env.ELEVENLABS_API_KEY,
+    narration: hasNarrationKey(options.projectDir),
   };
 
   const bins = binaries();
@@ -39,6 +45,17 @@ async function inspect() {
   report.browser.ok = !!browser;
   report.browser.path = browser;
   return report;
+}
+
+/** A key in the environment, or one saved beside the project. */
+function hasNarrationKey(projectDir) {
+  if (process.env[NARRATION_KEY]) return true;
+  if (!projectDir) return false;
+  try {
+    return !!loadSecrets(projectDir)[NARRATION_KEY];
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -157,4 +174,4 @@ function describe(report) {
 
 const indent = (text) => String(text || '').split('\n').map((l) => `      ${l}`).join('\n');
 
-module.exports = { inspect, ensureReady, describe, findBrowser, installerPath, installBrowser };
+module.exports = { inspect, ensureReady, describe, findBrowser, installerPath, installBrowser, hasNarrationKey };
