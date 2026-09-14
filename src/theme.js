@@ -469,6 +469,12 @@ function resolveSound(name, baseDir, where, abs) {
     throw new ThemeError(`${abs}: ${where} must be the name of a file in "${sounds.DIR_NAME}/", or null`);
   }
   const file = sounds.fileFor(baseDir, name);
+  if (file && sounds.isPointer(file)) {
+    throw new ThemeError(
+      `${abs}: ${where} is "${name}", and that file is a Git LFS pointer rather ` +
+      'than the clip itself.\nRun "git lfs install" and "git lfs pull" to fetch it.'
+    );
+  }
   if (!file) {
     const there = sounds.scan(baseDir).map((s) => s.file);
     throw new ThemeError(

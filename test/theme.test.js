@@ -377,3 +377,14 @@ test('the music level and fade are checked before a render starts', () => {
   assert.throws(() => withTheme({ music: { volume: 3 } }), /music.volume must be between 0 and 1/);
   assert.throws(() => withTheme({ music: { fadeSec: -1 } }), /music.fadeSec must be a non-negative/);
 });
+
+test('a clip that is only an LFS pointer says what to run', () => {
+  const dir = fs.mkdtempSync(path.join(work, 'lfs-'));
+  fs.mkdirSync(path.join(dir, 'audio'));
+  fs.writeFileSync(path.join(dir, 'audio', 'loop.mp3'),
+    'version https://git-lfs.github.com/spec/v1\noid sha256:abc\nsize 1\n');
+  const file = path.join(dir, 'theme.json');
+  fs.writeFileSync(file, JSON.stringify({ music: { file: 'loop.mp3' } }));
+
+  assert.throws(() => loadTheme(file), /Git LFS pointer.*git lfs pull/s);
+});

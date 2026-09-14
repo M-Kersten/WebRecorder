@@ -64,3 +64,25 @@ test('every format ffmpeg can read is offered', () => {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// A repository using LFS for its audio hands anyone who clones without LFS a
+// hundred bytes of text with an .mp3 on the end.
+test('a Git LFS pointer is recognised for what it is', () => {
+  const dir = project(['real.mp3', 'pointer.mp3']);
+  try {
+    fs.writeFileSync(path.join(sounds.dirFor(dir), 'pointer.mp3'),
+      'version https://git-lfs.github.com/spec/v1\n' +
+      'oid sha256:c9daa0abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123\n' +
+      'size 214092\n');
+
+    assert.strictEqual(sounds.isPointer(path.join(sounds.dirFor(dir), 'pointer.mp3')), true);
+    assert.strictEqual(sounds.isPointer(path.join(sounds.dirFor(dir), 'real.mp3')), false);
+    assert.strictEqual(sounds.isPointer('/nowhere/at/all.mp3'), false);
+
+    // It is still offered: the name is right, only the bytes are missing, and
+    // the message that says so comes when a style actually names it.
+    assert.strictEqual(sounds.scan(dir).length, 2);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

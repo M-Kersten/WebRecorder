@@ -54,4 +54,21 @@ function fileFor(baseDir, name) {
   return fs.existsSync(file) ? file : null;
 }
 
-module.exports = { scan, fileFor, dirFor, labelFor, SOUND_FILE, DIR_NAME };
+/**
+ * Is this a Git LFS pointer rather than the clip itself?
+ *
+ * A repository using LFS for its audio hands anyone who clones without LFS a
+ * hundred bytes of text with an .mp3 on the end. ffmpeg's answer to that is not
+ * one anybody can act on, so it is worth recognising here.
+ */
+function isPointer(file) {
+  try {
+    if (fs.statSync(file).size > 1024) return false;
+    const head = fs.readFileSync(file, 'latin1').slice(0, 64);
+    return head.startsWith('version https://git-lfs.github.com/spec/');
+  } catch {
+    return false;
+  }
+}
+
+module.exports = { scan, fileFor, dirFor, labelFor, isPointer, SOUND_FILE, DIR_NAME };
