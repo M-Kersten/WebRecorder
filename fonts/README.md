@@ -13,26 +13,51 @@ they disagree about how a font is named:
 `family` in the theme disagrees with it, so the libass fallback cannot happen
 quietly. Leave `family` out entirely and it is read from the file.
 
-| File | Internal family | Weight | Licence |
+Every file here is offered to every style, keyed by family and weight. Nothing
+has to be declared in a theme first: `fontcatalog.js` reads the folder, takes
+each family name out of its file, and takes the weight from the file name. A
+theme that declares a key of its own wins over the folder.
+
+| Key | File | Internal family | Weight |
 | --- | --- | --- | --- |
-| `OverusedGrotesk-Roman.ttf` | `Overused Grotesk` | 400 | SIL OFL 1.1 |
-| `OverusedGrotesk-Bold.ttf` | `Overused Grotesk` | 700 | SIL OFL 1.1 |
-| `Inter-Regular.ttf` | `Inter` | 400 | SIL OFL 1.1 |
-| `Poppins-Bold.ttf` | `Poppins` | 700 | SIL OFL 1.1 |
+| `archivo` | `Archivo-Regular.ttf` | `Archivo` | 400 |
+| `archivo-bold` | `Archivo-Bold.ttf` | `Archivo` | 700 |
+| `bricolage-grotesque` | `BricolageGrotesque-Regular.ttf` | `Bricolage Grotesque` | 400 |
+| `bricolage-grotesque-bold` | `BricolageGrotesque-Bold.ttf` | `Bricolage Grotesque` | 700 |
+| `dm-sans` | `DMSans-Regular.ttf` | `DM Sans` | 400 |
+| `dm-sans-bold` | `DMSans-Bold.ttf` | `DM Sans` | 700 |
+| `figtree` | `Figtree-Regular.ttf` | `Figtree` | 400 |
+| `figtree-bold` | `Figtree-Bold.ttf` | `Figtree` | 700 |
+| `fraunces` | `Fraunces-Regular.ttf` | `Fraunces` | 400 |
+| `fraunces-bold` | `Fraunces-Bold.ttf` | `Fraunces` | 700 |
+| `inter` | `Inter-Regular.ttf` | `Inter` | 400 |
+| `inter-bold` | `Inter-Bold.ttf` | `Inter` | 700 |
+| `jetbrains-mono` | `JetBrainsMono-Regular.ttf` | `JetBrains Mono` | 400 |
+| `jetbrains-mono-bold` | `JetBrainsMono-Bold.ttf` | `JetBrains Mono` | 700 |
+| `manrope` | `Manrope-Regular.ttf` | `Manrope` | 400 |
+| `manrope-bold` | `Manrope-Bold.ttf` | `Manrope` | 700 |
+| `outfit` | `Outfit-Regular.ttf` | `Outfit` | 400 |
+| `outfit-bold` | `Outfit-Bold.ttf` | `Outfit` | 700 |
+| `overused-grotesk` | `OverusedGrotesk-Roman.ttf` | `Overused Grotesk` | 400 |
+| `overused-grotesk-bold` | `OverusedGrotesk-Bold.ttf` | `Overused Grotesk` | 700 |
+| `plus-jakarta-sans` | `PlusJakartaSans-Regular.ttf` | `Plus Jakarta Sans` | 400 |
+| `plus-jakarta-sans-bold` | `PlusJakartaSans-Bold.ttf` | `Plus Jakarta Sans` | 700 |
+| `poppins` | `Poppins-Regular.ttf` | `Poppins` | 400 |
+| `poppins-bold` | `Poppins-Bold.ttf` | `Poppins` | 700 |
+| `sora` | `Sora-Regular.ttf` | `Sora` | 400 |
+| `sora-bold` | `Sora-Bold.ttf` | `Sora` | 700 |
+| `space-grotesk` | `SpaceGrotesk-Regular.ttf` | `Space Grotesk` | 400 |
+| `space-grotesk-bold` | `SpaceGrotesk-Bold.ttf` | `Space Grotesk` | 700 |
 
-Overused Grotesk is by Bao Nguyen (RandomMaerks),
-<https://github.com/RandomMaerks/Overused-Grotesk>, licence in
-`OverusedGrotesk-OFL.txt`. Its 400 weight is called **Roman**, not Regular;
-there is no file by that name. Both weights report the same family, so libass
-picks between them by the weight the theme asks for.
+All of these are SIL Open Font License 1.1. Overused Grotesk ships its licence
+as `OverusedGrotesk-OFL.txt`; the rest come from Google Fonts under the same
+terms, which permit bundling and redistribution with attribution.
 
-Only static instances are bundled. The project also ships a variable font, but
-libass cannot set a variable axis and would render its default instance for
-every weight.
+Two weights of one family sit in this folder together. libass is handed the
+folder and a family name and picks between them on the bold flag alone, which
+`captions.js` sets from the declared weight. That is what the weight column is
+for: without it a caption asking for the bold file gets the regular one.
 
-To add your own, drop the `.ttf`/`.otf` in here and declare it under `fonts{}`.
-Check the internal name first:
-
-    fc-scan --format "%{family}\n" fonts/YourFont.ttf
-
-`.woff` and `.woff2` do not work; libass cannot read them.
+To add one, drop a `.ttf` or `.otf` in and it turns up in the Styles tab. Name
+it `Family-Weight.ttf` so the weight reads correctly (`Bold`, `Medium`,
+`Light`, `Italic`); anything unrecognised is treated as 400.

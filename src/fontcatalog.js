@@ -31,23 +31,53 @@ function keyFor(family, weight, style) {
   return parts.join(' ').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
 
+/** What each weight word in a file name is worth. */
+const WEIGHTS = {
+  thin: 100, hairline: 100,
+  extralight: 200, ultralight: 200,
+  light: 300,
+  regular: 400, normal: 400, book: 400, roman: 400,
+  medium: 500,
+  semibold: 600, demibold: 600,
+  bold: 700,
+  extrabold: 800, ultrabold: 800,
+  black: 900, heavy: 900,
+};
+
 /**
  * Weight and slant from the file name. The name is the only place a static
- * instance says which of its family it is; the OS/2 bits agree, and when they
- * do not it is the file name a person will have gone looking for.
+ * instance says which of its family it is; two weights of one family land in
+ * one folder and libass picks between them on the bold flag alone.
+ *
+ * Read as words rather than as a substring, or "Something.otf" is Thin and
+ * "SemiBold" is Bold. The last weight word wins, because that is where a suffix
+ * sits: "ArchivoBlack-Regular" is the regular cut of a family called Black.
  */
 function weightOf(name) {
-  const base = name.replace(FONT_FILE, '');
-  const style = /italic|oblique/i.test(base) ? 'italic' : 'normal';
-  if (/black|heavy/i.test(base)) return { weight: 900, style };
-  if (/extrabold|ultrabold/i.test(base)) return { weight: 800, style };
-  if (/bold/i.test(base)) return { weight: 700, style };
-  if (/semibold|demibold/i.test(base)) return { weight: 600, style };
-  if (/medium/i.test(base)) return { weight: 500, style };
-  if (/thin|hairline/i.test(base)) return { weight: 100, style };
-  if (/extralight|ultralight/i.test(base)) return { weight: 200, style };
-  if (/light/i.test(base)) return { weight: 300, style };
-  return { weight: 400, style };
+  const words = name
+    .replace(FONT_FILE, '')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')      // InterSemiBold -> Inter Semi Bold
+    .split(/[\s_-]+/)
+    .map((word) => word.toLowerCase())
+    .filter(Boolean);
+
+  // "Semi Bold" and "SemiBold" should land on the same word.
+  const glued = [];
+  for (let i = 0; i < words.length; i++) {
+    if (/^(semi|demi|extra|ultra)$/.test(words[i]) && words[i + 1]) {
+      glued.push(words[i] + words[i + 1]);
+      i++;
+    } else {
+      glued.push(words[i]);
+    }
+  }
+
+  const style = glued.includes('italic') || glued.includes('oblique') ? 'italic' : 'normal';
+  let weight = 400;
+  for (const word of glued) {
+    if (WEIGHTS[word] !== undefined) weight = WEIGHTS[word];
+  }
+  return { weight, style };
 }
 
 /**

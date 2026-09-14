@@ -217,3 +217,50 @@ test('choosing a style on the storyboard is what the Styles tab edits', async ()
     assert.strictEqual(written.style, 'theme-rebels.json');
   });
 });
+
+// A font is chosen by looking at it, and a native select cannot promise that
+// across platforms, so the list is one of our own.
+test('the font list shows every option set in its own face', async () => {
+  await withWindow(async ({ page, errors }) => {
+    await page.click('#tab-btn-styles');
+    await page.waitForSelector('#tab-styles', { state: 'visible' });
+    await page.click('#styles-rail button[data-section="Type"]');
+    await page.click('.fontpick .fp-btn');
+    await page.waitForSelector('.fp-list:not([hidden])');
+
+    const options = await page.$$eval('.fp-list:not([hidden]) [role=option]', (els) =>
+      els.map((el) => ({ value: el.dataset.value, family: getComputedStyle(el).fontFamily })));
+
+    assert.ok(options.length > 20, 'the whole folder should be on offer');
+    const fraunces = options.find((o) => o.value === 'fraunces-bold');
+    assert.ok(fraunces, 'a font nothing declared is still there');
+    assert.match(fraunces.family, /Fraunces/, 'and it is drawn in itself');
+    assert.ok(options.every((o) => !o.value || /^["']?[A-Z]/.test(o.family)),
+      'every option carries a face of its own');
+
+    // The faces are real, not a fallback: they come from the project's folder.
+    const loaded = await page.evaluate(() =>
+      [...document.fonts].map((f) => f.family).includes('Fraunces'));
+    assert.ok(loaded, 'the face should be loaded into the page');
+    assert.deepStrictEqual(errors, []);
+  });
+});
+
+test('picking a font sets it, closes the list, and saves', async () => {
+  await withWindow(async ({ page, dir }) => {
+    await page.click('#tab-btn-styles');
+    await page.waitForSelector('#tab-styles', { state: 'visible' });
+    await page.click('#styles-rail button[data-section="Type"]');
+
+    await page.click('.fontpick .fp-btn');
+    await page.click('.fp-list:not([hidden]) [data-value="space-grotesk-bold"]');
+    assert.strictEqual(await page.$eval('.fp-list', (e) => e.hidden), true);
+    assert.strictEqual(await page.textContent('.fontpick .fp-name'), 'Space Grotesk Bold');
+
+    await page.click('#styles-save');
+    await page.waitForFunction(() => !document.getElementById('styles-saved').hidden);
+
+    const written = JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8'));
+    assert.strictEqual(written.styles['theme.json'].hints.font, 'space-grotesk-bold');
+  });
+});
