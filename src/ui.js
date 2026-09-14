@@ -95,13 +95,14 @@ function createApp(options = {}) {
    * never handed back to the page: the window is told which ones are set, and
    * that is all it needs to render the form.
    */
-  function readSettings() {
+  function readSettings(styleFile = null) {
     let values = {};
     let fonts = [];
     let voices = [];
     let problem = null;
+    const style = path.basename(styleFile || currentStyle());
     try {
-      const { theme, flow } = currentConfig();
+      const { theme, flow } = currentConfig(style);
       values = settingsStore.readValues(theme, flow);
       // The font dropdowns can only offer what this theme actually declares.
       fonts = Object.entries(theme.fonts || {}).map(([key, font]) => ({
@@ -140,6 +141,8 @@ function createApp(options = {}) {
 
     return {
       fields: settingsStore.FIELDS,
+      style,
+      styles: listThemes(),
       values,
       fonts,
       voices,
@@ -241,14 +244,28 @@ function createApp(options = {}) {
     }
   }
 
-  /** The theme and flow as they stand, with the saved settings layered on. */
-  function currentConfig() {
-    const layer = settingsStore.loadSettings(settingsFile);
-    const theme = deepMerge(loadTheme(path.join(projectDir, 'theme.json')), layer.theme);
+  /** Which style the next video is made in, and which file that is. */
+  function currentStyle() {
+    const chosen = settingsStore.loadSettings(settingsFile).style;
+    const file = path.join(projectDir, chosen);
+    return fs.existsSync(file) ? chosen : settingsStore.DEFAULT_STYLE;
+  }
+
+  /**
+   * The style and flow as they stand, with the saved settings layered on.
+   *
+   * `styleFile` names which style to read. Left out, it is whichever one the
+   * storyboard is set to, so the timings the board shows come from the style
+   * the video will actually be made in.
+   */
+  function currentConfig(styleFile = null) {
+    const style = path.basename(styleFile || currentStyle());
+    const layer = settingsStore.loadSettings(settingsFile, style);
+    const theme = deepMerge(loadTheme(path.join(projectDir, style)), layer.theme);
     const flow = fs.existsSync(flowFile)
       ? Object.assign(loadFlow(flowFile), layer.flow)
       : { minStepMs: 1400, stepPaddingMs: 600, typeDelayMs: 55, ...layer.flow };
-    return { theme, flow, layer };
+    return { theme, flow, layer, style };
   }
 
   /**
@@ -259,7 +276,7 @@ function createApp(options = {}) {
    * new values are merged onto the theme and checked here, so the form says so
    * while the person is still looking at it.
    */
-  async function writeSettings(values, secrets) {
+  async function writeSettings(values, secrets, styleFile = null) {
     // A key that ElevenLabs will not accept is worth catching here rather than
     // three minutes into a render, once the browser has walked the whole site.
     let keyCheck = null;
@@ -271,18 +288,67 @@ function createApp(options = {}) {
         throw new Error(`That does not look like a working ElevenLabs key. ${keyCheck.reason}`);
       }
     }
+    const style = path.basename(styleFile || currentStyle());
     if (values) {
-      const base = loadTheme(path.join(projectDir, 'theme.json'));
+      const base = loadTheme(path.join(projectDir, style));
       const context = {
         fontKeys: Object.keys(base.fonts || {}),
         voiceIds: loadVoices(projectDir).map((voice) => voice.id),
+        styleFile: style,
       };
       const layer = settingsStore.toLayer(values, context);
-      validateTheme(deepMerge(base, layer.theme), 'These settings');
+      validateTheme(deepMerge(base, layer.theme), `These settings`);
       settingsStore.saveSettings(settingsFile, values, context);
     }
     if (secrets) settingsStore.saveSecrets(projectDir, secrets);
-    return { ...readSettings(), keyCheck };
+    return { ...readSettings(style), keyCheck };
+  }
+
+  /**
+   * Start a new style from one that already works.
+   *
+   * A copy of the file rather than a dump of the loaded theme: the shipped
+   * styles are commented documents explaining themselves, and a new one should
+   * arrive with those comments intact rather than as a wall of JSON.
+   */
+  function createStyle(name, fromFile = null) {
+    const label = String(name || '').trim();
+    if (!label) throw new Error('A style needs a name.');
+    const file = `theme-${slug(label)}.json`;
+    if (file === 'theme-.json') throw new Error('That name has no letters or numbers in it.');
+    const target = path.join(projectDir, file);
+    if (fs.existsSync(target)) throw new Error(`There is already a style called "${label}".`);
+
+    const source = path.join(projectDir, path.basename(fromFile || currentStyle()));
+    if (!fs.existsSync(source)) throw new Error('The style to copy from is missing.');
+    fs.copyFileSync(source, target);
+    // It starts where its parent left off, edits included.
+    const parent = settingsStore.loadSettings(settingsFile, path.basename(source)).theme;
+    if (Object.keys(parent).length) {
+      const raw = settingsStore.loadSettings(settingsFile);
+      const styles = { ...raw.styles, [file]: parent };
+      fs.writeFileSync(
+        settingsFile,
+        `${JSON.stringify({ style: raw.style, flow: raw.flow, styles }, null, 2)}\n`,
+        'utf8'
+      );
+    }
+    settingsStore.saveStyleChoice(settingsFile, file);
+    return readSettings(file);
+  }
+
+  /** Which style the storyboard makes its video in, remembered between runs. */
+  function chooseStyle(styleFile) {
+    // A name, never a path: basename alone would leave "" pointing at the
+    // project folder, which exists and is not a style.
+    const file = path.basename(String(styleFile || ''));
+    const target = path.join(projectDir, file);
+    if (!/^theme.*\.json$/.test(file) || !fs.existsSync(target) || !fs.statSync(target).isFile()) {
+      throw new Error(`There is no style called "${file}".`);
+    }
+    settingsStore.saveStyleChoice(settingsFile, file);
+    broadcast();
+    return file;
   }
 
   /** Theme files sitting next to the project, for the style dropdown. */
@@ -364,7 +430,7 @@ function createApp(options = {}) {
     const outFile = path.join(outDir, `${slug(opts.name) || 'walkthrough'}.mp4`);
     const argv = [
       '--flow', flowFile,
-      '--theme', path.join(projectDir, opts.theme || 'theme.json'),
+      '--theme', path.join(projectDir, path.basename(opts.theme || currentStyle())),
       '--settings', settingsFile,
       '--out', outFile,
     ];
@@ -477,18 +543,29 @@ function createApp(options = {}) {
       }
 
       if (url.pathname === '/api/settings' && req.method !== 'POST') {
-        return send(200, { ...readSettings(), ready: await readiness() });
+        const wanted = url.searchParams.get('style');
+        return send(200, { ...readSettings(wanted), ready: await readiness() });
       }
 
       if (url.pathname === '/api/settings' && req.method === 'POST') {
         const body = await readJsonBody(req);
-        const saved = await writeSettings(body.values, body.secrets);
+        const saved = await writeSettings(body.values, body.secrets, body.style);
         return send(200, { ...saved, ready: await readiness() });
+      }
+
+      // Which style the next video is made in. Stored, so it survives the
+      // window being closed and the CLI can be pointed at the same one.
+      if (url.pathname === '/api/style' && req.method === 'POST') {
+        const body = await readJsonBody(req);
+        // Present but blank is still a create, so the error names the problem.
+        if ('newName' in body) return send(200, createStyle(body.newName, body.from));
+        return send(200, { style: chooseStyle(body.style), story: readStory() });
       }
 
       if (url.pathname === '/api/setup') {
         return send(200, {
           themes: listThemes(),
+          style: currentStyle(),
           ready: await readiness(),
           projectDir,
           state: publicState(),
@@ -563,6 +640,9 @@ function createApp(options = {}) {
     startRender,
     readStory,
     writeStory,
+    createStyle,
+    chooseStyle,
+    currentStyle,
   };
 }
 

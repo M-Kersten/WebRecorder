@@ -37,59 +37,87 @@ ${SELECTOR_SCRIPT}
   function css() {
     return \`
       :host { all: initial; }
-      * { box-sizing: border-box; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+      * {
+        box-sizing: border-box; min-width: 0;
+        font-family: 'Overused Grotesk', ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
       .panel {
         position: fixed; top: 0; right: 0; width: \${PANEL_WIDTH}px; height: 100vh;
-        background: #101318; color: #E8EAF0;
+        background: #EFF0F4; color: #12141A;
         display: flex; flex-direction: column;
-        border-left: 1px solid #232833; box-shadow: -12px 0 40px rgba(0,0,0,.45);
-        font-size: 13px; line-height: 1.4;
+        border-left: 1px solid #E0E2E9; box-shadow: -14px 0 44px rgba(18,20,26,.10);
+        font-size: 13px; line-height: 1.45;
       }
-      .head { padding: 16px 18px 13px; border-bottom: 1px solid #232833; display: block; }
-      .head h2 { display: block; margin: 0 0 4px; font-size: 14px; font-weight: 650;
-                 letter-spacing: -.2px; color: #E8EAF0; }
-      .sub { display: block; color: #8A93A6; font-size: 12px; line-height: 1.5; }
-      .list { flex: 1; overflow-y: auto; padding: 10px 12px; }
-      .empty { color: #6B7488; padding: 26px 8px; text-align: center; line-height: 1.7; }
+      .head { padding: 16px 16px 14px; display: block; }
+      .head h2 {
+        display: flex; align-items: center; gap: 9px; margin: 0 0 5px;
+        font-size: 14px; font-weight: 700; letter-spacing: -.01em; color: #12141A;
+      }
+      .mark {
+        width: 22px; height: 22px; border-radius: 7px; background: #12141A; flex: none;
+        display: inline-grid; place-items: center;
+      }
+      .mark svg { width: 9px; height: 9px; display: block; }
+      .sub { display: block; color: #7B8090; font-size: 12px; line-height: 1.5; }
+      .list { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 2px 14px 10px; }
+      .empty {
+        background: #fff; border-radius: 16px; color: #7B8090;
+        padding: 28px 18px; text-align: center; line-height: 1.7;
+      }
       .step {
-        background: #171B23; border: 1px solid #232833; border-radius: 10px;
-        padding: 10px 11px; margin-bottom: 9px;
+        background: #fff; border: 1.5px solid transparent; border-radius: 16px;
+        padding: 12px 13px; margin-bottom: 10px; box-shadow: 0 1px 2px rgba(18,20,26,.04);
       }
-      .row { display: flex; align-items: center; gap: 7px; }
-      .n { color: #6B7488; font-variant-numeric: tabular-nums; min-width: 17px; font-size: 12px; }
+      .step:focus-within { border-color: #12141A; }
+      /* A "type" step carries an extra text box. Without min-width:0 on the
+         flex children its intrinsic width wins and that one step alone renders
+         wider than the rest of the list. */
+      .row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+      .row > * { min-width: 0; }
+      .n {
+        color: #7B8090; font-variant-numeric: tabular-nums; flex: none;
+        min-width: 16px; font-size: 12px; font-weight: 700;
+      }
       select, input, textarea {
-        background: #0C0F14; color: #E8EAF0; border: 1px solid #2A3040;
-        border-radius: 7px; padding: 6px 8px; font-size: 12px; width: 100%;
+        background: #fff; color: #12141A; border: 1px solid #E0E2E9;
+        border-radius: 10px; padding: 7px 10px; font-size: 12px; width: 100%;
         font-family: inherit;
       }
-      select { width: auto; padding-right: 22px; }
-      textarea { resize: vertical; min-height: 30px; margin-top: 6px; line-height: 1.45; }
+      input, textarea { min-width: 0; flex: 1 1 auto; }
+      select {
+        flex: none; width: auto; padding-right: 26px; font-weight: 700; cursor: pointer;
+        -webkit-appearance: none; appearance: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5l5-5' stroke='%2312141A' stroke-width='1.6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+        background-repeat: no-repeat; background-position: right 9px center; background-size: 9px;
+      }
+      input:focus, select:focus, textarea:focus { outline: none; border-color: #12141A; }
+      textarea { resize: vertical; min-height: 32px; margin-top: 7px; line-height: 1.5; }
       .target {
-        color: #8A93A6; font-family: ui-monospace, SFMono-Regular, monospace;
-        font-size: 11px; margin-top: 7px; word-break: break-all; line-height: 1.45;
+        color: #7B8090; font-family: ui-monospace, SFMono-Regular, monospace;
+        font-size: 11px; margin-top: 8px; word-break: break-all; line-height: 1.45;
       }
       .x {
-        margin-left: auto; background: none; border: 0; color: #6B7488;
-        cursor: pointer; font-size: 15px; padding: 0 3px; line-height: 1;
+        margin-left: auto; flex: none; background: none; border: 0; color: #7B8090;
+        cursor: pointer; font-size: 16px; padding: 0 3px; line-height: 1; border-radius: 6px;
       }
-      .x:hover { color: #FF6B6B; }
-      .foot { padding: 12px; border-top: 1px solid #232833; display: flex; gap: 8px; }
+      .x:hover { color: #A32222; }
+      .foot { padding: 12px 14px 14px; display: flex; gap: 8px; }
       button.act {
-        flex: 1; padding: 10px; border-radius: 9px; border: 1px solid #2A3040;
-        background: #171B23; color: #E8EAF0; cursor: pointer; font-size: 13px; font-weight: 550;
-        font-family: inherit;
+        flex: 1; padding: 10px 12px; border-radius: 999px; border: 1px solid #E0E2E9;
+        background: #fff; color: #12141A; cursor: pointer; font-size: 13px; font-weight: 700;
+        font-family: inherit; white-space: nowrap;
       }
-      button.act:hover { background: #1E232D; }
-      button.primary { background: #6C5CE7; border-color: #6C5CE7; color: #fff; }
-      button.primary:hover { background: #7d6ff0; }
-      .paused { color: #FFB74D; }
+      button.act:hover { background: #F4F5F8; }
+      button.primary { background: #E6007E; border-color: #E6007E; color: #fff; }
+      button.primary:hover { background: #FF2C99; border-color: #FF2C99; }
+      .paused { color: #8C6008; }
     \`;
   }
 
   /** The only two rules that have to live in the page itself. */
   function pageCss() {
     return 'html{margin-right:' + PANEL_WIDTH + 'px !important}' +
-      '[data-tut-pick]{outline:2px solid #6C5CE7 !important;outline-offset:2px}' +
+      '[data-tut-pick]{outline:2px solid #E6007E !important;outline-offset:2px}' +
       '#' + PANEL_ID + '{position:fixed;inset:0 0 auto auto;z-index:2147483647}';
   }
 
@@ -109,7 +137,9 @@ ${SELECTOR_SCRIPT}
     shadow.innerHTML = '<style>' + css() + '</style>' + [
       '<div class="panel">',
       '  <div class="head">',
-      '    <h2>Recording your walkthrough</h2>',
+      '    <h2><span class="mark">' +
+      '<svg viewBox="0 0 10 12" fill="#fff" aria-hidden="true"><path d="M0 0l10 6-10 6z"/></svg>' +
+      '</span>Recording your walkthrough</h2>',
       '    <span class="sub" id="__tut_hint_line">Use the site as you normally would. ',
       '    Every click and everything you type is written down.</span>',
       '  </div>',

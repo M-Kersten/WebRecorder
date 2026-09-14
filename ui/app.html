@@ -292,45 +292,63 @@
   ol.walk { margin: 14px 0 0; padding-left: 21px; color: var(--muted); font-size: 14px; line-height: 1.9; }
   ol.walk b { color: var(--ink); font-weight: 700; }
 
-  /* ---------- style tab ---------- */
-  .groups { columns: 340px 3; column-gap: 14px; }
-  details.grp {
-    background: var(--card); border-radius: var(--r-card); box-shadow: var(--shadow);
-    display: inline-block; width: 100%; margin-bottom: 14px; break-inside: avoid;
+  /* ---------- settings pages ---------- */
+  /* A rail and one column, the way a settings page has always looked. Every
+     control sits in the same track, so the eye can run down the edge of them. */
+  .style-bar {
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    padding: 16px 22px; margin-bottom: 14px;
   }
-  details.grp > summary {
-    list-style: none; cursor: pointer; padding: 18px 22px; display: flex; align-items: center; gap: 10px;
-    font-size: 11px; letter-spacing: .1em; text-transform: uppercase; font-weight: 700; color: var(--muted);
+  .style-bar .pick { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; }
+  .style-bar select { width: 260px; }
+  .style-bar .acts, .new-style .acts { display: flex; gap: 9px; align-items: center; }
+  .style-bar .btn, .new-style .btn { padding: 9px 16px; font-size: 13.5px; }
+  .new-style { padding: 18px 22px; margin-bottom: 14px; }
+  .new-style .acts { margin: 9px 0 10px; }
+  .new-style input { width: 260px; }
+
+  .prefs { display: grid; grid-template-columns: 208px minmax(0, 1fr); overflow: hidden; }
+  .rail { padding: 14px 12px; border-right: 1px solid var(--rule); }
+  .rail button {
+    display: block; width: 100%; text-align: left; border: 0; background: none;
+    border-radius: 10px; padding: 9px 13px; cursor: pointer;
+    font-size: 14px; font-weight: 700; color: var(--ink-2);
   }
-  details.grp > summary::-webkit-details-marker { display: none; }
-  details.grp > summary::before {
-    content: ''; width: 7px; height: 7px; flex: none;
-    border-right: 1.8px solid currentColor; border-bottom: 1.8px solid currentColor;
-    transform: rotate(-45deg); transition: transform .15s ease; margin-left: 2px;
-  }
-  details[open].grp > summary::before { transform: rotate(45deg); }
-  details.grp > summary:hover { color: var(--ink); }
-  .grp-body { padding: 0 22px 20px; }
+  .rail button:hover { background: var(--sunken); }
+  .rail button.on { background: var(--ink); color: #fff; }
+  /* Capped, so a label and its control are never a screen apart. */
+  .pane-wrap { padding: 8px 26px 24px; min-width: 0; max-width: 760px; }
+  .pane > h3 { margin: 0; padding: 18px 0 4px; font-size: 17px; font-weight: 700; }
+  .pane > .lede { margin: 0 0 6px; color: var(--muted); font-size: 13.5px; max-width: 58ch; }
+
+  /* label | control | unit, one track each, so nothing wanders. */
   .row {
-    display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: start;
-    padding: 14px 0; border-top: 1px solid var(--rule);
+    display: grid; grid-template-columns: minmax(0, 1fr) 176px 46px;
+    gap: 16px; align-items: center; padding: 14px 0; border-top: 1px solid var(--rule);
   }
   .row .k { font-size: 14px; }
-  .row .d { font-size: 12.5px; color: var(--muted); line-height: 1.5; margin-top: 2px; }
-  .row .ctl { text-align: right; }
-  .row .ctl input[type=number] { width: 118px; text-align: right; }
-  .row .ctl select { width: 178px; }
-  .row .ctl input.wide-text { width: 210px; }
-  .row .unit { display: block; font-size: 12px; color: var(--muted); margin-top: 5px; }
+  .row .d { font-size: 12.5px; color: var(--muted); line-height: 1.5; margin-top: 2px; max-width: 52ch; }
+  .row .ctl { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
+  .row .ctl input[type=number], .row .ctl input[type=text], .row .ctl select { width: 100%; }
+  .row .ctl input[type=number] { text-align: right; }
+  .row .unit { font-size: 12px; color: var(--muted); }
+  .key-block { padding: 16px 0 4px; }
+  .key-block .d { max-width: 62ch; }
+  .key-block input[type=password] { width: 100%; max-width: 420px; margin-top: 10px; }
+
+  .prefs-foot { display: flex; align-items: center; gap: 12px; margin-top: 16px; padding: 0 4px; }
+  .prefs-foot .end { margin-left: auto; display: flex; gap: 10px; align-items: center; }
+
   .swatch {
-    -webkit-appearance: none; appearance: none; width: 36px; height: 34px; padding: 0;
+    -webkit-appearance: none; appearance: none; width: 36px; height: 36px; padding: 0;
     border: 1px solid var(--edge); border-radius: 9px; background: none; cursor: pointer; flex: none;
   }
   .swatch::-webkit-color-swatch-wrapper { padding: 3px; }
   .swatch::-webkit-color-swatch { border: 0; border-radius: 6px; }
-  .colour { display: flex; gap: 8px; align-items: center; justify-content: flex-end; }
-  .colour input[type=text] { width: 104px; font-family: ui-monospace, Menlo, monospace;
-                             font-size: 12.5px; text-transform: uppercase; }
+  .colour { display: flex; gap: 8px; align-items: center; width: 100%; }
+  .colour input[type=text] {
+    font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; text-transform: uppercase;
+  }
   .switch {
     -webkit-appearance: none; appearance: none; width: 42px; height: 24px; flex: none;
     border-radius: var(--pill); background: var(--edge); position: relative; cursor: pointer;
@@ -342,13 +360,17 @@
   }
   .switch:checked { background: var(--pink); }
   .switch:checked::after { transform: translateX(18px); }
-  .secret-row { display: grid; grid-template-columns: minmax(0, 1fr) 180px; gap: 14px;
-                align-items: center; padding: 12px 0; border-top: 1px solid var(--rule); }
-  .style-foot { display: flex; align-items: center; gap: 12px; margin-top: 16px; padding: 0 4px; }
-  .style-foot .end { margin-left: auto; display: flex; gap: 10px; align-items: center; }
+  .secret-row {
+    display: grid; grid-template-columns: minmax(0, 1fr) 226px; gap: 16px;
+    align-items: center; padding: 14px 0; border-top: 1px solid var(--rule);
+  }
 
   @media (max-width: 900px) {
-    .split, .editor { grid-template-columns: minmax(0, 1fr); }
+    .split, .editor, .prefs { grid-template-columns: minmax(0, 1fr); }
+    .rail { border-right: 0; border-bottom: 1px solid var(--rule); display: flex; gap: 6px; overflow-x: auto; }
+    .rail button { width: auto; white-space: nowrap; }
+    .pane-wrap { padding: 8px 18px 20px; }
+    .row { grid-template-columns: minmax(0, 1fr) 132px 40px; gap: 10px; }
     .split > * + *, .editor > * + * { border-left: 0; border-top: 1px solid var(--rule); }
     .bar { flex-wrap: wrap; }
     .tabs { margin: 0; order: 3; width: 100%; }
@@ -366,7 +388,8 @@
     </div>
     <nav class="tabs">
       <button class="tab on" id="tab-btn-board" type="button">Storyboard</button>
-      <button class="tab" id="tab-btn-style" type="button">Style</button>
+      <button class="tab" id="tab-btn-styles" type="button">Styles</button>
+      <button class="tab" id="tab-btn-settings" type="button">Settings</button>
     </nav>
     <div class="bar-end">
       <span class="pill" id="ready-pill" hidden></span>
@@ -576,22 +599,74 @@
     </div>
   </main>
 
-  <!-- ================= STYLE ================= -->
-  <main id="tab-style" hidden>
+  <!-- ================= STYLES ================= -->
+  <main id="tab-styles" hidden>
     <div class="head">
-      <h1>Style</h1>
-      <p>How the video looks, how fast it moves, and the key that gives it a voice.</p>
+      <h1>Styles</h1>
+      <p>How a video looks. Each style is its own file, and the storyboard picks one.</p>
     </div>
-    <div id="style-body" class="groups"></div>
-    <div class="style-foot">
-      <span class="sub" id="style-note"></span>
+
+    <section class="card style-bar">
+      <div class="pick">
+        <label class="label" for="style-file">Editing</label>
+        <select id="style-file"></select>
+        <span class="pill ok" id="style-inuse" hidden>Used by the storyboard</span>
+      </div>
+      <div class="acts">
+        <button class="btn" id="style-use" type="button" hidden>Use this one</button>
+        <button class="btn" id="style-new" type="button">New style</button>
+      </div>
+    </section>
+
+    <section class="card new-style" id="new-style" hidden>
+      <label class="label" for="new-style-name">Name for the new style</label>
+      <div class="acts">
+        <input type="text" id="new-style-name" placeholder="Q Portal" autocomplete="off" maxlength="40">
+        <button class="btn dark" id="new-style-make" type="button">Create</button>
+        <button class="btn" id="new-style-cancel" type="button">Cancel</button>
+      </div>
+      <div class="d">Starts as a copy of the style above, edits included.</div>
+    </section>
+
+    <section class="card prefs">
+      <nav class="rail" id="styles-rail"></nav>
+      <div class="pane-wrap" id="styles-body"></div>
+    </section>
+
+    <div class="prefs-foot">
+      <span class="sub" id="styles-note"></span>
       <div class="end">
-        <span class="saved-note" id="style-saved" hidden>
+        <span class="saved-note" id="styles-saved" hidden>
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3.2 3.2L13 5"/></svg>
           Saved
         </span>
-        <button class="btn" id="style-reload" type="button">Undo changes</button>
-        <button class="btn dark" id="style-save" type="button">Save</button>
+        <button class="btn" id="styles-undo" type="button">Undo changes</button>
+        <button class="btn dark" id="styles-save" type="button">Save</button>
+      </div>
+    </div>
+  </main>
+
+  <!-- ================= SETTINGS ================= -->
+  <main id="tab-settings" hidden>
+    <div class="head">
+      <h1>Settings</h1>
+      <p>The voice, the timing and the passwords. These hold for every style.</p>
+    </div>
+
+    <section class="card prefs">
+      <nav class="rail" id="settings-rail"></nav>
+      <div class="pane-wrap" id="settings-body"></div>
+    </section>
+
+    <div class="prefs-foot">
+      <span class="sub">Kept in settings.json, beside this project.</span>
+      <div class="end">
+        <span class="saved-note" id="settings-saved" hidden>
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3.2 3.2L13 5"/></svg>
+          Saved
+        </span>
+        <button class="btn" id="settings-undo" type="button">Undo changes</button>
+        <button class="btn dark" id="settings-save" type="button">Save</button>
       </div>
     </div>
   </main>
@@ -644,10 +719,10 @@
    * Which of the five things the board can be showing.
    * ------------------------------------------------------------------ */
   function paint() {
-    $('tab-board').hidden = tab !== 'board';
-    $('tab-style').hidden = tab !== 'style';
-    $('tab-btn-board').classList.toggle('on', tab === 'board');
-    $('tab-btn-style').classList.toggle('on', tab === 'style');
+    ['board', 'styles', 'settings'].forEach(function (name) {
+      $('tab-' + name).hidden = tab !== name;
+      $('tab-btn-' + name).classList.toggle('on', tab === name);
+    });
     if (tab !== 'board') return;
 
     var busy = live.phase === 'capturing' || live.phase === 'rendering';
@@ -830,8 +905,15 @@
   }
 
   /* ------------------------------------------------------------------ *
-   * Style tab
+   * Styles and Settings: one settings page, drawn twice.
+   *
+   * A style is a file, and there can be several. What the storyboard picks is
+   * what gets rendered, and what this tab edits is stored against that style
+   * alone. The old shape kept one pile of visual settings and merged it over
+   * whichever style you chose, which is why choosing one changed so little.
    * ------------------------------------------------------------------ */
+  var openSection = { style: null, settings: null };
+
   function control(field, value) {
     var id = 'set-' + field.key.replace(/\./g, '-');
     var attrs = ' id="' + id + '" data-key="' + field.key + '"';
@@ -859,12 +941,11 @@
         return '<option value="' + esc(v.id) + '"' + (v.id === value ? ' selected' : '') +
           '>' + esc(v.name) + '</option>';
       });
-      voices.unshift('<option value=""' + (value ? '' : ' selected') + '>' +
-        'The stock voice</option>');
+      voices.unshift('<option value=""' + (value ? '' : ' selected') + '>The stock voice</option>');
       return '<select' + attrs + '>' + voices.join('') + '</select>';
     }
     if (field.type === 'text') {
-      return '<input type="text" class="wide-text"' + attrs + ' value="' + esc(value) + '"' +
+      return '<input type="text"' + attrs + ' value="' + esc(value) + '"' +
         (field.maxLength ? ' maxlength="' + field.maxLength + '"' : '') + '>';
     }
     if (field.type === 'color') {
@@ -887,126 +968,173 @@
     return fields.map(function (f) {
       return '<div class="row"><div><div class="k">' + esc(f.label) + '</div>' +
         (f.help ? '<div class="d">' + esc(f.help) + '</div>' : '') + '</div>' +
-        '<div class="ctl">' + control(f, settings.values[f.key]) +
-        (f.unit ? '<span class="unit">' + esc(f.unit) + '</span>' : '') + '</div></div>';
+        '<div class="ctl">' + control(f, settings.values[f.key]) + '</div>' +
+        '<div class="unit">' + esc(f.unit || '') + '</div></div>';
     }).join('');
   }
 
-  function paintStyle() {
+  /** The one secret that is not a password for the site being recorded. */
+  function keyBlock() {
+    var key = (settings.secrets || []).filter(function (x) { return x.role === 'narration'; })[0];
+    if (!key) return '';
+    return '<div class="key-block">' +
+      '<div class="k" style="font-weight:700">ElevenLabs API key' +
+      (key.set ? ' <span class="pill ok">saved</span>'
+        : key.fromEnvironment ? ' <span class="pill">from this machine</span>'
+        : ' <span class="pill open">not set</span>') + '</div>' +
+      '<div class="d">Turns the narration you write into speech. Without one the video is ' +
+      'made in silence and runs exactly as long. Keys come from elevenlabs.io, under your ' +
+      'profile. Kept beside the project, readable only by you, and never written into a ' +
+      'recording.</div>' +
+      '<input type="password" id="narration-key" data-secret="' + esc(key.name) + '"' +
+      ' autocomplete="off" spellcheck="false" placeholder="' +
+      (key.set ? 'unchanged' : 'paste your key here') + '"></div>';
+  }
+
+  function passwordSection() {
+    var list = (settings.secrets || []).filter(function (x) { return x.role !== 'narration'; });
+    if (!list.length) {
+      return '<div class="d" style="padding:14px 0">This walkthrough does not sign in ' +
+        'anywhere, so there is nothing to fill in. Anything it needs turns up here after ' +
+        'you record it.</div>';
+    }
+    return '<div class="d" style="padding:14px 0 0">Kept on this machine only, never written ' +
+      'into the recording. Leave one empty to keep what is already saved.</div>' +
+      list.map(function (x) {
+        return '<div class="secret-row"><div><span class="mono">' + esc(x.name) + '</span> ' +
+          (x.set ? '<span class="pill ok">saved</span>'
+            : x.fromEnvironment ? '<span class="pill">from this machine</span>'
+            : '<span class="pill open">not set</span>') +
+          (x.usedByFlow ? '' : '<div class="d">Not used by the current recording.</div>') +
+          '</div><input type="password" data-secret="' + esc(x.name) + '" autocomplete="off"' +
+          ' placeholder="' + (x.set ? 'unchanged' : 'not set') + '"></div>';
+      }).join('');
+  }
+
+  var PANE_LEDE = {
+    'Cursor and ring': 'The pointer drawn into the video, and the ring that marks what it reached.',
+    'Fades': 'How long things take to appear and disappear.',
+    'Colours': 'Everything drawn over the page.',
+    'Type': 'Which bundled font the hints and subtitles use, and how big.',
+    'Opening card': 'A full-screen card before the walkthrough starts.',
+    'Closing card': 'And one after it ends.',
+    'Frame': 'The size and frame rate of the finished file.',
+    'Narration': 'The key that gives the video a voice, and which voice that is.',
+    'Pacing': 'How long steps hold, whatever style they are rendered in.',
+    'Passwords': 'What the walkthrough needs to sign in with.'
+  };
+
+  /** Draw one of the two settings pages. `which` is 'style' or 'settings'. */
+  function paintPrefs(which) {
     var groups = [];
-    settings.fields.forEach(function (f) {
+    settings.fields.filter(function (f) { return f.tab === which; }).forEach(function (f) {
       var g = groups.filter(function (x) { return x.name === f.section; })[0];
       if (!g) groups.push(g = { name: f.section, fields: [] });
       g.fields.push(f);
     });
-    // The narration section is drawn by hand, with the key above its fields.
-    var narration = groups.filter(function (g) { return g.name === 'Narration'; })[0];
-    groups = groups.filter(function (g) { return g !== narration; });
+    if (which === 'settings') groups.push({ name: 'Passwords', fields: [] });
 
-    var html = settings.problem ? '<div class="notice bad">' + esc(settings.problem) + '</div>' : '';
-
-    // First, because it decides whether the video has a voice at all.
-    var key = (settings.secrets || []).filter(function (s) { return s.role === 'narration'; })[0];
-    if (key) {
-      html += '<details class="grp" id="grp-narration" open><summary>Narration</summary>' +
-        '<div class="grp-body">' +
-        '<div class="d" style="padding-top:4px">An ElevenLabs key turns the narration you ' +
-        'write into speech. Without one the video is made in silence, and runs exactly as ' +
-        'long. Keys come from elevenlabs.io, under your profile.</div>' +
-        '<div class="row" style="align-items:center">' +
-        '<div><div class="k">API key</div>' +
-        '<div class="d">' +
-        (key.set ? 'Saved on this machine.'
-          : key.fromEnvironment ? 'Coming from this machine\u2019s environment, which wins over anything typed here.'
-          : 'Not set yet.') +
-        '</div></div>' +
-        '<div class="ctl">' +
-        (key.set ? '<span class="pill ok">saved</span>'
-          : key.fromEnvironment ? '<span class="pill">from this machine</span>'
-          : '<span class="pill open">not set</span>') +
-        '</div></div>' +
-        '<input type="password" id="narration-key" data-secret="' + esc(key.name) + '"' +
-        ' autocomplete="off" spellcheck="false" placeholder="' +
-        (key.set ? 'unchanged' : 'paste your key here') + '">' +
-        '<div class="d" style="margin-top:8px">Kept beside the project, readable only by you, ' +
-        'and never written into a recording. Emptying the box leaves what is already saved.</div>' +
-        (narration ? rows(narration.fields) : '') +
-        '</div></details>';
+    if (!openSection[which] || !groups.some(function (g) { return g.name === openSection[which]; })) {
+      openSection[which] = groups.length ? groups[0].name : null;
     }
 
-    groups.forEach(function (g, i) {
-      html += '<details class="grp"' + (i < 2 ? ' open' : '') + '><summary>' + esc(g.name) +
-        '</summary><div class="grp-body">' + rows(g.fields) + '</div></details>';
-    });
+    var railId = which === 'style' ? 'styles-rail' : 'settings-rail';
+    var bodyId = which === 'style' ? 'styles-body' : 'settings-body';
 
-    var passwords = (settings.secrets || []).filter(function (s) { return s.role !== 'narration'; });
-    html += '<details class="grp" open><summary>Passwords</summary><div class="grp-body">';
-    if (!passwords.length) {
-      html += '<div class="d" style="padding-top:4px">This walkthrough does not sign in anywhere, ' +
-        'so there is nothing to fill in. Anything it needs turns up here after you record it.</div>';
-    } else {
-      html += '<div class="d" style="padding-top:4px">Kept on this machine only, never written into ' +
-        'the recording. Leave one empty to keep what is already saved.</div>';
-      html += passwords.map(function (s) {
-        return '<div class="secret-row"><div><span class="mono">' + esc(s.name) + '</span> ' +
-          (s.set ? '<span class="pill ok">saved</span>'
-            : s.fromEnvironment ? '<span class="pill">from this machine</span>'
-            : '<span class="pill open">not set</span>') +
-          (s.usedByFlow ? '' : '<div class="d">Not used by the current recording.</div>') + '</div>' +
-          '<input type="password" data-secret="' + esc(s.name) + '" autocomplete="off" placeholder="' +
-          (s.set ? 'unchanged' : 'not set') + '"></div>';
+    $(railId).innerHTML = groups.map(function (g) {
+      return '<button type="button" data-section="' + esc(g.name) + '"' +
+        (g.name === openSection[which] ? ' class="on"' : '') + '>' + esc(g.name) + '</button>';
+    }).join('');
+
+    $(bodyId).innerHTML =
+      (settings.problem ? '<div class="notice bad" style="margin:16px 0">' + esc(settings.problem) + '</div>' : '') +
+      groups.map(function (g) {
+        var body = g.name === 'Passwords' ? passwordSection()
+          : (g.name === 'Narration' ? keyBlock() : '') + rows(g.fields);
+        return '<div class="pane" data-section="' + esc(g.name) + '"' +
+          (g.name === openSection[which] ? '' : ' hidden') + '>' +
+          '<h3>' + esc(g.name) + '</h3>' +
+          (PANE_LEDE[g.name] ? '<p class="lede">' + esc(PANE_LEDE[g.name]) + '</p>' : '') +
+          body + '</div>';
       }).join('');
-    }
-    html += '</div></details>';
-    $('style-body').innerHTML = html;
-    $('style-note').textContent = 'These apply to every walkthrough you make from this folder.';
 
-    Array.prototype.forEach.call($('style-body').querySelectorAll('[data-fills]'), function (sw) {
+    // Keep each swatch and its hex box showing the same thing.
+    Array.prototype.forEach.call($(bodyId).querySelectorAll('[data-fills]'), function (sw) {
       var text = $(sw.dataset.fills);
       sw.addEventListener('input', function () { text.value = sw.value.toUpperCase(); });
       text.addEventListener('input', function () {
         if (/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(text.value.trim())) sw.value = text.value.trim();
       });
     });
+
+    if (which === 'style') paintStyleBar();
   }
 
-  function openStyle() {
-    return api('/api/settings').then(function (data) {
+  function paintStyleBar() {
+    var here = settings.style;
+    $('style-file').innerHTML = (settings.styles || []).map(function (t) {
+      return '<option value="' + esc(t.file) + '"' + (t.file === here ? ' selected' : '') +
+        (t.ok ? '' : ' disabled') + '>' + esc(t.label) + '</option>';
+    }).join('');
+    var inUse = here === setup.style;
+    $('style-inuse').hidden = !inUse;
+    $('style-use').hidden = inUse;
+    var chosen = (settings.styles || []).filter(function (t) { return t.file === here; })[0];
+    $('styles-note').textContent = chosen
+      ? 'Saved into ' + chosen.file + (chosen.detail ? '  ·  ' + chosen.detail : '')
+      : '';
+  }
+
+  function loadPrefs(which, styleFile) {
+    var query = styleFile ? '/api/settings?style=' + encodeURIComponent(styleFile) : '/api/settings';
+    return api(query).then(function (data) {
       settings = data;
-      paintStyle();
-      $('style-saved').hidden = true;
-      tab = 'style';
+      if (data.ready) applyReady(data.ready);
+      paintPrefs(which);
+    });
+  }
+
+  function openPrefs(which) {
+    var go = settings ? Promise.resolve(paintPrefs(which)) : loadPrefs(which);
+    return go.then(function () {
+      tab = which === 'style' ? 'styles' : 'settings';
+      $(which === 'style' ? 'styles-saved' : 'settings-saved').hidden = true;
       paint();
     });
   }
 
-  function saveStyle() {
+  function savePrefs(which) {
+    var bodyId = which === 'style' ? 'styles-body' : 'settings-body';
     var values = {};
-    Array.prototype.forEach.call($('style-body').querySelectorAll('[data-key]'), function (el) {
+    Array.prototype.forEach.call($(bodyId).querySelectorAll('[data-key]'), function (el) {
       values[el.dataset.key] = el.type === 'checkbox' ? el.checked : el.value;
     });
     var secrets = {};
-    Array.prototype.forEach.call($('style-body').querySelectorAll('[data-secret]'), function (el) {
+    Array.prototype.forEach.call($(bodyId).querySelectorAll('[data-secret]'), function (el) {
       if (el.value) secrets[el.dataset.secret] = el.value;
     });
-    api('/api/settings', { values: values, secrets: secrets }).then(function (data) {
-      settings = data;
-      paintStyle();
-      if (data.ready) applyReady(data.ready);
-      // A key that could not be reached from here is still saved. Say which
-      // happened rather than letting "Saved" imply it was tried.
-      if (data.keyCheck && data.keyCheck.state === 'unchecked') {
-        $('style-body').insertAdjacentHTML('afterbegin',
-          '<div class="notice tip">Key saved. ElevenLabs could not be reached from here to ' +
-          'check it, so the first video will be the test. ' + esc(data.keyCheck.reason) + '</div>');
-      }
-      $('style-saved').hidden = false;
-      setTimeout(function () { $('style-saved').hidden = true; }, 2400);
-      // Pacing lives in here too, so the board's timings may have just moved.
-      return api('/api/story').then(function (next) { story = next; paint(); });
-    }).catch(function (err) {
-      $('style-body').insertAdjacentHTML('afterbegin', '<div class="notice bad">' + esc(err.message) + '</div>');
-    });
+
+    api('/api/settings', { values: values, secrets: secrets, style: settings.style })
+      .then(function (data) {
+        settings = data;
+        paintPrefs(which);
+        if (data.ready) applyReady(data.ready);
+        if (data.keyCheck && data.keyCheck.state === 'unchecked') {
+          $(bodyId).insertAdjacentHTML('afterbegin',
+            '<div class="notice tip" style="margin:16px 0">Key saved. ElevenLabs could not be ' +
+            'reached from here to check it, so the first video will be the test. ' +
+            esc(data.keyCheck.reason) + '</div>');
+        }
+        var note = $(which === 'style' ? 'styles-saved' : 'settings-saved');
+        note.hidden = false;
+        setTimeout(function () { note.hidden = true; }, 2400);
+        // Pacing and hint fades live in here, so the board's timings may have moved.
+        return api('/api/story').then(function (next) { story = next; });
+      })
+      .catch(function (err) {
+        $(bodyId).insertAdjacentHTML('afterbegin',
+          '<div class="notice bad" style="margin:16px 0">' + esc(err.message) + '</div>');
+      });
   }
 
   /* ------------------------------------------------------------------ *
@@ -1061,8 +1189,17 @@
     }
   }
 
+  function noop() {}
+
+  function themeOptions() {
+    return (setup.themes || []).map(function (t) {
+      return '<option value="' + esc(t.file) + '"' + (t.ok ? '' : ' disabled') + '>' +
+        esc(t.label) + '</option>';
+    }).join('') || '<option value="theme.json">default</option>';
+  }
+
   function paintThemeDetail() {
-    var chosen = setup.themes.filter(function (t) { return t.file === $('theme').value; })[0];
+    var chosen = (setup.themes || []).filter(function (t) { return t.file === $('theme').value; })[0];
     $('theme-detail').textContent = chosen ? chosen.detail : '';
   }
 
@@ -1070,19 +1207,82 @@
    * Wiring
    * ------------------------------------------------------------------ */
   $('tab-btn-board').addEventListener('click', function () { tab = 'board'; paint(); });
-  $('tab-btn-style').addEventListener('click', function () {
-    if (settings) { tab = 'style'; paint(); } else { openStyle().catch(function () {}); }
-  });
+  $('tab-btn-styles').addEventListener('click', function () { openPrefs('style').catch(noop); });
+  $('tab-btn-settings').addEventListener('click', function () { openPrefs('settings').catch(noop); });
+
   $('no-key').addEventListener('click', function () {
-    openStyle().then(function () {
-      var card = $('grp-narration');
-      if (card) card.scrollIntoView({ block: 'center' });
+    openSection.settings = 'Narration';
+    openPrefs('settings').then(function () {
       var box = $('narration-key');
       if (box) box.focus();
-    }).catch(function () {});
+    }).catch(noop);
   });
-  $('style-save').addEventListener('click', saveStyle);
-  $('style-reload').addEventListener('click', function () { openStyle().catch(function () {}); });
+
+  // The rail switches panes. Every pane stays rendered, so a half-typed colour
+  // in one section survives a look at another.
+  [['styles-rail', 'styles-body', 'style'], ['settings-rail', 'settings-body', 'settings']]
+    .forEach(function (trio) {
+      $(trio[0]).addEventListener('click', function (e) {
+        var btn = e.target.closest('button[data-section]');
+        if (!btn) return;
+        openSection[trio[2]] = btn.dataset.section;
+        Array.prototype.forEach.call($(trio[0]).children, function (b) {
+          b.classList.toggle('on', b === btn);
+        });
+        Array.prototype.forEach.call($(trio[1]).querySelectorAll('.pane'), function (pane) {
+          pane.hidden = pane.dataset.section !== btn.dataset.section;
+        });
+      });
+    });
+
+  $('styles-save').addEventListener('click', function () { savePrefs('style'); });
+  $('settings-save').addEventListener('click', function () { savePrefs('settings'); });
+  $('styles-undo').addEventListener('click', function () { loadPrefs('style', settings.style).catch(noop); });
+  $('settings-undo').addEventListener('click', function () { loadPrefs('settings').catch(noop); });
+
+  $('style-file').addEventListener('change', function () {
+    loadPrefs('style', $('style-file').value).catch(noop);
+  });
+
+  // Editing a style and rendering in it are separate choices: you can tidy up
+  // the social style without the next video suddenly coming out portrait.
+  $('style-use').addEventListener('click', function () {
+    api('/api/style', { style: settings.style }).then(function (data) {
+      setup.style = data.style;
+      story = data.story || story;
+      $('theme').value = data.style;
+      paintThemeDetail();
+      paintStyleBar();
+      paint();
+    }).catch(noop);
+  });
+
+  $('style-new').addEventListener('click', function () {
+    $('new-style').hidden = false;
+    $('new-style-name').value = '';
+    $('new-style-name').focus();
+  });
+  $('new-style-cancel').addEventListener('click', function () { $('new-style').hidden = true; });
+  $('new-style-name').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') $('new-style-make').click();
+  });
+  $('new-style-make').addEventListener('click', function () {
+    api('/api/style', { newName: $('new-style-name').value, from: settings.style })
+      .then(function (data) {
+        settings = data;
+        setup.style = data.style;
+        setup.themes = data.styles;
+        $('new-style').hidden = true;
+        paintPrefs('style');
+        $('theme').innerHTML = themeOptions();
+        $('theme').value = data.style;
+        paintThemeDetail();
+      })
+      .catch(function (err) {
+        $('styles-body').insertAdjacentHTML('afterbegin',
+          '<div class="notice bad" style="margin:16px 0">' + esc(err.message) + '</div>');
+      });
+  });
 
   $('strip').addEventListener('click', function (e) {
     var frame = e.target.closest('.frame');
@@ -1152,7 +1352,18 @@
 
   $('reveal').addEventListener('click', function () { api('/api/reveal', {}).catch(function () {}); });
   $('open-folder').addEventListener('click', function () { api('/api/reveal', {}).catch(function () {}); });
-  $('theme').addEventListener('change', paintThemeDetail);
+  $('theme').addEventListener('change', function () {
+    paintThemeDetail();
+    api('/api/style', { style: $('theme').value }).then(function (data) {
+      setup.style = data.style;
+      story = data.story || story;
+      // A style can hold the hints on screen longer, which moves every timing.
+      if (settings) { settings = null; }
+      paintBoard();
+    }).catch(function (err) {
+      $('board-notices').innerHTML = '<div class="notice bad">' + esc(err.message) + '</div>';
+    });
+  });
 
   /* ------------------------------------------------------------------ */
   function apply(state) {
@@ -1176,10 +1387,8 @@
       setup = data;
       story = data.story || story;
 
-      $('theme').innerHTML = setup.themes.map(function (t) {
-        return '<option value="' + esc(t.file) + '"' + (t.ok ? '' : ' disabled') + '>' +
-          esc(t.label) + '</option>';
-      }).join('') || '<option value="theme.json">default</option>';
+      $('theme').innerHTML = themeOptions();
+      if (setup.style) $('theme').value = setup.style;
       paintThemeDetail();
 
       wireSwitch('sw-narration', 'narration');

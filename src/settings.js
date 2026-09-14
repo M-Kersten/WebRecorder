@@ -29,14 +29,14 @@ const FIELDS = [
   },
   {
     key: 'theme.cursor.moveMs',
-    section: 'Movement',
+    section: 'Cursor and ring',
     label: 'Cursor travel time',
     help: 'How long the pointer takes to reach whatever it is about to use. Leave empty to let it follow the distance.',
     type: 'number', unit: 'ms', min: 0, max: 5000, nullable: true,
   },
   {
     key: 'theme.cursor.easing',
-    section: 'Movement',
+    section: 'Cursor and ring',
     label: 'How it moves',
     type: 'select',
     options: [
@@ -47,20 +47,20 @@ const FIELDS = [
   },
   {
     key: 'flow.typeDelayMs',
-    section: 'Movement',
+    section: 'Pacing',
     label: 'Typing speed',
     help: 'Pause between keystrokes. Zero fills the field instantly, which does not read as typing.',
     type: 'number', unit: 'ms per key', min: 0, max: 500,
   },
   {
     key: 'theme.cursor.ripple',
-    section: 'Movement',
+    section: 'Cursor and ring',
     label: 'Ripple where a click lands',
     type: 'boolean',
   },
   {
     key: 'theme.highlight.fadeMs',
-    section: 'Movement',
+    section: 'Cursor and ring',
     label: 'Highlight fade',
     help: 'How long the ring takes to appear once the cursor has arrived. It never travels.',
     type: 'number', unit: 'ms', min: 0, max: 3000,
@@ -82,13 +82,13 @@ const FIELDS = [
   },
   {
     key: 'theme.hints.fadeMs',
-    section: 'Pacing',
+    section: 'Fades',
     label: 'Hint fade',
     type: 'number', unit: 'ms', min: 0, max: 3000,
   },
   {
     key: 'theme.transitions.fadeSec',
-    section: 'Pacing',
+    section: 'Fades',
     label: 'Fade between segments',
     help: 'Each part of the video fades in from and out to black. Zero cuts straight.',
     type: 'number', unit: 'seconds', min: 0, max: 3, step: 0.05,
@@ -290,23 +290,34 @@ const FIELDS = [
 
   {
     key: 'theme.video.width',
-    section: 'Video',
+    section: 'Frame',
     label: 'Width',
     type: 'number', unit: 'px', min: 320, max: 3840, even: true,
   },
   {
     key: 'theme.video.height',
-    section: 'Video',
+    section: 'Frame',
     label: 'Height',
     type: 'number', unit: 'px', min: 240, max: 2160, even: true,
   },
   {
     key: 'theme.video.fps',
-    section: 'Video',
+    section: 'Frame',
     label: 'Frames per second',
     type: 'number', unit: 'fps', min: 10, max: 60, integer: true,
   },
 ];
+
+/**
+ * Which tab a setting belongs to, decided by what it actually changes.
+ *
+ * A `theme.` key is part of a style, and a style is a file you can have several
+ * of; a `flow.` key belongs to this project whichever style it is rendered in.
+ * Deriving it rather than tagging each field means the two can never disagree.
+ */
+for (const field of FIELDS) {
+  field.tab = field.key.startsWith('theme.') ? 'style' : 'settings';
+}
 
 const BY_KEY = new Map(FIELDS.map((f) => [f.key, f]));
 
@@ -320,15 +331,61 @@ const NARRATION_KEY = 'ELEVENLABS_API_KEY';
 function settingsPath(dir) { return path.join(dir, SETTINGS_FILE); }
 function secretsPath(dir) { return path.join(dir, SECRETS_FILE); }
 
-/** Read settings.json, or an empty layer when there is none. */
-function loadSettings(file) {
+const DEFAULT_STYLE = 'theme.json';
+
+/**
+ * Read settings.json.
+ *
+ * The visual settings are kept per style rather than in one pile, because one
+ * pile is merged over whichever style you pick and therefore overwrites it.
+ * That is what made choosing a different style change almost nothing: the
+ * layer captured from the default style won every time.
+ *
+ * Shape:
+ *   { style: "theme-rebels.json",
+ *     flow:  { minStepMs: 1800 },
+ *     styles: { "theme.json": { ... }, "theme-rebels.json": { ... } } }
+ */
+function loadSettings(file, styleFile = null) {
   const abs = path.resolve(file);
-  if (!fs.existsSync(abs)) return { theme: {}, flow: {} };
+  const blank = { theme: {}, flow: {}, style: DEFAULT_STYLE, styles: {} };
+  if (!fs.existsSync(abs)) return blank;
+
   const raw = readJson(abs, 'settings file');
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     throw new ConfigError(`${abs}: expected a JSON object at the top level`);
   }
-  return { theme: raw.theme || {}, flow: raw.flow || {} };
+
+  const styles = raw.styles && typeof raw.styles === 'object' && !Array.isArray(raw.styles)
+    ? { ...raw.styles }
+    : {};
+  // A file written before styles were separate holds one theme layer that
+  // applied to every style. It was only ever captured from the default one,
+  // so that is where it belongs.
+  if (raw.theme && !styles[DEFAULT_STYLE]) styles[DEFAULT_STYLE] = raw.theme;
+
+  const style = typeof raw.style === 'string' && raw.style ? path.basename(raw.style) : DEFAULT_STYLE;
+  const wanted = styleFile ? path.basename(styleFile) : style;
+
+  return { theme: styles[wanted] || {}, flow: raw.flow || {}, style, styles };
+}
+
+/** Everything in settings.json, untouched, for a save to merge into. */
+function readRaw(file) {
+  const abs = path.resolve(file);
+  if (!fs.existsSync(abs)) return {};
+  const raw = readJson(abs, 'settings file');
+  return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+}
+
+/** Merge `patch` into `base`, objects all the way down, without sharing nodes. */
+function mergeDeep(base, patch) {
+  const out = { ...base };
+  for (const [key, value] of Object.entries(patch || {})) {
+    const plain = (v) => v && typeof v === 'object' && !Array.isArray(v);
+    out[key] = plain(value) && plain(out[key]) ? mergeDeep(out[key], value) : value;
+  }
+  return out;
 }
 
 /** Pull the current value of every field out of a loaded theme and flow. */
@@ -449,10 +506,44 @@ function coerce(field, raw, context = {}) {
   return number;
 }
 
+/**
+ * Write what the form changed, and nothing else.
+ *
+ * A form posts only the fields on the tab somebody is looking at, so the rest
+ * of the file has to survive: saving a colour must not wipe the pacing, and
+ * saving the pacing must not wipe every style.
+ */
 function saveSettings(file, values, context = {}) {
   const layer = toLayer(values, context);
-  fs.writeFileSync(path.resolve(file), `${JSON.stringify(layer, null, 2)}\n`, 'utf8');
-  return layer;
+  const raw = readRaw(file);
+
+  const styles = raw.styles && typeof raw.styles === 'object' && !Array.isArray(raw.styles)
+    ? { ...raw.styles }
+    : {};
+  if (raw.theme && !styles[DEFAULT_STYLE]) styles[DEFAULT_STYLE] = raw.theme;
+
+  const out = {
+    style: typeof raw.style === 'string' && raw.style ? path.basename(raw.style) : DEFAULT_STYLE,
+    flow: mergeDeep(raw.flow || {}, layer.flow),
+    styles,
+  };
+  if (Object.keys(layer.theme).length) {
+    const key = path.basename(context.styleFile || out.style);
+    styles[key] = mergeDeep(styles[key] || {}, layer.theme);
+  }
+  if (context.style) out.style = path.basename(context.style);
+
+  fs.writeFileSync(path.resolve(file), `${JSON.stringify(out, null, 2)}\n`, 'utf8');
+  return out;
+}
+
+/** Remember which style the next video is made in. */
+function saveStyleChoice(file, styleFile) {
+  const raw = readRaw(file);
+  raw.style = path.basename(styleFile);
+  delete raw.theme;                      // migrated by loadSettings already
+  fs.writeFileSync(path.resolve(file), `${JSON.stringify(raw, null, 2)}\n`, 'utf8');
+  return raw.style;
 }
 
 /**
@@ -505,8 +596,8 @@ function applySecrets(dir, env = process.env) {
 }
 
 module.exports = {
-  FIELDS, SETTINGS_FILE, SECRETS_FILE, NARRATION_KEY,
+  FIELDS, SETTINGS_FILE, SECRETS_FILE, NARRATION_KEY, DEFAULT_STYLE,
   settingsPath, secretsPath,
-  loadSettings, saveSettings, readValues, toLayer,
+  loadSettings, saveSettings, saveStyleChoice, readValues, toLayer, mergeDeep,
   loadSecrets, saveSecrets, applySecrets,
 };

@@ -94,9 +94,10 @@ one somewhere the tool cannot guess.
 site-tutorial-video ui
 ```
 
-One window, two tabs. **Storyboard** is where the work happens and **Style** is
-where the video's look is set. It drives the same pipeline the flags do, so
-there is nothing it can produce that the CLI cannot.
+One window, three tabs. **Storyboard** is where the work happens, **Styles** is
+where a video's look is set, and **Settings** holds the voice, the timing and
+the passwords. It drives the same pipeline the flags do, so there is nothing it
+can produce that the CLI cannot.
 
 The storyboard is a filmstrip of the walkthrough. Every step recorded during
 capture kept a screenshot of the page as it stood, so the board shows what each
@@ -147,48 +148,88 @@ The server binds to `127.0.0.1` and every action needs a token that only the
 window it opened was given. Anything on localhost is otherwise reachable from
 any page the browser has open, and this one launches browsers and writes files.
 
-## Settings
+## Styles and settings
 
-The app window has a settings screen, grouped into sections:
+Two pages, split by what a thing actually changes.
 
-| | |
+| Styles | per style file |
 | --- | --- |
-| Movement | cursor travel time and easing, typing speed, click ripple, highlight fade |
-| Pacing | shortest a step can be, pause after each one, hint fade, fade between segments |
-| Colours | highlight ring, pointer and its outline, click ripple, hint background and text, the colour behind the page |
+| Cursor and ring | travel time, easing, click ripple, how fast the ring appears |
+| Fades | hint fade, fade between segments |
+| Colours | the ring, the pointer and its outline, the ripple, the hint, the colour behind the page |
 | Type | which bundled font the hints and subtitles use, and at what size |
 | Opening card | on or off, title, subtitle, their fonts and colours, background, how long it shows |
 | Closing card | the same |
-| Video | size and frame rate |
+| Frame | size and frame rate |
+
+| Settings | the whole project |
+| --- | --- |
 | Narration | the ElevenLabs key, and which voice reads the lines |
+| Pacing | shortest a step can be, pause after each one, typing speed |
 | Passwords | one field per `${VAR}` the walkthrough needs |
 
-Font dropdowns offer what the theme declares, by family name. Colours take a
+The split is not a filing decision, it is the shape of the data: a `theme.` key
+is part of a style and there can be several of those, a `flow.` key belongs to
+this project whichever style it is rendered in. `settings.js` derives each
+field's tab from its key rather than tagging them, so the two can never
+disagree.
+
+Frame size sits with the styles rather than with the project because it is part
+of what a style is. The shipped `theme-social.json` is 1080x1920; a global size
+would quietly flatten it back to landscape.
+
+Font dropdowns offer what the style declares, by family name. Colours take a
 hex, with a swatch beside the field for picking one.
 
-These are written to `settings.json`, a thin layer merged over the theme and the
-flow at load time. `theme.json` is meant to be read and edited by hand and is
-full of comments explaining itself; rewriting it from a form would throw all of
-that away, so nothing does. The CLI reads the same layer:
+### Why a style is its own layer
 
-```bash
-site-tutorial-video --settings settings.json
-```
+The storyboard picks a style and the Styles tab edits one. Both read the same
+place:
 
 ```jsonc
 {
-  "theme": { "cursor": { "moveMs": 700 }, "highlight": { "fadeMs": 300 } },
-  "flow":  { "minStepMs": 1800, "typeDelayMs": 30 }
+  "style": "theme-rebels.json",        // what the next video is made in
+  "flow":  { "minStepMs": 1800 },      // the whole project
+  "styles": {                          // one layer per style file
+    "theme.json":        { "highlight": { "color": "#00FF00" } },
+    "theme-rebels.json": { "intro": { "title": "Q Portal" } }
+  }
 }
+```
+
+Keeping them apart is the point. There used to be one pile of visual settings,
+merged over whichever style you chose, and since that pile was captured from the
+default style it won every time: picking a different style changed almost
+nothing, which read as the styles not applying at all. Now editing one style
+leaves the rest exactly as their files wrote them.
+
+A settings file from before the split holds a single top-level `theme` key. It
+is read as the default style's layer and rewritten into the new shape the next
+time anything is saved.
+
+**New style** copies the file the tab is currently showing, edits included, so a
+new style starts where its parent left off and arrives with the comments that
+explain it intact. Editing a style and rendering in one are separate choices:
+you can tidy up the social style without the next video suddenly coming out
+portrait.
+
+These are written to `settings.json`, a thin layer merged over the style and the
+flow at load time. `theme.json` is meant to be read and edited by hand and is
+full of comments explaining itself; rewriting it from a form would throw all of
+that away, so nothing does. The CLI reads the same layer, for the style it was
+given:
+
+```bash
+site-tutorial-video --theme theme-rebels.json --settings settings.json
 ```
 
 Some combinations only break later: switching the opening card on without
 giving it a title renders nothing and would stop a run minutes in. The new
-values are merged onto the theme and checked before anything is written, so the
+values are merged onto the style and checked before anything is written, so the
 form says so while you are still looking at it.
 
 Only what the settings list names can be reached from the form. Anything else in
-the theme, including every field that takes a file path, stays out of its hands.
+a style, including every field that takes a file path, stays out of its hands.
 
 Passwords go to `.secrets.json`, written `0600` and gitignored. The window is
 told which names are set, never what they are, and a value already in the
@@ -242,7 +283,11 @@ keyed on the voice, so switching back to one you used before costs nothing.
 site-tutorial-video capture --url https://app.example.com
 ```
 
-The browser opens with a panel down the right-hand side.
+The browser opens with a panel down the right-hand side, wearing the same
+light cards and pink action as the window, so the two read as one tool. It sits
+in a shadow root; the typeface is the one exception, left to the system stack
+rather than inlining 360KB of base64 font into every frame of somebody else's
+site for the sake of 13px chrome.
 
 - **Every click and everything you type is recorded**, and passed through to the
   page, so the site behaves normally and the flow matches the walk you did.

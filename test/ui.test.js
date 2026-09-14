@@ -206,7 +206,8 @@ test('saving settings writes settings.json and never the theme', async () => {
     assert.strictEqual(res.status, 200);
 
     const written = JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8'));
-    assert.strictEqual(written.theme.cursor.moveMs, 820);
+    // Visual settings are kept per style; everything else holds for the project.
+    assert.strictEqual(written.styles['theme.json'].cursor.moveMs, 820);
     assert.strictEqual(written.flow.minStepMs, 2200);
     assert.strictEqual(fs.readFileSync(path.join(dir, 'theme.json'), 'utf8'), themeBefore);
   });
@@ -642,5 +643,118 @@ test('a voices.json with a mistake in it is reported, not swallowed', async () =
     const s = await call('/api/settings').then((r) => r.json());
     assert.match(s.problem, /needs an ElevenLabs voice "id"/);
     assert.ok(s.fields.length, 'and the rest of the form still works');
+  });
+});
+
+// --- styles -------------------------------------------------------------
+
+test('the settings screen answers for the style it was asked about', async () => {
+  await withApp(async ({ call }) => {
+    const dflt = await call('/api/settings').then((r) => r.json());
+    const rebels = await call('/api/settings?style=theme-rebels.json').then((r) => r.json());
+
+    assert.strictEqual(dflt.style, 'theme.json');
+    assert.strictEqual(rebels.style, 'theme-rebels.json');
+    assert.notStrictEqual(dflt.values['theme.highlight.color'], rebels.values['theme.highlight.color']);
+    assert.strictEqual(rebels.values['theme.intro.title'], 'Q Portal');
+    assert.ok(rebels.styles.some((t) => t.file === 'theme-rebels.json'), 'and lists what there is');
+  });
+});
+
+// This is the bug the split exists to fix: editing one style used to change
+// every style, because there was only ever one pile of visual settings.
+test('editing one style leaves the others as they were', async () => {
+  await withApp(async ({ call, dir }) => {
+    const before = await call('/api/settings?style=theme-rebels.json').then((r) => r.json());
+    await call('/api/settings', {
+      style: 'theme.json',
+      values: { 'theme.highlight.color': '#00FF00', 'theme.intro.title': 'Changed' },
+    });
+
+    const after = await call('/api/settings?style=theme-rebels.json').then((r) => r.json());
+    assert.strictEqual(after.values['theme.highlight.color'], before.values['theme.highlight.color']);
+    assert.strictEqual(after.values['theme.intro.title'], 'Q Portal');
+
+    const dflt = await call('/api/settings?style=theme.json').then((r) => r.json());
+    assert.strictEqual(dflt.values['theme.highlight.color'], '#00FF00');
+
+    const written = JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8'));
+    assert.ok(!('theme-rebels.json' in written.styles), 'nothing was written against the other one');
+  });
+});
+
+test('the storyboard style is remembered and is what gets rendered', async () => {
+  await withApp(async ({ call, dir, app }) => {
+    assert.strictEqual(app.currentStyle(), 'theme.json');
+
+    const res = await call('/api/style', { style: 'theme-rebels.json' }).then((r) => r.json());
+    assert.strictEqual(res.style, 'theme-rebels.json');
+    assert.strictEqual(app.currentStyle(), 'theme-rebels.json');
+
+    // Which is also what the settings screen and the storyboard timings read.
+    const s = await call('/api/settings').then((r) => r.json());
+    assert.strictEqual(s.style, 'theme-rebels.json');
+
+    const setup = await call('/api/setup').then((r) => r.json());
+    assert.strictEqual(setup.style, 'theme-rebels.json');
+
+    // And it survives the window being closed.
+    const reopened = createApp({ projectDir: dir });
+    assert.strictEqual(reopened.currentStyle(), 'theme-rebels.json');
+  });
+});
+
+test('a style that is not there is refused rather than rendered', async () => {
+  await withApp(async ({ call, app }) => {
+    for (const bad of ['nope.json', '', 'theme-nope.json', 'package.json', '.']) {
+      const res = await call('/api/style', { style: bad });
+      assert.strictEqual(res.status, 400, `"${bad}" should be refused`);
+    }
+    // A path is reduced to a name, so it lands on a style in this project or
+    // on nothing at all. It never reaches outside the folder.
+    const res = await call('/api/style', { style: '../../theme.json' }).then((r) => r.json());
+    assert.strictEqual(res.style, 'theme.json');
+    assert.strictEqual(app.currentStyle(), 'theme.json');
+  });
+});
+
+test('a new style starts as a copy of the one it came from', async () => {
+  await withApp(async ({ call, dir }) => {
+    await call('/api/settings', {
+      style: 'theme-rebels.json',
+      values: { 'theme.highlight.color': '#123456' },
+    });
+
+    const made = await call('/api/style', { newName: 'Q Portal dark', from: 'theme-rebels.json' })
+      .then((r) => r.json());
+
+    assert.strictEqual(made.style, 'theme-q-portal-dark.json');
+    assert.ok(fs.existsSync(path.join(dir, 'theme-q-portal-dark.json')), 'it is a real style file');
+    assert.strictEqual(made.values['theme.intro.title'], 'Q Portal', 'copied from its parent');
+    assert.strictEqual(made.values['theme.highlight.color'], '#123456',
+      'edits and all, so it starts where its parent left off');
+
+    // The comments that explain the file survive: it is a copy, not a re-dump.
+    assert.ok(fs.readFileSync(path.join(dir, 'theme-q-portal-dark.json'), 'utf8').includes('//'));
+
+    // And editing it does not reach back into the one it came from.
+    await call('/api/settings', {
+      style: 'theme-q-portal-dark.json',
+      values: { 'theme.highlight.color': '#ABCDEF' },
+    });
+    const parent = await call('/api/settings?style=theme-rebels.json').then((r) => r.json());
+    assert.strictEqual(parent.values['theme.highlight.color'], '#123456');
+  });
+});
+
+test('a new style needs a name that becomes a usable file name', async () => {
+  await withApp(async ({ call }) => {
+    for (const bad of ['', '   ', '///']) {
+      assert.strictEqual((await call('/api/style', { newName: bad })).status, 400, `"${bad}"`);
+    }
+    await call('/api/style', { newName: 'Portal' });
+    const again = await call('/api/style', { newName: 'portal' });
+    assert.strictEqual(again.status, 400, 'two styles cannot share a file');
+    assert.match((await again.json()).error, /already a style/);
   });
 });

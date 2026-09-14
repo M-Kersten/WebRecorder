@@ -86,7 +86,8 @@ test('saving writes its own file and leaves the theme alone', () => {
 });
 
 test('a missing settings file is an empty layer, not an error', () => {
-  assert.deepStrictEqual(settings.loadSettings(path.join(work, 'nope.json')), { theme: {}, flow: {} });
+  assert.deepStrictEqual(settings.loadSettings(path.join(work, 'nope.json')),
+    { theme: {}, flow: {}, style: 'theme.json', styles: {} });
 });
 
 test('the layer only moves what it names', () => {
@@ -279,5 +280,84 @@ test('a voices.json that cannot be used says which entry is wrong', () => {
     assert.strictEqual(loadVoices(dir).length, 1);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// --- styles are kept apart ----------------------------------------------
+
+// One pile of visual settings, merged over whichever style you picked, meant
+// the pile always won. Choosing a style changed almost nothing, which looked
+// like the styles not applying at all.
+test('each style keeps its own visual settings', () => {
+  const file = tmpFile();
+  settings.saveSettings(file, { 'theme.highlight.color': '#E6007E' }, { styleFile: 'theme-rebels.json' });
+  settings.saveSettings(file, { 'theme.highlight.color': '#00FF00' }, { styleFile: 'theme.json' });
+
+  assert.deepStrictEqual(settings.loadSettings(file, 'theme-rebels.json').theme,
+    { highlight: { color: '#E6007E' } });
+  assert.deepStrictEqual(settings.loadSettings(file, 'theme.json').theme,
+    { highlight: { color: '#00FF00' } });
+  assert.deepStrictEqual(settings.loadSettings(file, 'theme-social.json').theme, {},
+    'a style nobody has edited is the file as written');
+});
+
+test('saving one tab does not wipe what the other holds', () => {
+  const file = tmpFile();
+  settings.saveSettings(file, { 'theme.highlight.color': '#E6007E' }, { styleFile: 'theme-rebels.json' });
+  settings.saveSettings(file, { 'flow.minStepMs': 1800 });
+  settings.saveSettings(file, { 'theme.cursor.ripple': false }, { styleFile: 'theme-rebels.json' });
+
+  const written = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.strictEqual(written.flow.minStepMs, 1800, 'the pacing survived a style save');
+  assert.deepStrictEqual(written.styles['theme-rebels.json'],
+    { highlight: { color: '#E6007E' }, cursor: { ripple: false } },
+    'and the style kept what it already had');
+});
+
+// A settings.json from before the split holds one theme layer that applied to
+// everything. It was only ever captured from the default style.
+test('a settings file from before the split becomes the default style', () => {
+  const file = tmpFile();
+  fs.writeFileSync(file, JSON.stringify({
+    theme: { highlight: { color: '#123456' } },
+    flow: { minStepMs: 1700 },
+  }));
+
+  assert.deepStrictEqual(settings.loadSettings(file, 'theme.json').theme,
+    { highlight: { color: '#123456' } });
+  assert.deepStrictEqual(settings.loadSettings(file, 'theme-rebels.json').theme, {},
+    'and stops overriding every other style');
+  assert.strictEqual(settings.loadSettings(file).flow.minStepMs, 1700);
+
+  // Writing anything moves it into the new shape rather than leaving both.
+  settings.saveSettings(file, { 'flow.stepPaddingMs': 500 });
+  const written = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.ok(!('theme' in written), 'the old key is gone');
+  assert.strictEqual(written.styles['theme.json'].highlight.color, '#123456');
+});
+
+test('the style the storyboard renders in is remembered', () => {
+  const file = tmpFile();
+  assert.strictEqual(settings.loadSettings(file).style, 'theme.json', 'the default, to begin with');
+
+  settings.saveStyleChoice(file, 'theme-rebels.json');
+  assert.strictEqual(settings.loadSettings(file).style, 'theme-rebels.json');
+  assert.deepStrictEqual(settings.loadSettings(file).theme, {},
+    'and loadSettings reads that style unless told otherwise');
+
+  // A path is reduced to a file name: this names a style, not a place on disk.
+  settings.saveStyleChoice(file, '/somewhere/else/theme-social.json');
+  assert.strictEqual(settings.loadSettings(file).style, 'theme-social.json');
+});
+
+test('every field says which tab it belongs on, from what it changes', () => {
+  for (const field of settings.FIELDS) {
+    const expected = field.key.startsWith('theme.') ? 'style' : 'settings';
+    assert.strictEqual(field.tab, expected, `${field.key} is on the wrong tab`);
+  }
+  const styleSections = new Set(settings.FIELDS.filter((f) => f.tab === 'style').map((f) => f.section));
+  const other = new Set(settings.FIELDS.filter((f) => f.tab === 'settings').map((f) => f.section));
+  for (const section of styleSections) {
+    assert.ok(!other.has(section), `"${section}" cannot be on both tabs`);
   }
 });

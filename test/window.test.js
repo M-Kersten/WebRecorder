@@ -39,7 +39,9 @@ const FLOW = {
 /** Open the window against a project that already has a walkthrough in it. */
 async function withWindow(fn, flow = FLOW) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tutvid-window-'));
-  fs.copyFileSync(path.join(REPO, 'theme.json'), path.join(dir, 'theme.json'));
+  for (const f of ['theme.json', 'theme-rebels.json']) {
+    fs.copyFileSync(path.join(REPO, f), path.join(dir, f));
+  }
   fs.cpSync(path.join(REPO, 'fonts'), path.join(dir, 'fonts'), { recursive: true });
   fs.cpSync(path.join(REPO, 'assets'), path.join(dir, 'assets'), { recursive: true });
   if (flow) fs.writeFileSync(path.join(dir, 'flow.json'), JSON.stringify(flow, null, 2));
@@ -143,5 +145,75 @@ test('the storyboard keeps its shape at phone width', async () => {
     const overflow = await page.evaluate(() =>
       document.documentElement.scrollWidth - document.documentElement.clientWidth);
     assert.ok(overflow <= 1, `the page should not scroll sideways (${overflow}px over)`);
+  });
+});
+
+// --- the settings pages -------------------------------------------------
+
+const railNames = (page, id) => page.$$eval('#' + id + ' button', (b) => b.map((x) => x.textContent));
+
+test('Styles and Settings are two pages, each with its own sections', async () => {
+  await withWindow(async ({ page, errors }) => {
+    await page.click('#tab-btn-styles');
+    await page.waitForSelector('#tab-styles', { state: 'visible' });
+    const styleSections = await railNames(page, 'styles-rail');
+    assert.ok(styleSections.includes('Colours'), 'everything visual lives here');
+    assert.ok(styleSections.includes('Opening card'));
+    assert.ok(styleSections.includes('Frame'));
+    assert.ok(!styleSections.includes('Passwords'));
+
+    await page.click('#tab-btn-settings');
+    await page.waitForSelector('#tab-settings', { state: 'visible' });
+    assert.deepStrictEqual(await railNames(page, 'settings-rail'),
+      ['Narration', 'Pacing', 'Passwords']);
+    assert.deepStrictEqual(errors, []);
+  });
+});
+
+// Every control in the same track, so the eye can run down the edge of them.
+test('the controls all line up in one column', async () => {
+  await withWindow(async ({ page }) => {
+    await page.click('#tab-btn-styles');
+    await page.waitForSelector('#tab-styles', { state: 'visible' });
+    await page.click('#styles-rail button[data-section="Colours"]');
+
+    const lefts = await page.$$eval('#styles-body .pane:not([hidden]) .ctl',
+      (els) => els.map((e) => Math.round(e.getBoundingClientRect().left)));
+    assert.ok(lefts.length > 3, 'there should be several rows to compare');
+    assert.strictEqual(new Set(lefts).size, 1, `controls wandered: ${[...new Set(lefts)].join(', ')}`);
+  });
+});
+
+// Switching section must not throw away a half-typed value in another one.
+test('an edit survives a look at another section', async () => {
+  await withWindow(async ({ page }) => {
+    await page.click('#tab-btn-styles');
+    await page.waitForSelector('#tab-styles', { state: 'visible' });
+    await page.click('#styles-rail button[data-section="Colours"]');
+    await page.fill('#set-theme-highlight-color', '#ABCDEF');
+
+    await page.click('#styles-rail button[data-section="Frame"]');
+    await page.click('#styles-rail button[data-section="Colours"]');
+    assert.strictEqual(await page.inputValue('#set-theme-highlight-color'), '#ABCDEF');
+  });
+});
+
+test('choosing a style on the storyboard is what the Styles tab edits', async () => {
+  await withWindow(async ({ page, dir }) => {
+    await page.selectOption('#theme', 'theme-rebels.json');
+    await page.waitForFunction(() =>
+      /Q Portal/.test(document.getElementById('theme-detail').textContent));
+
+    await page.click('#tab-btn-styles');
+    await page.waitForSelector('#tab-styles', { state: 'visible' });
+    assert.strictEqual(await page.inputValue('#style-file'), 'theme-rebels.json');
+    assert.strictEqual(await page.$eval('#style-inuse', (e) => !e.hidden), true);
+
+    await page.click('#styles-rail button[data-section="Opening card"]');
+    assert.strictEqual(await page.inputValue('#set-theme-intro-title'), 'Q Portal',
+      'the values on screen are that style’s own');
+
+    const written = JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8'));
+    assert.strictEqual(written.style, 'theme-rebels.json');
   });
 });

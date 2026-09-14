@@ -360,3 +360,37 @@ test('a session with steps in it is written even without pressing Save flow', as
   assert.strictEqual(result.saved, true, 'work already done is not thrown away');
   assert.strictEqual(JSON.parse(fs.readFileSync(outFile, 'utf8')).steps.length, 2);
 });
+
+// A "type" step carries an extra text box in its row. Its intrinsic width used
+// to win over the flex row, so that one step alone rendered wider than the
+// rest of the list and stuck out of the panel.
+test('every step in the panel is the same width, typing included', async () => {
+  await captureWith(async (page) => {
+    await page.fill('#email', 'merijn@example.com');
+    await page.fill('#pw', 'hunter2');
+    // A field is recorded when it changes, which is when focus leaves it, so
+    // the last one lands as the form is submitted.
+    await page.click('#signin');
+    await page.waitForFunction(() => window.__tutPanelLoaded === true);
+    await page.waitForFunction(() =>
+      document.getElementById('__tut_capture_panel').shadowRoot
+        .querySelectorAll('.step').length >= 4);
+
+    const layout = await page.evaluate(() => {
+      const shadow = document.getElementById('__tut_capture_panel').shadowRoot;
+      const list = shadow.querySelector('.list');
+      return {
+        actions: [...shadow.querySelectorAll('.step select')].map((s) => s.value),
+        widths: [...shadow.querySelectorAll('.step')]
+          .map((s) => Math.round(s.getBoundingClientRect().width)),
+        overflow: list.scrollWidth - list.clientWidth,
+      };
+    });
+
+    assert.ok(layout.actions.includes('type'), 'there should be a type step to go wrong');
+    assert.ok(layout.widths.length >= 3);
+    assert.strictEqual(new Set(layout.widths).size, 1,
+      `steps came out at different widths: ${layout.widths.join(', ')}`);
+    assert.strictEqual(layout.overflow, 0, 'and nothing sticks out of the panel');
+  }, '/index.html');
+});

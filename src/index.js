@@ -258,7 +258,8 @@ async function main(argv) {
 
   // Values set from the app window sit in their own file and are merged over
   // the theme and the flow here, so theme.json is never rewritten from a form.
-  const settings = loadSettings(args.settings);
+  // The visual layer is kept per style, so this has to say which one it wants.
+  const settings = loadSettings(args.settings, args.theme);
 
   const theme = applyOverrides(deepMerge(loadTheme(args.theme), settings.theme), args);
   if (args.printTheme) { write(describeTheme(theme)); return 0; }
