@@ -104,10 +104,19 @@ function createApp(options = {}) {
     try {
       const { theme, flow } = currentConfig(style);
       values = settingsStore.readValues(theme, flow);
-      // The font dropdowns can only offer what this theme actually declares.
-      fonts = Object.entries(theme.fonts || {}).map(([key, font]) => ({
-        key, family: font.family,
-      }));
+      // The font dropdown draws every option in its own face, which means the
+      // page needs the file to build an @font-face from, not just a name.
+      const { labelFor } = require('./fontcatalog');
+      fonts = Object.entries(theme.fonts || {})
+        .map(([key, font]) => ({
+          key,
+          family: font.family,
+          label: labelFor(font),
+          file: font.path ? path.basename(font.path) : null,
+          weight: font.weight,
+          style: font.style,
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label));
     } catch (err) {
       problem = friendly(err);
     }
@@ -529,10 +538,12 @@ function createApp(options = {}) {
       // serving it from the bundle rather than hoping the machine has it.
       if (url.pathname.startsWith('/api/font/')) {
         const name = path.basename(url.pathname);
-        const file = path.join(ROOT, 'fonts', name);
-        if (!/^[A-Za-z0-9_-]+\.(?:ttf|otf)$/.test(name) || !fs.existsSync(file)) {
-          return send(404, { error: 'No such font' });
-        }
+        if (!/^[A-Za-z0-9_-]+\.(?:ttf|otf)$/.test(name)) return send(404, { error: 'No such font' });
+        const file = [
+          path.join(projectDir, 'fonts', name),
+          path.join(ROOT, 'fonts', name),
+        ].find((candidate) => fs.existsSync(candidate));
+        if (!file) return send(404, { error: 'No such font' });
         const stat = fs.statSync(file);
         res.writeHead(200, {
           'Content-Type': name.endsWith('.otf') ? 'font/otf' : 'font/ttf',

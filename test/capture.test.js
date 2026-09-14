@@ -394,3 +394,27 @@ test('every step in the panel is the same width, typing included', async () => {
     assert.strictEqual(layout.overflow, 0, 'and nothing sticks out of the panel');
   }, '/index.html');
 });
+
+// The storyboard lays the pictures in a row at one width. A shot taken before
+// the panel finished mounting is cropped differently from the rest, and its
+// step reads as a different shape from its neighbours.
+test('every picture in a session comes out the same size', async () => {
+  const shots = require('../src/shots');
+  const { outFile } = await captureWith(async (page) => {
+    await page.click('#tile-hours');
+    await page.waitForTimeout(150);
+    await page.click('#tile-profile');
+    await page.waitForTimeout(150);
+    await page.click('#tile-reg');
+    await page.waitForTimeout(200);
+  });
+
+  const sizes = shots.readManifest(outFile)
+    .map((name) => jpegSize(shots.fileFor(outFile, name)))
+    .map((s) => `${s.width}x${s.height}`);
+
+  assert.ok(sizes.length >= 4, 'there should be several to compare');
+  assert.strictEqual(new Set(sizes).size, 1, `pictures came out at: ${sizes.join(', ')}`);
+  // Including the very first one, taken the moment the page finished loading.
+  assert.strictEqual(sizes[0], `${1440 - 380}x900`);
+});

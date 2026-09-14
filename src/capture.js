@@ -35,10 +35,11 @@ async function capture(options = {}) {
   // removing step three cannot hand step four the wrong picture.
   const pending = [];
   let shotSeq = 0;
+  // One camera for the session, so every picture comes out the same size.
+  const take = outFile ? shots.shooter(outFile) : null;
   const shoot = (page, step) => {
-    if (!outFile) return;
-    const job = shots.grab(page, outFile, ++shotSeq).then((name) => { if (name) step.shot = name; });
-    pending.push(job);
+    if (!take) return;
+    pending.push(take(page, ++shotSeq).then((name) => { if (name) step.shot = name; }));
   };
 
   let finished = null;

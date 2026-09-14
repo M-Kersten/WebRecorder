@@ -5,10 +5,11 @@
   // Overused Grotesk, SIL Open Font License 1.1. "Roman" is the 400 weight -
   // there is no file called Regular. Both files report the family name
   // "Overused Grotesk", so libass picks between them by weight.
-  "fonts": {
-    "heading": { "family": "Overused Grotesk", "file": "fonts/OverusedGrotesk-Bold.ttf",  "weight": 700 },
-    "body":    { "family": "Overused Grotesk", "file": "fonts/OverusedGrotesk-Roman.ttf", "weight": 400 }
-  },
+  // Every .ttf and .otf in the "fonts" folder beside this file is available by
+  // name: "inter", "inter-bold", "space-grotesk", "fraunces-bold" and so on.
+  // Declare a font here only to add one from somewhere else, or to give one a
+  // key of your own. A key declared here wins over the folder.
+  //   "fonts": { "brand": { "family": "Acme Sans", "file": "brand/Acme.ttf", "weight": 700 } },
 
   "transitions": { "enabled": true, "fadeSec": 0.35 },
 
@@ -37,7 +38,7 @@
   // coloured strip down the left instead.
   "hints": {
     "enabled": true,
-    "font": "body",
+    "font": "overused-grotesk",
     "fontSize": 28,
     "color": "#FFFFFF",
     "backgroundColor": "#0A0A0A",
@@ -55,7 +56,7 @@
 
   "captions": {
     "enabled": false,
-    "font": "body",
+    "font": "overused-grotesk",
     "fontSize": 34,
     "color": "#FFFFFF",
     "backgroundColor": "#0A0A0A",
@@ -72,9 +73,9 @@
     // Drop the real logo in here and it appears above the title.
     // "logo": "assets/logo.png",
     "title": "Q Portal",
-    "titleFont": "heading",
+    "titleFont": "overused-grotesk-bold",
     "subtitle": "Your walkthrough",
-    "subtitleFont": "body",
+    "subtitleFont": "overused-grotesk",
     "titleColor": "#FFFFFF",
     "subtitleColor": "#E6007E"
   },
@@ -84,9 +85,9 @@
     "durationSec": 3,
     "backgroundColor": "#0A0A0A",
     "title": "Questions?",
-    "titleFont": "heading",
+    "titleFont": "overused-grotesk-bold",
     "subtitle": "rebels.nl",
-    "subtitleFont": "body",
+    "subtitleFont": "overused-grotesk",
     "titleColor": "#FFFFFF",
     "subtitleColor": "#E6007E"
   },

@@ -1,12 +1,13 @@
 {
-  "fonts": {
-    "heading": { "family": "Poppins", "file": "fonts/Poppins-Bold.ttf", "weight": 700 },
-    "body":    { "family": "Inter",   "file": "fonts/Inter-Regular.ttf", "weight": 400 }
-  },
+  // Every .ttf and .otf in the "fonts" folder beside this file is available by
+  // name: "inter", "inter-bold", "space-grotesk", "fraunces-bold" and so on.
+  // Declare a font here only to add one from somewhere else, or to give one a
+  // key of your own. A key declared here wins over the folder.
+  //   "fonts": { "brand": { "family": "Acme Sans", "file": "brand/Acme.ttf", "weight": 700 } },
   "transitions": { "enabled": true, "fadeSec": 0.3 },
   "captions": {
     "enabled": true,
-    "font": "heading",
+    "font": "poppins-bold",
     "fontSize": 46,
     "color": "#FFE066",
     "backgroundColor": "#3B1E8C",
@@ -21,7 +22,7 @@
   },
   "highlight": { "enabled": true, "color": "#00D1B2", "glow": true, "borderWidth": 5, "borderRadius": "auto" },
   "hints": {
-    "enabled": true, "font": "body", "fontSize": 30,
+    "enabled": true, "font": "inter", "fontSize": 30,
     "color": "#1A1030", "backgroundColor": "#FFE066", "backgroundOpacity": 1,
     "accent": "none", "accentColor": "#3B1E8C", "borderColor": null, "borderRadius": 18, "maxWidth": 620, "padding": 22,
     "position": "bottom-center", "offset": 140

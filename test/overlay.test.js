@@ -266,7 +266,7 @@ test('the overlay survives being injected before the document exists', async () 
 
 test('the hint font is inlined so no request can fail mid-recording', () => {
   const theme = loadTheme(path.join(REPO, 'theme.json'));
-  theme.hints.font = 'body';
+  theme.hints.font = 'inter';
   const script = buildOverlayScript(theme);
   assert.ok(script.includes('@font-face'), 'the face should be in the script');
   assert.ok(script.includes('data:font/ttf;base64,'), 'and the file inlined with it');

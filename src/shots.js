@@ -73,7 +73,7 @@ function fileFor(flowFile, name) {
  * losing a recorded step because a navigation was in flight would cost the
  * walkthrough.
  */
-async function grab(page, flowFile, seq) {
+async function grab(page, flowFile, seq, clip = null) {
   const dir = dirFor(flowFile);
   const name = `${seq}.jpg`;
   try {
@@ -82,12 +82,31 @@ async function grab(page, flowFile, seq) {
       path: path.join(dir, name),
       type: 'jpeg',
       quality: 50,
-      ...(await besidePanel(page)),
+      ...(clip || await besidePanel(page)),
     });
     return name;
   } catch {
     return null;
   }
+}
+
+/**
+ * A camera for one session, which measures once and then holds still.
+ *
+ * Every picture has to come out the same size. The storyboard lays them in a
+ * row at a fixed width, so a shot taken a moment before the panel finished
+ * mounting is cropped differently from the rest and its step reads as though
+ * it were a different shape from its neighbours.
+ */
+function shooter(flowFile) {
+  let clip = null;
+  return async function take(page, seq) {
+    if (!clip) {
+      const measured = await besidePanel(page);
+      if (measured.clip) clip = measured;
+    }
+    return grab(page, flowFile, seq, clip);
+  };
 }
 
 /**
@@ -100,6 +119,15 @@ async function grab(page, flowFile, seq) {
  * whatever <html> still occupies is exactly the part that is not panel.
  */
 async function besidePanel(page) {
+  // The panel squeezes the page as it mounts. Measuring before that happens
+  // gives the whole window, which is a different picture from every shot after
+  // it, so give it a moment to arrive.
+  await page.waitForFunction(
+    () => parseFloat(getComputedStyle(document.documentElement).marginRight) > 0,
+    null,
+    { timeout: 2000 }
+  ).catch(() => {});
+
   const clip = await page.evaluate(() => ({
     x: 0,
     y: 0,
@@ -111,4 +139,7 @@ async function besidePanel(page) {
   return clip ? { clip } : {};
 }
 
-module.exports = { dirFor, manifestFor, readManifest, writeManifest, fileFor, grab, DIR_NAME, MANIFEST };
+module.exports = {
+  dirFor, manifestFor, readManifest, writeManifest, fileFor, grab, shooter,
+  DIR_NAME, MANIFEST,
+};

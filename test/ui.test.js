@@ -247,20 +247,34 @@ test('a combination that would break the render is refused while saving', async 
   });
 });
 
-test('the settings screen is offered the fonts this theme declares', async () => {
-  await withApp(async ({ call }) => {
+// The fonts folder is the catalogue, so the dropdown offers the lot without
+// anything having to be declared first.
+test('the settings screen is offered every font in the project', async () => {
+  await withApp(async ({ call, dir }) => {
     const s = await call('/api/settings').then((r) => r.json());
-    const families = s.fonts.map((f) => f.family).sort();
-    assert.deepStrictEqual(families, ['Inter', 'Poppins']);
-    assert.ok(s.fonts.every((f) => f.key && f.family));
+    const onDisk = fs.readdirSync(path.join(dir, 'fonts')).filter((f) => /\.(ttf|otf)$/i.test(f));
+    assert.strictEqual(s.fonts.length, onDisk.length);
+
+    // The page draws each option in its own face, so it needs the file too.
+    assert.ok(s.fonts.every((f) => f.key && f.family && f.label && f.file));
+    const inter = s.fonts.find((f) => f.key === 'inter-bold');
+    assert.deepStrictEqual(
+      { family: inter.family, label: inter.label, file: inter.file, weight: inter.weight },
+      { family: 'Inter', label: 'Inter Bold', file: 'Inter-Bold.ttf', weight: 700 }
+    );
+    // A file name, never a path: it is fetched back through /api/font.
+    assert.ok(s.fonts.every((f) => !f.file.includes('/')));
   });
 });
 
-test('a font the theme does not have is refused with what it does have', async () => {
+test('a font the project does not have is refused with some that it does', async () => {
   await withApp(async ({ call }) => {
     const res = await call('/api/settings', { values: { 'theme.intro.titleFont': 'Comic Sans' } });
     assert.strictEqual(res.status, 400);
-    assert.match((await res.json()).error, /This theme has: heading, body/);
+    const { error } = await res.json();
+    assert.match(error, /no font called "Comic Sans"/);
+    assert.match(error, /This style has: /);
+    assert.match(error, /and \d+ more/, 'a whole font folder listed back is a wall of text');
   });
 });
 
@@ -270,13 +284,13 @@ test('colours and card text survive a save and come back', async () => {
       values: {
         'theme.highlight.color': '#e6007e',
         'theme.intro.title': 'Q Portal',
-        'theme.intro.titleFont': 'heading',
+        'theme.intro.titleFont': 'poppins-bold',
       },
     });
     const s = await call('/api/settings').then((r) => r.json());
     assert.strictEqual(s.values['theme.highlight.color'], '#E6007E');
     assert.strictEqual(s.values['theme.intro.title'], 'Q Portal');
-    assert.strictEqual(s.values['theme.intro.titleFont'], 'heading');
+    assert.strictEqual(s.values['theme.intro.titleFont'], 'poppins-bold');
 
     // And the theme file itself is still the hand-written one.
     assert.ok(fs.readFileSync(path.join(dir, 'theme.json'), 'utf8').includes('//'));

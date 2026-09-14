@@ -466,9 +466,13 @@ function coerce(field, raw, context = {}) {
     if (!key) return field.nullable ? null : undefined;
     const known = context.fontKeys || [];
     if (!known.includes(key)) {
+      // A whole font folder listed back is a wall of text. A handful is enough
+      // to show the shape of a key.
+      const some = known.slice(0, 8).join(', ');
+      const rest = known.length > 8 ? `, and ${known.length - 8} more` : '';
       throw new ConfigError(
         `${field.label}: there is no font called "${key}"` +
-        (known.length ? `. This theme has: ${known.join(', ')}.` : ' in this theme.')
+        (known.length ? `. This style has: ${some}${rest}.` : ' in this style.')
       );
     }
     return key;

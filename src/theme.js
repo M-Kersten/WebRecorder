@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { readJson, ConfigError } = require('./config');
 const { readFontFamilies, readFontMetrics } = require('./fontname');
+const fontcatalog = require('./fontcatalog');
 
 /**
  * Built-in defaults. A theme.json only has to name what it wants to change;
@@ -162,6 +163,10 @@ function loadTheme(themePath) {
   const theme = deepMerge(DEFAULTS, raw);
   theme.path = abs;
   theme.baseDir = path.dirname(abs);
+  // Everything in the project's `fonts` folder is offered to every style, so
+  // dropping a .ttf in is all it takes to use it. A style's own declarations
+  // win: a theme that names a key keeps whatever it pointed that key at.
+  theme.fonts = { ...fontcatalog.scan(path.join(theme.baseDir, 'fonts'), theme.baseDir), ...theme.fonts };
   return validateTheme(theme, abs);
 }
 

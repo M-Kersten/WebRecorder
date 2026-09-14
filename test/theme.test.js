@@ -168,9 +168,48 @@ test('a file that is not a font is rejected before it reaches libass', () => {
 
 test('the shipped theme.example.json loads', () => {
   const theme = loadTheme(path.join(REPO, 'theme.example.json'));
-  assert.strictEqual(theme.fonts.heading.family, 'Poppins');
-  assert.strictEqual(theme.fonts.body.family, 'Inter');
-  assert.strictEqual(theme.captions.font, 'body');
+  assert.strictEqual(theme.fonts.inter.family, 'Inter');
+  assert.strictEqual(theme.fonts['poppins-bold'].family, 'Poppins');
+  assert.strictEqual(theme.captions.font, 'inter');
+});
+
+// Nothing has to be declared: the fonts folder beside a theme is its catalogue,
+// so dropping a .ttf in is all it takes to use it.
+test('every font in the folder is offered to every style', () => {
+  const theme = loadTheme(path.join(REPO, 'theme.json'));
+  const names = fs.readdirSync(path.join(REPO, 'fonts')).filter((f) => /\.(ttf|otf)$/i.test(f));
+  assert.strictEqual(Object.keys(theme.fonts).length, names.length);
+  for (const key of ['inter', 'inter-bold', 'space-grotesk', 'fraunces-bold', 'jetbrains-mono']) {
+    assert.ok(theme.fonts[key], `${key} should be there without being declared`);
+  }
+  assert.strictEqual(theme.fonts['fraunces-bold'].weight, 700, 'weight read from the file name');
+  assert.strictEqual(theme.fonts.fraunces.weight, 400);
+});
+
+// A key a style declares is that style's own, whatever the folder holds.
+test('a declared font wins over the folder', () => {
+  const dir = fs.mkdtempSync(path.join(work, 'project-'));
+  fs.mkdirSync(path.join(dir, 'fonts'));
+  for (const name of ['Inter-Regular.ttf', 'Inter-Bold.ttf']) {
+    fs.copyFileSync(path.join(REPO, 'fonts', name), path.join(dir, 'fonts', name));
+  }
+  const file = path.join(dir, 'theme.json');
+  fs.writeFileSync(file, JSON.stringify({
+    fonts: { inter: { file: path.join(REPO, 'fonts', 'Sora-Bold.ttf'), weight: 700 } },
+    captions: { font: 'inter' },
+  }));
+
+  const theme = loadTheme(file);
+  assert.strictEqual(theme.fonts.inter.family, 'Sora', 'the declaration decides');
+  assert.strictEqual(theme.fonts['inter-bold'].family, 'Inter', 'and the rest are untouched');
+});
+
+// A folder with nothing in it is not an error: a theme that declares its own
+// fonts has never needed one.
+test('a project with no fonts folder still loads', () => {
+  const theme = withTheme({ captions: { enabled: true } });
+  assert.deepStrictEqual(theme.fonts, {});
+  assert.strictEqual(theme.captions.font, null);
 });
 
 test('captions are off unless a theme or a flag turns them on', () => {
@@ -276,10 +315,15 @@ test('the hint border colour is optional and derived when unset', () => {
 
 test('Overused Grotesk is bundled as two static weights of one family', () => {
   const theme = loadTheme(path.join(REPO, 'theme-rebels.json'));
-  assert.strictEqual(theme.fonts.heading.family, 'Overused Grotesk');
-  assert.strictEqual(theme.fonts.body.family, 'Overused Grotesk');
+  const roman = theme.fonts['overused-grotesk'];
+  const bold = theme.fonts['overused-grotesk-bold'];
+  assert.strictEqual(roman.family, 'Overused Grotesk');
+  assert.strictEqual(bold.family, 'Overused Grotesk');
   // Its 400 is called Roman; there is no file called Regular.
-  assert.match(theme.fonts.body.file, /Roman/);
-  assert.strictEqual(theme.fonts.body.weight, 400);
-  assert.strictEqual(theme.fonts.heading.weight, 700);
+  assert.match(roman.file, /Roman/);
+  assert.strictEqual(roman.weight, 400);
+  assert.strictEqual(bold.weight, 700);
+  // Same family name in one folder, so libass picks between them on the bold
+  // flag alone. That is what the weight on each declaration is for.
+  assert.strictEqual(theme.captions.font, 'overused-grotesk');
 });

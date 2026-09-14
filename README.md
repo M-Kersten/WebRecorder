@@ -178,8 +178,36 @@ Frame size sits with the styles rather than with the project because it is part
 of what a style is. The shipped `theme-social.json` is 1080x1920; a global size
 would quietly flatten it back to landscape.
 
-Font dropdowns offer what the style declares, by family name. Colours take a
-hex, with a swatch beside the field for picking one.
+Colours take a hex, with a swatch beside the field for picking one.
+
+### Fonts
+
+Every `.ttf` and `.otf` in the project's `fonts` folder is offered to every
+style, so adding a face is dropping a file in rather than hand-editing JSON. The
+folder is the catalogue; a style only declares a font to add one from somewhere
+else, or to give one a key of its own, and a key it declares wins.
+
+Keys are the family and the weight: `inter`, `inter-bold`, `space-grotesk`,
+`plus-jakarta-sans-bold`, `fraunces`, `jetbrains-mono`. Family names are **read
+out of the files**, never guessed from their names. libass matches on the name
+inside the file, and a guess that is close but wrong is exactly the failure that
+renders a system font instead. The weight comes from the file name, which is the
+only place a static instance says which of its family it is.
+
+Fourteen families ship with the project, Regular and Bold of each: Archivo,
+Bricolage Grotesque, DM Sans, Figtree, Fraunces, Inter, JetBrains Mono, Manrope,
+Outfit, Overused Grotesk, Plus Jakarta Sans, Poppins, Sora and Space Grotesk.
+
+Two weights of one family in one folder is the reason `weight` matters on a
+declaration. libass gets a folder and a family name, and picks between Regular
+and Bold on the bold flag alone; `captions.js` sets that flag from the weight,
+so a caption set in `fraunces-bold` renders in the bold file rather than
+silently in the regular one.
+
+The dropdown draws every option in its own face, which a native `<select>`
+cannot promise across platforms, so it is a listbox of its own. The faces are
+served from the project's `fonts` folder through the window's own `/api/font`
+route, falling back to the ones bundled with the tool.
 
 ### Why a style is its own layer
 
@@ -706,6 +734,7 @@ src/
   ui.js         the local app: state machine, small HTTP API, window
   pacing.js     how long a step is on screen; read by the recorder and the board
   voices.js     the voices.json list, and the stock voice to fall back on
+  fontcatalog.js  reads a fonts folder into theme-shaped declarations
   shots.js      the per-step screenshots the storyboard is built from
   settings.js   the fields the Style tab shows, and where they are saved
   workdir.js    temp folders, and cleaning them up on Windows

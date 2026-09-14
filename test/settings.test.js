@@ -167,15 +167,20 @@ test('an empty colour means the default where one is allowed, and nothing where 
   assert.deepStrictEqual(settings.toLayer({ 'theme.highlight.color': '  ' }), { theme: {}, flow: {} });
 });
 
-test('a font has to be one the theme declares', () => {
-  const context = { fontKeys: ['heading', 'body'] };
-  assert.strictEqual(settings.toLayer({ 'theme.intro.titleFont': 'heading' }, context)
-    .theme.intro.titleFont, 'heading');
+test('a font has to be one the project has', () => {
+  const context = { fontKeys: ['poppins-bold', 'inter'] };
+  assert.strictEqual(settings.toLayer({ 'theme.intro.titleFont': 'poppins-bold' }, context)
+    .theme.intro.titleFont, 'poppins-bold');
   assert.strictEqual(settings.toLayer({ 'theme.captions.font': '' }, context)
     .theme.captions.font, null);
 
   assert.throws(() => settings.toLayer({ 'theme.intro.titleFont': 'Comic Sans' }, context),
-    /there is no font called "Comic Sans". This theme has: heading, body/);
+    /there is no font called "Comic Sans". This style has: poppins-bold, inter/);
+
+  // A fonts folder listed back in full is a wall of text, so it is trimmed.
+  const many = { fontKeys: Array.from({ length: 28 }, (_, i) => `face-${i}`) };
+  assert.throws(() => settings.toLayer({ 'theme.captions.font': 'nope' }, many),
+    /face-0, face-1, face-2, face-3, face-4, face-5, face-6, face-7, and 20 more/);
 });
 
 test('card text is kept as typed, within a length', () => {

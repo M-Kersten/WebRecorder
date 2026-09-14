@@ -2,10 +2,11 @@
   // Fonts are declared once and referenced by key everywhere else, so swapping
   // a brand font means editing one line. "family" must match the name inside
   // the font file - leave it out and it is read from the file for you.
-  "fonts": {
-    "heading": { "family": "Poppins", "file": "fonts/Poppins-Bold.ttf", "weight": 700 },
-    "body":    { "family": "Inter",   "file": "fonts/Inter-Regular.ttf", "weight": 400 }
-  },
+  // Every .ttf and .otf in the "fonts" folder beside this file is available by
+  // name: "inter", "inter-bold", "space-grotesk", "fraunces-bold" and so on.
+  // Declare a font here only to add one from somewhere else, or to give one a
+  // key of your own. A key declared here wins over the folder.
+  //   "fonts": { "brand": { "family": "Acme Sans", "file": "brand/Acme.ttf", "weight": 700 } },
 
   // Fade to and from black at the start and end of every segment.
   "transitions": {
@@ -48,7 +49,7 @@
   // flow.json and it appears on screen while that step plays.
   "hints": {
     "enabled": true,
-    "font": "body",
+    "font": "inter",
     "fontSize": 28,
     "color": "#FFFFFF",
     "backgroundColor": "#1A1D29",
@@ -72,7 +73,7 @@
   // Burned-in captions are off unless you ask for them, here or with --captions.
   "captions": {
     "enabled": false,
-    "font": "body",
+    "font": "inter",
     "fontSize": 34,
     "color": "#FFFFFF",
     "backgroundColor": "#000000",
@@ -89,9 +90,9 @@
     "backgroundGradient": ["#0F1115", "#1A1D29"],
     // "logo": "assets/logo.png",
     "title": "Acme",
-    "titleFont": "heading",
+    "titleFont": "poppins-bold",
     "subtitle": "Product Walkthrough",
-    "subtitleFont": "body"
+    "subtitleFont": "inter"
   },
 
   "outro": {
@@ -99,9 +100,9 @@
     "durationSec": 3,
     "backgroundColor": "#0F1115",
     "title": "Try it free",
-    "titleFont": "heading",
+    "titleFont": "poppins-bold",
     "subtitle": "yoursite.com",
-    "subtitleFont": "body"
+    "subtitleFont": "inter"
   },
 
   "video": { "width": 1920, "height": 1080, "fps": 30, "backgroundColor": "#0F1115" }
