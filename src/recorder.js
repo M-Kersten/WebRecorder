@@ -5,6 +5,7 @@ const path = require('path');
 const { launch } = require('./browser');
 const { buildOverlayScript } = require('./overlay');
 const { REDACTED } = require('./secrets');
+const { readingTimeMs, LEAD_IN_MS, TAIL_MS } = require('./pacing');
 
 /**
  * Drive the flow through a real browser and record it.
@@ -61,7 +62,7 @@ async function record(flow, theme, audio, options = {}) {
     ).catch(() => {});
     // Let the recorder capture a frame or two before the first action, so the
     // video does not open mid-navigation.
-    await page.waitForTimeout(400);
+    await page.waitForTimeout(LEAD_IN_MS);
     const t0 = Date.now();
     const now = () => (Date.now() - t0) / 1000;
 
@@ -102,7 +103,7 @@ async function record(flow, theme, audio, options = {}) {
 
     // A short tail so the last caption is not cut off by the final frame, and
     // so the closing fade has something to fade out of.
-    await page.waitForTimeout(700);
+    await page.waitForTimeout(TAIL_MS);
     const totalSec = now();
 
     const video = page.video();
@@ -189,12 +190,6 @@ async function runStep(page, step, flow, theme) {
     default:
       throw new Error(`Unhandled action "${step.action}" (config.js should have caught this)`);
   }
-}
-
-/** Roughly how long a viewer needs to read a hint, at ~3.2 words a second. */
-function readingTimeMs(text) {
-  const words = text.trim().split(/\s+/).filter(Boolean).length;
-  return Math.min(9000, Math.max(1800, (words / 3.2) * 1000 + 700));
 }
 
 /**

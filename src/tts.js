@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { probeDuration, generateSilence } = require('./ffmpeg');
+const { estimateDuration } = require('./pacing');
 
 const API_BASE = 'https://api.elevenlabs.io/v1/text-to-speech';
 const DEFAULT_VOICE = '21m00Tcm4TlvDq8ikWAM'; // Rachel, ElevenLabs' stock voice
@@ -14,9 +15,6 @@ const DEFAULT_MODEL = 'eleven_multilingual_v2';
  * lets the recorder hold each step on screen for at least as long as its line
  * takes to say - the durations have to be known up front.
  */
-
-/** Words per second used to fake a duration in --no-tts mode. */
-const SPEAKING_RATE = 2.6;
 
 function defaultVoiceSettings() {
   return { stability: 0.5, similarity_boost: 0.75, style: 0, use_speaker_boost: true };
@@ -140,12 +138,6 @@ async function synthesizeAll(steps, options = {}) {
     log(`  narration: ${hits} cached, ${misses} generated`);
   }
   return results;
-}
-
-/** Rough spoken length, with a floor so a two-word line still gets some air. */
-function estimateDuration(text) {
-  const words = text.trim().split(/\s+/).filter(Boolean).length;
-  return Math.max(1.5, words / SPEAKING_RATE);
 }
 
 const truncate = (s, n = 60) => (s.length > n ? `${s.slice(0, n - 1)}...` : s);

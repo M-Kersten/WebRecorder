@@ -290,3 +290,191 @@ test('a flow that will not parse says so instead of showing no passwords', async
     assert.match(s.problem, /not valid JSON/);
   });
 });
+
+// --- the storyboard ----------------------------------------------------
+
+const BOARD_FLOW = {
+  name: 'Q Portal walkthrough',
+  baseUrl: 'https://portal.example.com',
+  minStepMs: 1400,
+  stepPaddingMs: 600,
+  steps: [
+    { action: 'goto', url: '/dashboard' },
+    { action: 'type', selector: '#password', text: '${PORTAL_PASSWORD}', secret: true },
+    { action: 'hover', selector: '#tile-hours', label: 'Monthly hours', narration: 'word '.repeat(20) },
+    { action: 'click', selector: '#tile-reg', hint: 'One line per client.' },
+  ],
+};
+
+function withFlow(dir, flow = BOARD_FLOW) {
+  fs.writeFileSync(path.join(dir, 'flow.json'), JSON.stringify(flow, null, 2));
+}
+
+test('the storyboard is one entry per step, with how long each will be on screen', async () => {
+  await withApp(async ({ call, dir }) => {
+    withFlow(dir);
+    const story = await call('/api/story').then((r) => r.json());
+    assert.strictEqual(story.exists, true);
+    assert.strictEqual(story.name, 'Q Portal walkthrough');
+    assert.strictEqual(story.startUrl, 'https://portal.example.com/dashboard');
+    assert.strictEqual(story.steps.length, 4);
+
+    const [, secret, spoken, hinted] = story.steps;
+    assert.strictEqual(secret.secret, true);
+    assert.ok(!JSON.stringify(story).includes('PORTAL_PASSWORD'),
+      'the storyboard has no reason to carry what a step types');
+    assert.strictEqual(spoken.label, 'Monthly hours', 'what the element says, not its selector');
+    assert.strictEqual(spoken.timing.decidedBy, 'narration');
+    assert.strictEqual(hinted.timing.decidedBy, 'hint');
+    assert.ok(spoken.estimateMs > 1400);
+
+    // The total covers the steps and everything the recorder does around them.
+    const stepSum = story.steps.reduce((a, s) => a + s.estimateMs, 0);
+    assert.ok(story.totalMs > stepSum, 'the lead-in, the fades and the tail are in there too');
+  });
+});
+
+test('with nothing recorded there is no storyboard to show', async () => {
+  await withApp(async ({ call }) => {
+    const story = await call('/api/story').then((r) => r.json());
+    assert.strictEqual(story.exists, false);
+    assert.deepStrictEqual(story.steps, []);
+    assert.strictEqual(story.problem, null);
+  });
+});
+
+test('a flow that will not parse is reported on the board, not swallowed', async () => {
+  await withApp(async ({ call, dir }) => {
+    fs.writeFileSync(path.join(dir, 'flow.json'), '{ "steps": [ ');
+    const story = await call('/api/story').then((r) => r.json());
+    assert.strictEqual(story.exists, false);
+    assert.match(story.problem, /not valid JSON/);
+  });
+});
+
+test('writing narration on the board lands in the flow file', async () => {
+  await withApp(async ({ call, dir }) => {
+    withFlow(dir);
+    const story = await call('/api/story', {
+      steps: [{ index: 0, narration: '  This is your portal.  ', hint: 'Everything in one place.' }],
+    }).then((r) => r.json());
+
+    assert.strictEqual(story.steps[0].narration, 'This is your portal.');
+    const saved = JSON.parse(fs.readFileSync(path.join(dir, 'flow.json'), 'utf8'));
+    assert.strictEqual(saved.steps[0].narration, 'This is your portal.');
+    assert.strictEqual(saved.steps[0].hint, 'Everything in one place.');
+    assert.ok(story.steps[0].estimateMs > 1400, 'and the board re-times the step it just changed');
+  });
+});
+
+test('emptying a box takes the line out rather than leaving a blank one', async () => {
+  await withApp(async ({ call, dir }) => {
+    withFlow(dir);
+    await call('/api/story', { steps: [{ index: 3, hint: '' }] });
+    const saved = JSON.parse(fs.readFileSync(path.join(dir, 'flow.json'), 'utf8'));
+    assert.ok(!('hint' in saved.steps[3]), 'an empty hint is no hint at all');
+  });
+});
+
+// The board is for writing what gets said over a recording. It is not a place
+// to rewrite how a step finds its element, or what it types into it.
+test('the board can only write narration, hints and the name', async () => {
+  await withApp(async ({ call, dir }) => {
+    withFlow(dir);
+    await call('/api/story', {
+      name: 'Renamed',
+      steps: [{
+        index: 1,
+        narration: 'Signing in.',
+        selector: '#somewhere-else',
+        text: 'hunter2',
+        action: 'goto',
+        secret: false,
+      }],
+    });
+    const saved = JSON.parse(fs.readFileSync(path.join(dir, 'flow.json'), 'utf8'));
+    assert.strictEqual(saved.name, 'Renamed');
+    assert.strictEqual(saved.steps[1].narration, 'Signing in.');
+    assert.strictEqual(saved.steps[1].selector, '#password', 'the selector is the recording');
+    assert.strictEqual(saved.steps[1].text, '${PORTAL_PASSWORD}');
+    assert.strictEqual(saved.steps[1].action, 'type');
+    assert.strictEqual(saved.steps[1].secret, true);
+  });
+});
+
+test('a step out of range is ignored rather than growing the flow', async () => {
+  await withApp(async ({ call, dir }) => {
+    withFlow(dir);
+    await call('/api/story', { steps: [{ index: 99, narration: 'nowhere' }] });
+    const saved = JSON.parse(fs.readFileSync(path.join(dir, 'flow.json'), 'utf8'));
+    assert.strictEqual(saved.steps.length, 4);
+  });
+});
+
+test('asking for a picture that was never taken says so', async () => {
+  await withApp(async ({ call, dir }) => {
+    withFlow(dir);
+    assert.strictEqual((await call('/api/shot?i=0')).status, 404);
+    assert.strictEqual((await call('/api/shot?i=notanumber')).status, 404);
+  });
+});
+
+test('a picture is served for the step the manifest names', async () => {
+  await withApp(async ({ call, dir }) => {
+    withFlow(dir);
+    const shots = require('../src/shots');
+    const flowFile = path.join(dir, 'flow.json');
+    fs.mkdirSync(shots.dirFor(flowFile), { recursive: true });
+    fs.writeFileSync(path.join(shots.dirFor(flowFile), '7.jpg'), 'pretend jpeg');
+    shots.writeManifest(flowFile, [null, null, '7.jpg', null]);
+
+    assert.strictEqual((await call('/api/shot?i=0')).status, 404);
+    const res = await call('/api/shot?i=2');
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.headers.get('content-type'), 'image/jpeg');
+    assert.strictEqual(await res.text(), 'pretend jpeg');
+
+    const story = await call('/api/story').then((r) => r.json());
+    assert.deepStrictEqual(story.steps.map((s) => s.hasShot), [false, false, true, false]);
+  });
+});
+
+// The window is set in the same face as the videos, which means serving it.
+test('the bundled fonts are served, and nothing else is', async () => {
+  await withApp(async ({ call }) => {
+    const ok = await call('/api/font/OverusedGrotesk-Roman.ttf');
+    assert.strictEqual(ok.status, 200);
+    assert.strictEqual(ok.headers.get('content-type'), 'font/ttf');
+    for (const bad of ['/api/font/..%2F..%2Fpackage.json', '/api/font/README.md', '/api/font/nope.ttf']) {
+      assert.strictEqual((await call(bad)).status, 404, `${bad} must not be served`);
+    }
+  });
+});
+
+// Somebody who recorded yesterday should not be shown an empty "paste a web
+// address" form today.
+test('a flow already on disk is picked up when the window opens', async () => {
+  const dir = makeProject();
+  fs.writeFileSync(path.join(dir, 'flow.json'), JSON.stringify(BOARD_FLOW, null, 2));
+  const app = createApp({ projectDir: dir });
+  try {
+    const state = app.publicState();
+    assert.strictEqual(state.phase, 'captured');
+    assert.strictEqual(state.steps.length, 4);
+    assert.match(state.message, /last time/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a flow on disk that will not load still lets the window open', () => {
+  const dir = makeProject();
+  fs.writeFileSync(path.join(dir, 'flow.json'), '{ "steps": [ ');
+  try {
+    const app = createApp({ projectDir: dir });
+    assert.strictEqual(app.publicState().phase, 'idle');
+    assert.match(app.readStory().problem, /not valid JSON/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

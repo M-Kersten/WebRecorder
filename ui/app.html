@@ -5,527 +5,1087 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Walkthrough Recorder</title>
 <style>
+  /* The face the videos are set in, served from the bundle so the window and
+     the thing it makes look like they came from the same place. */
+  @font-face {
+    font-family: 'Overused Grotesk';
+    src: url('/api/font/OverusedGrotesk-Roman.ttf?token=__TOKEN__') format('truetype');
+    font-weight: 400; font-style: normal; font-display: swap;
+  }
+  @font-face {
+    font-family: 'Overused Grotesk';
+    src: url('/api/font/OverusedGrotesk-Bold.ttf?token=__TOKEN__') format('truetype');
+    font-weight: 700; font-style: normal; font-display: swap;
+  }
+
+  /* One light world, on purpose: this window sits next to the portal it
+     records, and the two should not read as different products. */
   :root {
-    --bg: #0E1015; --panel: #161A22; --line: #242A36; --line-soft: #1D222C;
-    --ink: #E9ECF3; --muted: #8B94A7; --accent: #6C5CE7; --accent-ink: #fff;
-    --good: #34D399; --bad: #F87171;
-    --radius: 14px;
+    color-scheme: light;
+    --paper: #EFF0F4;
+    --card: #FFFFFF;
+    --rule: #ECEDF1;
+    --edge: #E0E2E9;
+    --sunken: #F4F5F8;
+    --ink: #12141A;
+    --ink-2: #414653;
+    --muted: #7B8090;
+    --pink: #E6007E;
+    --pink-hi: #FF2C99;
+    --ok-bg: #E5F6EC; --ok-ink: #147048;
+    --open-bg: #FCF0D8; --open-ink: #8C6008;
+    --warn-bg: #FDEBEB; --warn-ink: #A32222;
+    --amber: #E8C468;
+    --r-card: 20px;
+    --r-ctl: 12px;
+    --pill: 999px;
+    --shadow: 0 1px 2px rgba(18,20,26,.04);
   }
+
   * { box-sizing: border-box; }
-  html, body { height: 100%; }
   body {
-    margin: 0; background: var(--bg); color: var(--ink);
-    font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font: 15px/1.5 'Overused Grotesk', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
     -webkit-font-smoothing: antialiased;
-    display: flex; flex-direction: column; align-items: center;
-    padding: 34px 26px 40px;
   }
-  .wrap { width: 100%; max-width: 560px; }
-  h1 { font-size: 25px; letter-spacing: -.5px; margin: 0 0 6px; font-weight: 640; }
-  .lede { color: var(--muted); margin: 0 0 28px; font-size: 14.5px; }
+  .shell { max-width: 1180px; margin: 0 auto; padding: 18px 18px 56px; }
+  [hidden] { display: none !important; }
+  ::selection { background: rgba(230,0,126,.18); }
 
+  /* ---------- shared furniture ---------- */
   .card {
-    background: var(--panel); border: 1px solid var(--line);
-    border-radius: var(--radius); padding: 22px;
+    background: var(--card); border-radius: var(--r-card);
+    box-shadow: var(--shadow);
   }
-  .card + .card { margin-top: 14px; }
-
-  label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 7px; }
-  input[type=text], input[type=url], input[type=number], input[type=password], select {
-    width: 100%; padding: 12px 14px; font-size: 15px; font-family: inherit;
-    background: #0B0D12; color: var(--ink);
-    border: 1px solid #2A3140; border-radius: 10px;
+  .card + .card, .stack > * + * { margin-top: 14px; }
+  .label {
+    font-size: 11px; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--muted); font-weight: 700;
   }
-  input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent; }
-  .field + .field { margin-top: 16px; }
-  .hint { font-size: 12.5px; color: var(--muted); margin-top: 7px; line-height: 1.5; }
+  .mono { font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace; font-size: 12px; }
+  .num { font-variant-numeric: tabular-nums; }
+  .sub { color: var(--muted); }
 
-  button {
-    font: inherit; font-weight: 560; cursor: pointer; border-radius: 10px;
-    padding: 12px 18px; border: 1px solid #2A3140; background: #1B2029; color: var(--ink);
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12px; font-weight: 700; padding: 4px 11px; border-radius: var(--pill);
+    background: var(--sunken); color: var(--ink-2); white-space: nowrap;
   }
-  button:hover:not(:disabled) { background: #222833; }
-  button:disabled { opacity: .45; cursor: not-allowed; }
-  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
-  button.primary:hover:not(:disabled) { background: #7d6ff0; }
-  button.wide { width: 100%; }
-  .actions { display: flex; gap: 10px; margin-top: 20px; }
-  .actions button { flex: 1; }
+  .pill.ok { background: var(--ok-bg); color: var(--ok-ink); }
+  .pill.open { background: var(--open-bg); color: var(--open-ink); }
+  .pill.bad { background: var(--warn-bg); color: var(--warn-ink); }
 
-  .toggles { display: flex; flex-direction: column; gap: 12px; margin-top: 18px; }
-  .toggle { display: flex; align-items: flex-start; gap: 11px; cursor: pointer; }
-  .toggle input { margin: 2px 0 0; width: 17px; height: 17px; accent-color: var(--accent); flex: none; }
-  .toggle > span { display: block; }
-  .toggle .t { display: block; font-size: 14px; }
-  .toggle .d { display: block; font-size: 12.5px; color: var(--muted); line-height: 1.45; margin-top: 2px; }
-  .toggle.off { opacity: .5; }
+  button, select, input, textarea { font: inherit; color: inherit; }
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    border-radius: var(--pill); border: 1px solid var(--edge); background: var(--card);
+    padding: 10px 18px; font-weight: 700; font-size: 14px; cursor: pointer;
+    transition: background .12s ease, border-color .12s ease, opacity .12s ease;
+  }
+  .btn:hover:not(:disabled) { background: var(--sunken); }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+  .btn.primary { background: var(--pink); border-color: var(--pink); color: #fff; padding: 13px 30px; }
+  .btn.primary:hover:not(:disabled) { background: var(--pink-hi); border-color: var(--pink-hi); }
+  .btn.dark { background: var(--ink); border-color: var(--ink); color: #fff; }
+  .btn.dark:hover:not(:disabled) { background: #262a34; }
+  .btn svg { width: 15px; height: 15px; flex: none; }
+  :focus-visible { outline: 2px solid var(--pink); outline-offset: 2px; }
 
-  .steps { margin-top: 16px; border-top: 1px solid var(--line-soft); max-height: 210px; overflow-y: auto; }
-  .step { display: flex; gap: 10px; padding: 9px 2px; border-bottom: 1px solid var(--line-soft); font-size: 13.5px; }
-  .step .i { color: var(--muted); min-width: 18px; font-variant-numeric: tabular-nums; }
-  .step .a { color: var(--accent); min-width: 52px; }
-  .step .s { color: var(--muted); font-family: ui-monospace, SFMono-Regular, monospace;
-             font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  input[type=text], input[type=url], input[type=number], input[type=password], select, textarea {
+    background: var(--card); border: 1px solid var(--edge); border-radius: var(--r-ctl);
+    padding: 11px 13px; width: 100%;
+  }
+  textarea { resize: vertical; line-height: 1.55; }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--ink); }
+  select {
+    -webkit-appearance: none; appearance: none; cursor: pointer; padding-right: 34px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5l5-5' stroke='%2312141A' stroke-width='1.6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 13px center; background-size: 11px;
+  }
 
-  .busy { display: flex; align-items: center; gap: 13px; }
+  /* ---------- header ---------- */
+  .bar {
+    display: flex; align-items: center; gap: 18px;
+    background: var(--card); border-radius: 22px; box-shadow: var(--shadow);
+    padding: 13px 18px; margin-bottom: 22px;
+  }
+  .brand { display: flex; align-items: center; gap: 11px; flex: none; }
+  .brand .mark {
+    width: 32px; height: 32px; border-radius: 10px; background: var(--ink);
+    display: grid; place-items: center;
+  }
+  .brand .mark svg { width: 13px; height: 13px; }
+  .brand b { font-size: 15px; letter-spacing: .14em; font-weight: 700; }
+  .tabs { display: flex; gap: 4px; margin: 0 auto; }
+  .tab {
+    border: 0; background: none; cursor: pointer; border-radius: var(--pill);
+    padding: 9px 20px; font-weight: 700; font-size: 14px; color: var(--ink-2);
+  }
+  .tab:hover { color: var(--ink); }
+  .tab.on { background: var(--ink); color: #fff; }
+  .bar-end { display: flex; align-items: center; gap: 10px; flex: none; }
+  .icon-btn {
+    width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--edge);
+    background: var(--card); display: grid; place-items: center; cursor: pointer;
+  }
+  .icon-btn:hover { background: var(--sunken); }
+  .icon-btn svg { width: 17px; height: 17px; }
+
+  /* ---------- page head ---------- */
+  .head { padding: 0 4px 20px; }
+  .head h1 { margin: 0 0 4px; font-size: 33px; font-weight: 700; letter-spacing: -.02em; }
+  .head p { margin: 0; color: var(--muted); font-size: 15px; }
+
+  /* ---------- overview ---------- */
+  .split { display: grid; grid-template-columns: minmax(0, 380px) minmax(0, 1fr); }
+  .split > * { padding: 22px 26px; }
+  .split > * + * { border-left: 1px solid var(--rule); }
+  .chip {
+    display: inline-flex; align-items: center; gap: 9px; max-width: 100%;
+    border: 1px solid var(--edge); border-radius: var(--pill);
+    padding: 9px 16px; margin: 11px 0 16px; font-weight: 700; font-size: 14px;
+  }
+  .chip svg { width: 14px; height: 14px; flex: none; color: var(--muted); }
+  .chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* The pacing track: width is time, colour is whether anything is said. */
+  .track { display: flex; gap: 2px; height: 10px; border-radius: var(--pill); overflow: hidden; }
+  .track button { border: 0; padding: 0; cursor: pointer; background: var(--ink); min-width: 3px; }
+  .track button.silent { background: var(--amber); }
+  .track button.sel { background: var(--pink); }
+  .track-legend {
+    display: flex; justify-content: space-between; gap: 12px;
+    margin-top: 9px; font-size: 13px; color: var(--muted);
+  }
+
+  .out-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 4px; }
+  .out-head .big { margin-left: auto; font-size: 22px; font-weight: 700; letter-spacing: -.01em; }
+  .out-row {
+    display: grid; grid-template-columns: 120px minmax(0, 1fr) auto;
+    gap: 14px; align-items: center; padding: 11px 0;
+  }
+  .out-row + .out-row { border-top: 1px solid var(--rule); }
+  .out-row .k { font-weight: 700; font-size: 14px; }
+  .out-row .v { color: var(--muted); font-size: 13.5px; }
+  .seg-switch { display: inline-flex; background: var(--sunken); border-radius: var(--pill); padding: 3px; }
+  .seg-switch button {
+    border: 0; background: none; cursor: pointer; border-radius: var(--pill);
+    padding: 6px 15px; font-size: 13px; font-weight: 700; color: var(--muted);
+  }
+  .seg-switch button.on { background: var(--ink); color: #fff; }
+  .seg-switch button:disabled { opacity: .45; cursor: not-allowed; }
+  .out-foot { margin-top: 6px; padding-top: 13px; border-top: 1px solid var(--rule);
+              font-size: 13px; color: var(--muted); }
+
+  /* ---------- filmstrip ---------- */
+  .strip-head { display: flex; align-items: baseline; gap: 12px; padding: 26px 4px 12px; }
+  .strip-head h2 { margin: 0; font-size: 17px; font-weight: 700; }
+  .strip-head .sub { font-size: 13.5px; margin-left: auto; }
+  .strip { display: flex; gap: 12px; overflow-x: auto; padding: 3px 4px 14px; scroll-padding: 4px; }
+  .frame {
+    flex: 0 0 206px; text-align: left; cursor: pointer;
+    background: var(--card); border: 1.5px solid transparent; border-radius: 16px;
+    padding: 10px; box-shadow: var(--shadow); font: inherit; color: inherit;
+  }
+  .frame:hover { border-color: var(--edge); }
+  .frame.sel { border-color: var(--ink); }
+  .frame .shot {
+    aspect-ratio: 16 / 10; border-radius: 9px; background: var(--sunken);
+    overflow: hidden; display: grid; place-items: center; margin-bottom: 10px;
+  }
+  .frame .shot img { width: 100%; height: 100%; object-fit: cover; object-position: top center; display: block; }
+  .frame .shot .none { font-size: 11px; color: var(--muted); letter-spacing: .06em; text-transform: uppercase; }
+  .frame .line { display: flex; align-items: baseline; gap: 8px; }
+  .frame .line b { font-size: 14px; }
+  .frame .line .t { margin-left: auto; font-size: 13px; color: var(--muted); }
+  .frame .what {
+    display: block; font-size: 12.5px; color: var(--muted); margin: 3px 0 10px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+
+  /* ---------- step editor ---------- */
+  .panel-head {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    padding: 20px 26px; border-bottom: 1px solid var(--rule);
+  }
+  .panel-head h3 { margin: 0; font-size: 19px; font-weight: 700; }
+  .panel-head .where { color: var(--muted); font-size: 13.5px; }
+  .panel-head .end { margin-left: auto; display: flex; align-items: center; gap: 11px; }
+  .saved-note { font-size: 13px; color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
+  .saved-note svg { width: 13px; height: 13px; color: var(--ok-ink); }
+
+  .editor { display: grid; grid-template-columns: 300px minmax(0, 1fr) 210px; }
+  .editor > * { padding: 22px 26px; }
+  .editor > * + * { border-left: 1px solid var(--rule); }
+  .big-shot {
+    aspect-ratio: 16 / 10; border-radius: 12px; background: var(--sunken);
+    overflow: hidden; display: grid; place-items: center;
+  }
+  .big-shot img { width: 100%; height: 100%; object-fit: cover; object-position: top center; }
+  .big-shot .none { color: var(--muted); font-size: 12.5px; padding: 0 20px; text-align: center; }
+  .target { margin-top: 11px; color: var(--muted); word-break: break-all; }
+  .field + .field { margin-top: 18px; }
+  .field .lab { display: flex; align-items: baseline; gap: 10px; margin-bottom: 7px; }
+  .field .lab .why { margin-left: auto; font-size: 12.5px; color: var(--muted); }
+  .field .help { font-size: 12.5px; color: var(--muted); margin-top: 6px; }
+  .timing .big { font-size: 38px; font-weight: 700; letter-spacing: -.03em; line-height: 1.05; }
+  .timing .big em { font-style: normal; font-size: 17px; color: var(--muted); margin-left: 3px; }
+  .bar-mini { height: 6px; border-radius: var(--pill); background: var(--sunken); margin: 12px 0 18px; }
+  .bar-mini i { display: block; height: 100%; border-radius: var(--pill); background: var(--ink); }
+  .reasons { font-size: 13px; color: var(--muted); }
+  .reasons div { display: flex; justify-content: space-between; gap: 10px; padding: 4px 0; }
+  .reasons div.lead { color: var(--ink); font-weight: 700; }
+  .panel-foot {
+    display: flex; align-items: center; gap: 12px;
+    padding: 15px 26px; border-top: 1px solid var(--rule);
+  }
+  .panel-foot .sub { font-size: 13.5px; }
+  .panel-foot .end { margin-left: auto; display: flex; gap: 9px; }
+  .panel-foot .btn { padding: 9px 16px; font-size: 13.5px; }
+
+  /* ---------- render ---------- */
+  .render-row {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 18px;
+    align-items: center; padding: 20px 26px;
+  }
+  .render-row + .render-row { border-top: 1px solid var(--rule); }
+  .render-row .acts { display: flex; gap: 9px; align-items: center; }
+  .name-wrap { display: flex; align-items: center; gap: 10px; max-width: 420px; }
+  .name-wrap input { border-radius: var(--pill); padding: 11px 18px; }
+  .name-wrap .ext { color: var(--muted); font-weight: 700; }
+  video { width: 100%; max-width: 620px; border-radius: 12px; display: block; background: #000; }
+
+  /* ---------- states ---------- */
+  .pad { padding: 26px; }
+  .busy { display: flex; align-items: center; gap: 14px; }
   .spinner {
-    width: 19px; height: 19px; flex: none; border-radius: 50%;
-    border: 2.5px solid #2A3140; border-top-color: var(--accent);
+    width: 20px; height: 20px; flex: none; border-radius: 50%;
+    border: 2.5px solid var(--edge); border-top-color: var(--pink);
     animation: spin .8s linear infinite;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
-
+  @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2.4s; } }
   .log {
-    margin-top: 16px; background: #0B0D12; border: 1px solid var(--line-soft);
-    border-radius: 10px; padding: 12px 14px; max-height: 190px; overflow-y: auto;
-    font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12px;
-    color: var(--muted); line-height: 1.65; white-space: pre-wrap;
+    margin-top: 16px; background: var(--sunken); border-radius: var(--r-ctl);
+    padding: 13px 15px; max-height: 200px; overflow-y: auto;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
+    color: var(--ink-2); line-height: 1.7; white-space: pre-wrap;
   }
   .log:empty { display: none; }
+  .notice { border-radius: var(--r-card); padding: 16px 20px; font-size: 14px; line-height: 1.55; }
+  .notice.bad { background: var(--warn-bg); color: var(--warn-ink); }
+  .notice.tip { background: var(--card); box-shadow: var(--shadow); }
+  .notice + .notice { margin-top: 12px; }
+  .notice b { font-weight: 700; }
+  ol.walk { margin: 14px 0 0; padding-left: 21px; color: var(--muted); font-size: 14px; line-height: 1.9; }
+  ol.walk b { color: var(--ink); font-weight: 700; }
 
-  .notice { border-radius: 10px; padding: 13px 15px; font-size: 13.5px; line-height: 1.55; }
-  .notice.warn { background: rgba(248,113,113,.09); border: 1px solid rgba(248,113,113,.3); }
-  .notice.info { background: rgba(108,92,231,.1); border: 1px solid rgba(108,92,231,.32); }
-  .notice + .notice { margin-top: 10px; }
-  .notice b { font-weight: 600; }
-
-  .settings-head { display: flex; align-items: baseline; gap: 12px; margin: 0 0 14px; }
-  .settings-head h2 { margin: 0; font-size: 18px; font-weight: 620; letter-spacing: -.3px; }
-  .settings-head .back { margin-left: auto; }
-  .settings-head button { padding: 7px 14px; font-size: 13px; }
-  .group { font-size: 12px; text-transform: uppercase; letter-spacing: .9px;
-           color: var(--muted); margin: 0 0 14px; font-weight: 600; }
-  details.group-card { background: var(--panel); border: 1px solid var(--line);
-                       border-radius: var(--radius); margin-bottom: 14px; }
-  details.group-card > summary {
-    list-style: none; cursor: pointer; padding: 16px 22px;
-    font-size: 12px; text-transform: uppercase; letter-spacing: .9px;
-    color: var(--muted); font-weight: 600; display: flex; align-items: center; gap: 9px;
+  /* ---------- style tab ---------- */
+  .groups { columns: 340px 3; column-gap: 14px; }
+  details.grp {
+    background: var(--card); border-radius: var(--r-card); box-shadow: var(--shadow);
+    display: inline-block; width: 100%; margin-bottom: 14px; break-inside: avoid;
   }
-  details.group-card > summary::-webkit-details-marker { display: none; }
-  details.group-card > summary::before {
-    content: '›'; font-size: 17px; line-height: 1; transform: rotate(0deg);
-    transition: transform .16s ease; color: var(--muted);
+  details.grp > summary {
+    list-style: none; cursor: pointer; padding: 18px 22px; display: flex; align-items: center; gap: 10px;
+    font-size: 11px; letter-spacing: .1em; text-transform: uppercase; font-weight: 700; color: var(--muted);
   }
-  details[open].group-card > summary::before { transform: rotate(90deg); }
-  details.group-card > summary:hover { color: var(--ink); }
-  .group-body { padding: 0 22px 20px; }
+  details.grp > summary::-webkit-details-marker { display: none; }
+  details.grp > summary::before {
+    content: ''; width: 7px; height: 7px; flex: none;
+    border-right: 1.8px solid currentColor; border-bottom: 1.8px solid currentColor;
+    transform: rotate(-45deg); transition: transform .15s ease; margin-left: 2px;
+  }
+  details[open].grp > summary::before { transform: rotate(45deg); }
+  details.grp > summary:hover { color: var(--ink); }
+  .grp-body { padding: 0 22px 20px; }
+  .row {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: start;
+    padding: 14px 0; border-top: 1px solid var(--rule);
+  }
+  .row .k { font-size: 14px; }
+  .row .d { font-size: 12.5px; color: var(--muted); line-height: 1.5; margin-top: 2px; }
+  .row .ctl { text-align: right; }
+  .row .ctl input[type=number] { width: 118px; text-align: right; }
+  .row .ctl select { width: 178px; }
+  .row .ctl input.wide-text { width: 210px; }
+  .row .unit { display: block; font-size: 12px; color: var(--muted); margin-top: 5px; }
   .swatch {
-    -webkit-appearance: none; appearance: none; width: 38px; height: 34px; padding: 0;
-    border: 1px solid #2A3140; border-radius: 8px; background: none; cursor: pointer;
-    vertical-align: top;
+    -webkit-appearance: none; appearance: none; width: 36px; height: 34px; padding: 0;
+    border: 1px solid var(--edge); border-radius: 9px; background: none; cursor: pointer; flex: none;
   }
   .swatch::-webkit-color-swatch-wrapper { padding: 3px; }
-  .swatch::-webkit-color-swatch { border: 0; border-radius: 5px; }
-  .colour { display: flex; gap: 8px; align-items: center; }
-  .colour input[type=text] { width: 104px; font-family: ui-monospace, SFMono-Regular, monospace;
+  .swatch::-webkit-color-swatch { border: 0; border-radius: 6px; }
+  .colour { display: flex; gap: 8px; align-items: center; justify-content: flex-end; }
+  .colour input[type=text] { width: 104px; font-family: ui-monospace, Menlo, monospace;
                              font-size: 12.5px; text-transform: uppercase; }
-  .wide-text { width: 260px; }
-  .row2 { display: grid; grid-template-columns: 1fr auto; gap: 14px; align-items: start; }
-  .unit { color: var(--muted); font-size: 12.5px; margin-top: 6px; display: block; text-align: right; }
-  .row2 .num { width: 130px; text-align: right; }
-  .fname { font-size: 14px; }
-  .fhelp { font-size: 12.5px; color: var(--muted); line-height: 1.5; margin-top: 3px; }
-  .field-row + .field-row { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--line-soft); }
-  .secret { display: grid; grid-template-columns: 1fr 190px; gap: 14px; align-items: center; }
-  .secret + .secret { margin-top: 14px; }
-  .tag { font-size: 11px; padding: 2px 8px; border-radius: 999px; margin-left: 8px;
-         background: rgba(52,211,153,.14); color: var(--good); vertical-align: 2px; }
-  .tag.unset { background: rgba(255,255,255,.06); color: var(--muted); }
-  .mono { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 13px; }
-  .saved { color: var(--good); font-size: 13px; }
-  video { width: 100%; border-radius: 10px; display: block; background: #000; margin-bottom: 16px; }
-  .path { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12px;
-          color: var(--muted); word-break: break-all; margin-top: 12px; }
-  ol.walk { margin: 12px 0 0; padding-left: 20px; color: var(--muted); font-size: 13.5px; line-height: 1.75; }
-  ol.walk b { color: var(--ink); font-weight: 560; }
-  [hidden] { display: none !important; }
+  .switch {
+    -webkit-appearance: none; appearance: none; width: 42px; height: 24px; flex: none;
+    border-radius: var(--pill); background: var(--edge); position: relative; cursor: pointer;
+    border: 0; transition: background .15s ease;
+  }
+  .switch::after {
+    content: ''; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px;
+    border-radius: 50%; background: #fff; transition: transform .15s ease;
+  }
+  .switch:checked { background: var(--pink); }
+  .switch:checked::after { transform: translateX(18px); }
+  .secret-row { display: grid; grid-template-columns: minmax(0, 1fr) 180px; gap: 14px;
+                align-items: center; padding: 12px 0; border-top: 1px solid var(--rule); }
+  .style-foot { display: flex; align-items: center; gap: 12px; margin-top: 16px; padding: 0 4px; }
+  .style-foot .end { margin-left: auto; display: flex; gap: 10px; align-items: center; }
+
+  @media (max-width: 900px) {
+    .split, .editor { grid-template-columns: minmax(0, 1fr); }
+    .split > * + *, .editor > * + * { border-left: 0; border-top: 1px solid var(--rule); }
+    .bar { flex-wrap: wrap; }
+    .tabs { margin: 0; order: 3; width: 100%; }
+    .render-row { grid-template-columns: minmax(0, 1fr); }
+  }
 </style>
 </head>
 <body>
-<div class="wrap">
-  <h1>Walkthrough Recorder</h1>
-  <p class="lede">Turn a page on your site into a narrated video.</p>
+<div class="shell">
 
-  <!-- 1. start -->
-  <section id="view-idle" class="card" hidden>
-    <div class="field">
-      <label for="url">Which page do you want to show?</label>
-      <input type="url" id="url" placeholder="https://portal.example.com" autocomplete="off" spellcheck="false">
-      <div class="hint">Paste the address of the page where the walkthrough should start.</div>
+  <header class="bar">
+    <div class="brand">
+      <span class="mark"><svg viewBox="0 0 10 12" fill="#fff" aria-hidden="true"><path d="M0 0l10 6-10 6z"/></svg></span>
+      <b>WALKTHROUGH</b>
     </div>
-    <div class="field">
-      <label for="theme">Style</label>
-      <select id="theme"></select>
+    <nav class="tabs">
+      <button class="tab on" id="tab-btn-board" type="button">Storyboard</button>
+      <button class="tab" id="tab-btn-style" type="button">Style</button>
+    </nav>
+    <div class="bar-end">
+      <span class="pill" id="ready-pill" hidden></span>
+      <button class="icon-btn" id="open-folder" type="button" title="Open the project folder">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round">
+          <path d="M2.5 5.5a1 1 0 011-1h3.6l1.6 2h7.8a1 1 0 011 1v7a1 1 0 01-1 1h-13a1 1 0 01-1-1z"/>
+        </svg>
+      </button>
     </div>
-    <div id="idle-note"></div>
-    <div class="actions">
-      <button class="primary" id="start" style="flex:3">Open the site and start recording</button>
-      <button id="open-settings" style="flex:1">Settings</button>
-    </div>
-    <ol class="walk">
-      <li>A browser window opens with your site in it.</li>
-      <li><b>Use the site as you normally would.</b> Every click is written down.</li>
-      <li>Type what you want said out loud in the panel on the right.</li>
-      <li>Press <b>Save flow</b> when you are finished.</li>
-    </ol>
-  </section>
+  </header>
 
-  <!-- 2. capturing -->
-  <section id="view-capturing" class="card" hidden>
-    <div class="busy"><div class="spinner"></div><div><b>Recording.</b> Use the other window.</div></div>
-    <ol class="walk">
-      <li>Click through your site the way you would show it to someone.</li>
-      <li>Fill in the narration and hints in the panel on the right.</li>
-      <li>Press <b>Save flow</b> to come back here.</li>
-    </ol>
-  </section>
+  <!-- ================= STORYBOARD ================= -->
+  <main id="tab-board">
+    <div class="head">
+      <h1 id="board-title">Storyboard</h1>
+      <p id="board-sub">Record a page, write what gets said over it, make the video.</p>
+    </div>
 
-  <!-- 3. ready to render -->
-  <section id="view-captured" class="card" hidden>
-    <div id="captured-count"></div>
-    <div class="steps" id="steps"></div>
-    <div class="toggles">
-      <label class="toggle" id="narration-row">
-        <input type="checkbox" id="narration">
-        <span>
-          <span class="t">Read the narration out loud</span>
-          <span class="d" id="narration-note">Uses ElevenLabs. Without it the video is silent and just as long.</span>
+    <div id="board-notices"></div>
+
+    <!-- nothing recorded yet -->
+    <section class="card split" id="card-start" hidden>
+      <div>
+        <div class="label">Start here</div>
+        <div class="field" style="margin-top:14px">
+          <label for="url" style="display:block;font-weight:700;margin-bottom:8px">
+            Which page do you want to show?
+          </label>
+          <input type="url" id="url" placeholder="https://portal.example.com" autocomplete="off" spellcheck="false">
+          <div class="help" style="font-size:12.5px;color:var(--muted);margin-top:8px">
+            A browser opens there. Everything you click is written down.
+          </div>
+        </div>
+        <button class="btn primary" id="start" type="button" style="margin-top:20px">
+          Open the site and start recording
+        </button>
+      </div>
+      <div>
+        <div class="label">What happens next</div>
+        <ol class="walk">
+          <li>A browser window opens with your site in it.</li>
+          <li><b>Use the site as you normally would.</b> Every click is written down.</li>
+          <li>Press <b>Save flow</b> in the panel when you are finished.</li>
+          <li>Every step turns up here as a picture, waiting for its line.</li>
+          <li>Write what gets said, then make the video.</li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- something is running -->
+    <section class="card pad" id="card-busy" hidden>
+      <div class="busy"><div class="spinner"></div><div id="busy-text"></div></div>
+      <ol class="walk" id="busy-walk" hidden>
+        <li>Click through your site the way you would show it to someone.</li>
+        <li>Fill in narration and hints in the panel on the right, or leave them for here.</li>
+        <li>Press <b>Save flow</b> to come back.</li>
+      </ol>
+      <div class="log" id="busy-log"></div>
+    </section>
+
+    <!-- the board -->
+    <div id="board" hidden>
+      <section class="card split">
+        <div>
+          <div class="label">Walkthrough</div>
+          <div class="chip" id="start-chip">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+              <circle cx="8" cy="8" r="6"/><path d="M2 8h12M8 2c1.8 2 1.8 10 0 12M8 2C6.2 4 6.2 12 8 14"/>
+            </svg>
+            <span id="start-url"></span>
+          </div>
+          <div class="track" id="track"></div>
+          <div class="track-legend">
+            <span id="written-count"></span>
+            <span id="length-note" class="num"></span>
+          </div>
+          <div style="margin-top:18px;display:flex;gap:9px">
+            <button class="btn" id="rerecord" type="button" style="padding:9px 16px;font-size:13.5px">
+              Record again
+            </button>
+          </div>
+        </div>
+        <div>
+          <div class="out-head">
+            <div class="label">The video</div>
+            <div class="big num" id="total-time"></div>
+          </div>
+          <div class="out-row">
+            <div class="k">Style</div>
+            <div class="v" id="theme-detail"></div>
+            <div><select id="theme" style="width:190px"></select></div>
+          </div>
+          <div class="out-row">
+            <div class="k">Narration</div>
+            <div class="v" id="narration-note">Read out loud by ElevenLabs.</div>
+            <div class="seg-switch" id="sw-narration">
+              <button type="button" data-on="1">Spoken</button>
+              <button type="button" data-on="">Silent</button>
+            </div>
+          </div>
+          <div class="out-row">
+            <div class="k">Subtitles</div>
+            <div class="v">Burned into the picture, under everything else.</div>
+            <div class="seg-switch" id="sw-captions">
+              <button type="button" data-on="1">On</button>
+              <button type="button" data-on="">Off</button>
+            </div>
+          </div>
+          <div class="out-foot">
+            Colours, fonts and the opening card live under <b>Style</b>.
+          </div>
+        </div>
+      </section>
+
+      <div class="strip-head">
+        <h2>Steps</h2>
+        <span class="sub" id="strip-note"></span>
+      </div>
+      <div class="strip" id="strip"></div>
+
+      <section class="card" id="editor-card">
+        <div class="panel-head">
+          <h3 id="ed-title">Step 1</h3>
+          <span class="where" id="ed-where"></span>
+          <div class="end">
+            <span class="saved-note" id="ed-saved" hidden>
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3.2 3.2L13 5"/></svg>
+              Saved
+            </span>
+            <span class="pill" id="ed-pill"></span>
+          </div>
+        </div>
+        <div class="editor">
+          <div>
+            <div class="big-shot" id="ed-shot"></div>
+            <div class="target mono" id="ed-target"></div>
+          </div>
+          <div>
+            <div class="field">
+              <div class="lab">
+                <label class="label" for="ed-narration">Narration</label>
+                <span class="why" id="ed-words"></span>
+              </div>
+              <textarea id="ed-narration" rows="3" placeholder="What should be said while this is on screen?"></textarea>
+              <div class="help">Spoken out loud, and used as the subtitle when those are on.</div>
+            </div>
+            <div class="field">
+              <div class="lab">
+                <label class="label" for="ed-hint">Hint</label>
+              </div>
+              <textarea id="ed-hint" rows="2" placeholder="Optional. A short block of text on screen."></textarea>
+              <div class="help">Goes up after the step happens, beside whatever it acted on.</div>
+            </div>
+          </div>
+          <div class="timing">
+            <div class="label">On screen</div>
+            <div class="big num" id="ed-seconds" style="margin-top:8px"></div>
+            <div class="bar-mini"><i id="ed-bar"></i></div>
+            <div class="label" style="margin-bottom:6px">What sets it</div>
+            <div class="reasons" id="ed-reasons"></div>
+          </div>
+        </div>
+        <div class="panel-foot">
+          <span class="sub" id="ed-position"></span>
+          <div class="end">
+            <button class="btn" id="ed-prev" type="button">Previous</button>
+            <button class="btn" id="ed-next" type="button">Next</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" id="render-card">
+        <div class="panel-head">
+          <h3>Make the video</h3>
+          <span class="where">Everything above, rendered into one file.</span>
+          <div class="end"><span class="pill" id="render-pill">Not made yet</span></div>
+        </div>
+        <div class="render-row" id="player-row" hidden>
+          <video id="player" controls preload="metadata"></video>
+          <div class="acts">
+            <button class="btn" id="reveal" type="button">Show the file</button>
+          </div>
+        </div>
+        <div class="render-row">
+          <div class="name-wrap">
+            <input type="text" id="name" placeholder="walkthrough" autocomplete="off" spellcheck="false">
+            <span class="ext">.mp4</span>
+          </div>
+          <div class="acts">
+            <button class="btn primary" id="render" type="button">Make the video</button>
+          </div>
+        </div>
+        <div class="render-row" style="padding-top:14px;padding-bottom:16px">
+          <div class="sub mono" id="out-dir"></div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <!-- ================= STYLE ================= -->
+  <main id="tab-style" hidden>
+    <div class="head">
+      <h1>Style</h1>
+      <p>How the video looks and how fast it moves. Every walkthrough uses these.</p>
+    </div>
+    <div id="style-body" class="groups"></div>
+    <div class="style-foot">
+      <span class="sub" id="style-note"></span>
+      <div class="end">
+        <span class="saved-note" id="style-saved" hidden>
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3.2 3.2L13 5"/></svg>
+          Saved
         </span>
-      </label>
-      <label class="toggle">
-        <input type="checkbox" id="captions">
-        <span>
-          <span class="t">Burn in subtitles</span>
-          <span class="d">Shows the narration as text at the bottom of the video.</span>
-        </span>
-      </label>
+        <button class="btn" id="style-reload" type="button">Undo changes</button>
+        <button class="btn dark" id="style-save" type="button">Save</button>
+      </div>
     </div>
-    <div class="field" style="margin-top:18px">
-      <label for="name">File name</label>
-      <input type="text" id="name" placeholder="walkthrough" autocomplete="off">
-    </div>
-    <div class="actions">
-      <button id="rerecord">Record again</button>
-      <button class="primary" id="render">Make the video</button>
-    </div>
-  </section>
-
-  <!-- 4. rendering -->
-  <section id="view-rendering" class="card" hidden>
-    <div class="busy"><div class="spinner"></div><div><b>Making your video.</b> This takes a minute or two.</div></div>
-    <div class="log" id="render-log"></div>
-  </section>
-
-  <!-- 5. done -->
-  <section id="view-done" class="card" hidden>
-    <video id="player" controls preload="metadata"></video>
-    <div><b>Your video is ready.</b></div>
-    <div class="path" id="video-path"></div>
-    <div class="actions">
-      <button id="again">Record another</button>
-      <button class="primary" id="reveal">Show the file</button>
-    </div>
-  </section>
-
-  <!-- settings -->
-  <section id="view-settings" class="card" hidden>
-    <div class="settings-head">
-      <h2>Settings</h2>
-      <span class="saved" id="settings-saved" hidden>Saved</span>
-      <span class="back"><button id="close-settings">Back</button></span>
-    </div>
-    <div id="settings-body"></div>
-    <div class="actions">
-      <button id="settings-cancel">Back without saving</button>
-      <button class="primary" id="settings-save">Save</button>
-    </div>
-  </section>
-
-  <!-- error -->
-  <section id="view-error" class="card" hidden>
-    <div class="notice warn" id="error-text"></div>
-    <div class="log" id="error-log"></div>
-    <div class="actions"><button class="primary wide" id="back">Back</button></div>
-  </section>
+  </main>
 </div>
 
 <script>
-  const TOKEN = '__TOKEN__';
-  const $ = (id) => document.getElementById(id);
-  const api = (path, body) => fetch(path, {
-    method: body ? 'POST' : 'GET',
-    headers: { 'x-tutvid-token': TOKEN, 'Content-Type': 'application/json' },
-    body: body ? JSON.stringify(body) : undefined,
-  }).then(async (r) => {
-    const data = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(data.error || 'Something went wrong.');
-    return data;
-  });
+(function () {
+  'use strict';
+  var TOKEN = '__TOKEN__';
+  var $ = function (id) { return document.getElementById(id); };
 
-  let setup = { themes: [], ready: {} };
-  let settings = null;
-  let inSettings = false;
-  let lastPhase = 'idle';
-
-  function show(phase) {
-    for (const el of document.querySelectorAll('section.card')) el.hidden = true;
-    const view = $('view-' + phase);
-    if (view) view.hidden = false;
+  function api(path, body) {
+    return fetch(path, {
+      method: body ? 'POST' : 'GET',
+      headers: { 'x-tutvid-token': TOKEN, 'Content-Type': 'application/json' },
+      body: body ? JSON.stringify(body) : undefined
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (data) {
+        if (!r.ok) throw new Error(data.error || 'Something went wrong.');
+        return data;
+      });
+    });
   }
 
-  function renderSteps(steps) {
-    $('captured-count').innerHTML = '<b>' + steps.length + ' step' +
-      (steps.length === 1 ? '' : 's') + ' recorded.</b>';
-    $('steps').innerHTML = steps.map((s, i) =>
-      '<div class="step"><span class="i">' + (i + 1) + '</span>' +
-      '<span class="a">' + s.action + '</span>' +
-      '<span class="s">' + escapeHtml(s.selector || s.url || '') + '</span></div>'
-    ).join('');
+  var esc = function (s) {
+    return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+  };
+  var secs = function (ms) { return (ms / 1000).toFixed(1) + ' s'; };
+  function clock(ms) {
+    var total = Math.round(ms / 1000);
+    if (total < 60) return total + ' s';
+    return Math.floor(total / 60) + ' m ' + String(total % 60).padStart(2, '0') + ' s';
   }
 
-  const escapeHtml = (s) => String(s).replace(/[&<>"]/g,
-    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  var setup = { themes: [], ready: {}, projectDir: '' };
+  var story = { exists: false, steps: [] };
+  var settings = null;
+  var live = { phase: 'idle', log: [], steps: [] };
+  var selected = 0;
+  var tab = 'board';
+  var shotVersion = Date.now();
+  var saveTimer = null;
+  var dirty = false;
 
-  function apply(state) {
-    if (state.phase === 'captured' || state.phase === 'done') renderSteps(state.steps);
-    if (state.phase === 'rendering') {
-      const log = $('render-log');
-      log.textContent = state.log.join('\n');
+  /* ------------------------------------------------------------------ *
+   * Which of the five things the board can be showing.
+   * ------------------------------------------------------------------ */
+  function paint() {
+    $('tab-board').hidden = tab !== 'board';
+    $('tab-style').hidden = tab !== 'style';
+    $('tab-btn-board').classList.toggle('on', tab === 'board');
+    $('tab-btn-style').classList.toggle('on', tab === 'style');
+    if (tab !== 'board') return;
+
+    var busy = live.phase === 'capturing' || live.phase === 'rendering';
+    var hasBoard = story.exists && story.steps.length > 0;
+
+    $('card-busy').hidden = !busy;
+    $('card-start').hidden = busy || hasBoard;
+    $('board').hidden = busy || !hasBoard;
+
+    if (busy) {
+      var capturing = live.phase === 'capturing';
+      $('busy-text').innerHTML = capturing
+        ? '<b>Recording.</b> Use the browser window that just opened.'
+        : '<b>Making your video.</b> A minute or two, depending on how long it is.';
+      $('busy-walk').hidden = !capturing;
+      var log = $('busy-log');
+      log.textContent = live.log.join('\n');
       log.scrollTop = log.scrollHeight;
     }
-    if (state.phase === 'error') {
-      $('error-text').textContent = state.error || 'Something went wrong.';
-      $('error-log').textContent = state.log.slice(-14).join('\n');
+
+    var notices = [];
+    if (live.phase === 'error' && live.error) {
+      notices.push('<div class="notice bad"><b>That did not work.</b><br>' + esc(live.error) + '</div>');
     }
-    if (state.phase === 'done' && state.hasVideo) {
-      const player = $('player');
-      if (!player.src) player.src = '/api/video?token=' + TOKEN;
-      $('video-path').textContent = state.videoName || '';
+    if (story.problem) {
+      notices.push('<div class="notice bad">' + esc(story.problem) + '</div>');
     }
-    if (state.phase === 'idle' && state.message) {
-      $('idle-note').innerHTML = '<div class="notice info">' + escapeHtml(state.message) + '</div>';
+    if (!busy && !hasBoard && live.message) {
+      notices.push('<div class="notice tip">' + esc(live.message) + '</div>');
     }
-    lastPhase = state.phase;
-    // A run finishing must not yank the settings screen out from under
-    // somebody halfway through typing a password into it.
-    if (!inSettings) show(state.phase);
+    $('board-notices').innerHTML = notices.join('');
+
+    if (hasBoard && !busy) paintBoard();
   }
 
-  // --- settings ---------------------------------------------------------
+  function paintBoard() {
+    $('board-title').textContent = story.name || 'Storyboard';
+    $('board-sub').textContent = story.steps.length + ' steps, recorded from your site. ' +
+      'Write what gets said, then make the video.';
+    $('start-url').textContent = story.startUrl;
+    $('start-chip').title = story.startUrl;
 
-  function fieldControl(field, value) {
-    const id = 'set-' + field.key.replace(/\./g, '-');
+    var written = story.steps.filter(function (s) { return s.narration; }).length;
+    $('written-count').textContent = written + ' of ' + story.steps.length + ' steps written';
+    $('length-note').textContent = 'about ' + clock(story.totalMs);
+    $('total-time').textContent = clock(story.totalMs);
+    $('strip-note').textContent = written === story.steps.length
+      ? 'Every step has something to say.'
+      : (story.steps.length - written) + ' still silent.';
+
+    paintTrack();
+    paintStrip();
+    paintEditor();
+
+    $('render-pill').textContent = live.hasVideo ? 'Made' : 'Not made yet';
+    $('render-pill').className = 'pill' + (live.hasVideo ? ' ok' : '');
+    $('player-row').hidden = !live.hasVideo;
+    if (live.hasVideo) {
+      var player = $('player');
+      if (!player.getAttribute('src')) player.src = '/api/video?token=' + TOKEN;
+    }
+    $('out-dir').textContent = setup.projectDir ? setup.projectDir + '/out' : '';
+  }
+
+  /* The pacing track: one segment per step, as wide as the step is long. */
+  function paintTrack() {
+    $('track').innerHTML = story.steps.map(function (s, i) {
+      var cls = 'seg' + (s.narration ? '' : ' silent') + (i === selected ? ' sel' : '');
+      return '<button type="button" class="' + cls + '" data-i="' + i + '"' +
+        ' style="flex:' + s.estimateMs + '"' +
+        ' title="Step ' + (i + 1) + ' · ' + secs(s.estimateMs) + '"></button>';
+    }).join('');
+  }
+
+  function paintStrip() {
+    $('strip').innerHTML = story.steps.map(function (s, i) {
+      var shot = s.hasShot
+        ? '<img src="/api/shot?i=' + i + '&v=' + shotVersion + '&token=' + TOKEN + '" alt="">'
+        : '<span class="none">no picture</span>';
+      return '<button type="button" class="frame' + (i === selected ? ' sel' : '') + '" data-i="' + i + '">' +
+        '<span class="shot">' + shot + '</span>' +
+        '<span class="line"><b>Step ' + (i + 1) + '</b>' +
+        '<span class="t num">' + secs(s.estimateMs) + '</span></span>' +
+        '<span class="what">' + esc(describe(s)) + '</span>' +
+        '<span class="pill' + (s.narration ? ' ok' : ' open') + '">' +
+        (s.narration ? 'Written' : 'Silent') + '</span>' +
+        '</button>';
+    }).join('');
+    var chosen = $('strip').querySelector('.frame.sel');
+    if (chosen) chosen.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
+
+  function describe(step) {
+    var what = step.label || step.target || '';
+    if (step.action === 'goto') return 'opens ' + (what || 'the page');
+    if (step.action === 'wait') return 'waits';
+    if (step.action === 'type') return (step.secret ? 'types a password' : 'types') + (what ? ' into ' + what : '');
+    return step.action + (what ? ' ' + what : '');
+  }
+
+  function paintEditor() {
+    var step = story.steps[selected];
+    if (!step) return;
+    $('ed-title').textContent = 'Step ' + (selected + 1);
+    $('ed-where').textContent = describe(step);
+    $('ed-pill').textContent = step.narration ? 'Written' : 'Nothing said yet';
+    $('ed-pill').className = 'pill' + (step.narration ? ' ok' : ' open');
+    $('ed-position').textContent = 'Step ' + (selected + 1) + ' of ' + story.steps.length;
+    $('ed-prev').disabled = selected === 0;
+    $('ed-next').disabled = selected >= story.steps.length - 1;
+
+    $('ed-shot').innerHTML = step.hasShot
+      ? '<img src="/api/shot?i=' + selected + '&v=' + shotVersion + '&token=' + TOKEN + '" alt="">'
+      : '<span class="none">No picture of this step. Record again to get one.</span>';
+    $('ed-target').textContent = step.target || '';
+
+    if (document.activeElement !== $('ed-narration')) $('ed-narration').value = step.narration;
+    if (document.activeElement !== $('ed-hint')) $('ed-hint').value = step.hint;
+
+    var words = step.narration ? step.narration.trim().split(/\s+/).length : 0;
+    $('ed-words').textContent = words ? words + ' words' : '';
+
+    $('ed-seconds').innerHTML = (step.estimateMs / 1000).toFixed(1) + '<em>s</em>';
+    var longest = story.steps.reduce(function (a, s) { return Math.max(a, s.estimateMs); }, 1);
+    $('ed-bar').style.width = Math.round((step.estimateMs / longest) * 100) + '%';
+
+    var names = { narration: 'What is said', hint: 'Reading the hint', floor: 'Shortest allowed' };
+    var timing = step.timing || { parts: [], decidedBy: 'floor' };
+    $('ed-reasons').innerHTML = timing.parts.slice().sort(function (a, b) {
+      return b.ms - a.ms;
+    }).map(function (part) {
+      var lead = part.reason === timing.decidedBy;
+      return '<div' + (lead ? ' class="lead"' : '') + '>' +
+        '<span>' + (names[part.reason] || part.reason) + '</span>' +
+        '<span class="num">' + (part.ms / 1000).toFixed(1) + ' s</span></div>';
+    }).join('');
+  }
+
+  function select(i) {
+    if (i < 0 || i >= story.steps.length) return;
+    flush();
+    selected = i;
+    paintTrack();
+    paintStrip();
+    paintEditor();
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Writing. Typed text is saved on its own, so nobody has to remember to.
+   * ------------------------------------------------------------------ */
+  function stage() {
+    var step = story.steps[selected];
+    if (!step) return;
+    step.narration = $('ed-narration').value;
+    step.hint = $('ed-hint').value;
+    dirty = true;
+    $('ed-saved').hidden = true;
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(flush, 700);
+  }
+
+  function flush() {
+    clearTimeout(saveTimer);
+    if (!dirty || !story.steps[selected]) return Promise.resolve();
+    dirty = false;
+    var step = story.steps[selected];
+    return api('/api/story', {
+      steps: [{ index: step.index, narration: step.narration, hint: step.hint }]
+    }).then(function (next) {
+      story = next;
+      $('ed-saved').hidden = false;
+      paintBoard();
+    }).catch(function (err) {
+      dirty = true;
+      $('board-notices').innerHTML = '<div class="notice bad">' + esc(err.message) + '</div>';
+    });
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Style tab
+   * ------------------------------------------------------------------ */
+  function control(field, value) {
+    var id = 'set-' + field.key.replace(/\./g, '-');
+    var attrs = ' id="' + id + '" data-key="' + field.key + '"';
     if (field.type === 'boolean') {
-      return '<input type="checkbox" id="' + id + '" data-key="' + field.key + '"' +
-        (value ? ' checked' : '') + ' style="width:18px;height:18px;accent-color:var(--accent)">';
+      return '<input type="checkbox" class="switch"' + attrs + (value ? ' checked' : '') + '>';
     }
     if (field.type === 'select') {
-      return '<select id="' + id + '" data-key="' + field.key + '">' +
-        field.options.map((o) => '<option value="' + escapeHtml(o.value) + '"' +
-          (o.value === value ? ' selected' : '') + '>' + escapeHtml(o.label) + '</option>').join('') +
-        '</select>';
+      return '<select' + attrs + '>' + field.options.map(function (o) {
+        return '<option value="' + esc(o.value) + '"' + (o.value === value ? ' selected' : '') +
+          '>' + esc(o.label) + '</option>';
+      }).join('') + '</select>';
     }
     if (field.type === 'font') {
-      const options = [
-        field.nullable
-          ? '<option value=""' + (value ? '' : ' selected') + '>Whatever the browser picks</option>'
-          : '',
-        ...(settings.fonts || []).map((f) => '<option value="' + escapeHtml(f.key) + '"' +
-          (f.key === value ? ' selected' : '') + '>' + escapeHtml(f.family) + '</option>'),
-      ].filter(Boolean);
-      return '<select id="' + id + '" data-key="' + field.key + '">' + options.join('') + '</select>';
+      var opts = (settings.fonts || []).map(function (f) {
+        return '<option value="' + esc(f.key) + '"' + (f.key === value ? ' selected' : '') +
+          '>' + esc(f.family) + '</option>';
+      });
+      if (field.nullable) {
+        opts.unshift('<option value=""' + (value ? '' : ' selected') + '>Whatever the browser picks</option>');
+      }
+      return '<select' + attrs + '>' + opts.join('') + '</select>';
     }
     if (field.type === 'text') {
-      return '<input class="wide-text" type="text" id="' + id + '" data-key="' + field.key + '"' +
-        ' value="' + escapeHtml(value == null ? '' : value) + '"' +
+      return '<input type="text" class="wide-text"' + attrs + ' value="' + esc(value) + '"' +
         (field.maxLength ? ' maxlength="' + field.maxLength + '"' : '') + '>';
     }
     if (field.type === 'color') {
-      // The hex field is what gets read; the swatch just fills it in. People
-      // paste brand colours as hex, and a picker alone cannot express "empty".
-      const hex = value == null ? '' : String(value);
+      // The hex box is what gets read. The swatch only fills it in: people
+      // paste brand colours as hex, and a picker cannot say "leave it alone".
+      var hex = value == null ? '' : String(value);
       return '<span class="colour">' +
-        '<input type="color" class="swatch" data-fills="' + id + '"' +
-        ' value="' + escapeHtml(hex || '#000000') + '">' +
-        '<input type="text" id="' + id + '" data-key="' + field.key + '"' +
-        ' value="' + escapeHtml(hex) + '"' +
-        ' placeholder="' + (field.nullable ? 'auto' : '#RRGGBB') + '"' +
-        ' spellcheck="false" autocomplete="off">' +
-        '</span>';
+        '<input type="color" class="swatch" data-fills="' + id + '" value="' + esc(hex || '#000000') + '">' +
+        '<input type="text"' + attrs + ' value="' + esc(hex) + '" spellcheck="false" autocomplete="off"' +
+        ' placeholder="' + (field.nullable ? 'auto' : '#RRGGBB') + '"></span>';
     }
-    const shown = value === null || value === undefined ? '' : value;
-    return '<input class="num" type="number" id="' + id + '" data-key="' + field.key + '"' +
-      ' value="' + escapeHtml(shown) + '"' +
+    return '<input type="number"' + attrs + ' value="' + esc(value == null ? '' : value) + '"' +
       (field.nullable ? ' placeholder="auto"' : '') +
       (field.min !== undefined ? ' min="' + field.min + '"' : '') +
       (field.max !== undefined ? ' max="' + field.max + '"' : '') +
       (field.step !== undefined ? ' step="' + field.step + '"' : '') + '>';
   }
 
-  function renderSettings() {
-    const sections = [];
-    for (const field of settings.fields) {
-      let group = sections.find((g) => g.name === field.section);
-      if (!group) sections.push(group = { name: field.section, fields: [] });
-      group.fields.push(field);
-    }
-
-    let html = settings.problem
-      ? '<div class="notice warn">' + escapeHtml(settings.problem) + '</div>'
-      : '';
-
-    // Open the first two; the rest are there when wanted. Forty-odd controls
-    // in one column is a wall, and most runs only ever touch the pacing.
-    sections.forEach((group, i) => {
-      html += '<details class="group-card"' + (i < 2 ? ' open' : '') + '>' +
-        '<summary>' + escapeHtml(group.name) + '</summary><div class="group-body">';
-      html += group.fields.map((f) =>
-        '<div class="field-row"><div class="row2"><div>' +
-        '<div class="fname">' + escapeHtml(f.label) + '</div>' +
-        (f.help ? '<div class="fhelp">' + escapeHtml(f.help) + '</div>' : '') +
-        '</div><div>' + fieldControl(f, settings.values[f.key]) +
-        (f.unit ? '<span class="unit">' + escapeHtml(f.unit) + '</span>' : '') +
-        '</div></div></div>'
-      ).join('');
-      html += '</div></details>';
+  function paintStyle() {
+    var groups = [];
+    settings.fields.forEach(function (f) {
+      var g = groups.filter(function (x) { return x.name === f.section; })[0];
+      if (!g) groups.push(g = { name: f.section, fields: [] });
+      g.fields.push(f);
     });
 
-    html += '<details class="group-card" open><summary>Passwords</summary><div class="group-body">';
+    var html = settings.problem ? '<div class="notice bad">' + esc(settings.problem) + '</div>' : '';
+    groups.forEach(function (g, i) {
+      html += '<details class="grp"' + (i < 2 ? ' open' : '') + '><summary>' + esc(g.name) +
+        '</summary><div class="grp-body">' + g.fields.map(function (f) {
+          return '<div class="row"><div><div class="k">' + esc(f.label) + '</div>' +
+            (f.help ? '<div class="d">' + esc(f.help) + '</div>' : '') + '</div>' +
+            '<div class="ctl">' + control(f, settings.values[f.key]) +
+            (f.unit ? '<span class="unit">' + esc(f.unit) + '</span>' : '') + '</div></div>';
+        }).join('') + '</div></details>';
+    });
+
+    html += '<details class="grp" open><summary>Passwords</summary><div class="grp-body">';
     if (!settings.secrets.length) {
-      html += '<div class="fhelp">This walkthrough does not sign in anywhere, so there is ' +
-        'nothing to fill in. Anything it needs will appear here after you record it.</div>';
+      html += '<div class="d" style="padding-top:4px">This walkthrough does not sign in anywhere, ' +
+        'so there is nothing to fill in. Anything it needs turns up here after you record it.</div>';
     } else {
-      html += '<div class="fhelp" style="margin-bottom:16px">Kept on this machine only, ' +
-        'never written into the recording. Leave one empty to keep what is already saved.</div>';
-      html += settings.secrets.map((sec) =>
-        '<div class="secret"><div>' +
-        '<span class="mono">' + escapeHtml(sec.name) + '</span>' +
-        (sec.set ? '<span class="tag">saved</span>'
-          : sec.fromEnvironment ? '<span class="tag">from this machine</span>'
-          : '<span class="tag unset">not set</span>') +
-        (sec.usedByFlow ? '' : '<div class="fhelp">Not used by the current recording.</div>') +
-        '</div>' +
-        '<input type="password" data-secret="' + escapeHtml(sec.name) + '" ' +
-        'placeholder="' + (sec.set ? 'unchanged' : 'not set') + '" autocomplete="off">' +
-        '</div>'
-      ).join('');
+      html += '<div class="d" style="padding-top:4px">Kept on this machine only, never written into ' +
+        'the recording. Leave one empty to keep what is already saved.</div>';
+      html += settings.secrets.map(function (s) {
+        return '<div class="secret-row"><div><span class="mono">' + esc(s.name) + '</span> ' +
+          (s.set ? '<span class="pill ok">saved</span>'
+            : s.fromEnvironment ? '<span class="pill">from this machine</span>'
+            : '<span class="pill open">not set</span>') +
+          (s.usedByFlow ? '' : '<div class="d">Not used by the current recording.</div>') + '</div>' +
+          '<input type="password" data-secret="' + esc(s.name) + '" autocomplete="off" placeholder="' +
+          (s.set ? 'unchanged' : 'not set') + '"></div>';
+      }).join('');
     }
     html += '</div></details>';
+    $('style-body').innerHTML = html;
+    $('style-note').textContent = 'These apply to every walkthrough you make from this folder.';
 
-    $('settings-body').innerHTML = html;
-
-    // Keep each swatch and its hex field showing the same thing.
-    for (const swatch of $('settings-body').querySelectorAll('[data-fills]')) {
-      const text = $(swatch.dataset.fills);
-      swatch.addEventListener('input', () => { text.value = swatch.value.toUpperCase(); });
-      text.addEventListener('input', () => {
-        if (/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(text.value.trim())) {
-          swatch.value = text.value.trim();
-        }
+    Array.prototype.forEach.call($('style-body').querySelectorAll('[data-fills]'), function (sw) {
+      var text = $(sw.dataset.fills);
+      sw.addEventListener('input', function () { text.value = sw.value.toUpperCase(); });
+      text.addEventListener('input', function () {
+        if (/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(text.value.trim())) sw.value = text.value.trim();
       });
-    }
+    });
   }
 
-  async function openSettings() {
-    settings = await api('/api/settings');
-    inSettings = true;
-    renderSettings();
-    $('settings-saved').hidden = true;
-    show('settings');
+  function openStyle() {
+    return api('/api/settings').then(function (data) {
+      settings = data;
+      paintStyle();
+      $('style-saved').hidden = true;
+      tab = 'style';
+      paint();
+    });
   }
 
-  function closeSettings() {
-    inSettings = false;
-    // Back to whatever the run was doing while the settings were open.
-    show(lastPhase);
-  }
-
-  async function saveSettings() {
-    const values = {};
-    for (const el of $('settings-body').querySelectorAll('[data-key]')) {
+  function saveStyle() {
+    var values = {};
+    Array.prototype.forEach.call($('style-body').querySelectorAll('[data-key]'), function (el) {
       values[el.dataset.key] = el.type === 'checkbox' ? el.checked : el.value;
-    }
-    const secrets = {};
-    for (const el of $('settings-body').querySelectorAll('[data-secret]')) {
+    });
+    var secrets = {};
+    Array.prototype.forEach.call($('style-body').querySelectorAll('[data-secret]'), function (el) {
       if (el.value) secrets[el.dataset.secret] = el.value;
-    }
-    try {
-      settings = await api('/api/settings', { values, secrets });
-      renderSettings();
-      $('settings-saved').hidden = false;
-      setTimeout(() => { $('settings-saved').hidden = true; }, 2200);
-    } catch (err) {
-      $('settings-body').insertAdjacentHTML('afterbegin',
-        '<div class="notice warn">' + escapeHtml(err.message) + '</div>');
-    }
+    });
+    api('/api/settings', { values: values, secrets: secrets }).then(function (data) {
+      settings = data;
+      paintStyle();
+      $('style-saved').hidden = false;
+      setTimeout(function () { $('style-saved').hidden = true; }, 2400);
+      // Pacing lives in here too, so the board's timings may have just moved.
+      return api('/api/story').then(function (next) { story = next; });
+    }).catch(function (err) {
+      $('style-body').insertAdjacentHTML('afterbegin', '<div class="notice bad">' + esc(err.message) + '</div>');
+    });
   }
 
-  async function boot() {
-    setup = await api('/api/setup');
+  /* ------------------------------------------------------------------ *
+   * Render options
+   * ------------------------------------------------------------------ */
+  var options = { narration: true, captions: false };
 
-    $('theme').innerHTML = setup.themes.map((t) =>
-      '<option value="' + escapeHtml(t.file) + '"' + (t.ok ? '' : ' disabled') + '>' +
-      escapeHtml(t.label) + (t.detail ? '  -  ' + escapeHtml(t.detail) : '') + '</option>'
-    ).join('') || '<option value="theme.json">default</option>';
-
-    const notes = [];
-    if (!setup.ready.ffmpeg) {
-      notes.push('<div class="notice warn"><b>The video tools are missing.</b> ' +
-        'Close this window and start the recorder again, or ask whoever set it up.</div>');
-    }
-    if (setup.ready.browser === false) {
-      notes.push('<div class="notice warn"><b>The browser is still downloading.</b> ' +
-        'Close this window and start the recorder again once it has finished.</div>');
-    }
-    if (!setup.ready.narration) {
-      $('narration').disabled = true;
-      $('narration-row').classList.add('off');
-      $('narration-note').textContent =
-        'Needs an ElevenLabs API key, which is not set on this machine. The video will be silent.';
-    } else {
-      $('narration').checked = true;
-    }
-    $('idle-note').innerHTML = notes.join('');
-
-    const stream = new EventSource('/api/events?token=' + TOKEN);
-    stream.onmessage = (e) => apply(JSON.parse(e.data));
-    apply(setup.state);
+  function paintSwitch(id, on) {
+    Array.prototype.forEach.call($(id).children, function (b) {
+      b.classList.toggle('on', !!b.dataset.on === on);
+    });
   }
 
-  $('start').addEventListener('click', async () => {
-    const url = $('url').value.trim();
+  function wireSwitch(id, key) {
+    $(id).addEventListener('click', function (e) {
+      var b = e.target.closest('button');
+      if (!b || b.disabled) return;
+      options[key] = !!b.dataset.on;
+      paintSwitch(id, options[key]);
+    });
+  }
+
+  function paintThemeDetail() {
+    var chosen = setup.themes.filter(function (t) { return t.file === $('theme').value; })[0];
+    $('theme-detail').textContent = chosen ? chosen.detail : '';
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Wiring
+   * ------------------------------------------------------------------ */
+  $('tab-btn-board').addEventListener('click', function () { tab = 'board'; paint(); });
+  $('tab-btn-style').addEventListener('click', function () {
+    if (settings) { tab = 'style'; paint(); } else { openStyle().catch(function () {}); }
+  });
+  $('style-save').addEventListener('click', saveStyle);
+  $('style-reload').addEventListener('click', function () { openStyle().catch(function () {}); });
+
+  $('strip').addEventListener('click', function (e) {
+    var frame = e.target.closest('.frame');
+    if (frame) select(Number(frame.dataset.i));
+  });
+  $('track').addEventListener('click', function (e) {
+    var seg = e.target.closest('button');
+    if (seg) select(Number(seg.dataset.i));
+  });
+  $('ed-prev').addEventListener('click', function () { select(selected - 1); });
+  $('ed-next').addEventListener('click', function () { select(selected + 1); });
+  $('ed-narration').addEventListener('input', stage);
+  $('ed-hint').addEventListener('input', stage);
+  $('ed-narration').addEventListener('blur', flush);
+  $('ed-hint').addEventListener('blur', flush);
+
+  document.addEventListener('keydown', function (e) {
+    if (tab !== 'board' || e.metaKey || e.ctrlKey) return;
+    var typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
+    if (typing) return;
+    if (e.key === 'ArrowLeft') { select(selected - 1); e.preventDefault(); }
+    if (e.key === 'ArrowRight') { select(selected + 1); e.preventDefault(); }
+  });
+
+  function beginCapture(url) {
+    return api('/api/capture', { url: url }).catch(function (err) {
+      $('board-notices').innerHTML = '<div class="notice bad">' + esc(err.message) + '</div>';
+    });
+  }
+
+  $('start').addEventListener('click', function () {
     $('start').disabled = true;
-    try {
-      await api('/api/capture', { url });
-    } catch (err) {
-      $('idle-note').innerHTML = '<div class="notice warn">' + escapeHtml(err.message) + '</div>';
-    } finally {
-      $('start').disabled = false;
+    beginCapture($('url').value.trim()).then(function () { $('start').disabled = false; });
+  });
+  $('url').addEventListener('keydown', function (e) { if (e.key === 'Enter') $('start').click(); });
+
+  $('rerecord').addEventListener('click', function () {
+    var from = prompt('Record again, starting at:', story.startUrl);
+    if (from) beginCapture(from.trim());
+  });
+
+  $('render').addEventListener('click', function () {
+    flush().then(function () {
+      return api('/api/render', {
+        theme: $('theme').value,
+        narration: options.narration && !!setup.ready.narration,
+        captions: options.captions,
+        name: $('name').value
+      });
+    }).catch(function (err) {
+      $('board-notices').innerHTML = '<div class="notice bad">' + esc(err.message) + '</div>';
+    });
+  });
+
+  $('reveal').addEventListener('click', function () { api('/api/reveal', {}).catch(function () {}); });
+  $('open-folder').addEventListener('click', function () { api('/api/reveal', {}).catch(function () {}); });
+  $('theme').addEventListener('change', paintThemeDetail);
+
+  /* ------------------------------------------------------------------ */
+  function apply(state) {
+    var was = live.phase;
+    live = state;
+    // A finished recording brings new steps and new pictures with it.
+    if (was !== state.phase && (state.phase === 'captured' || state.phase === 'done')) {
+      shotVersion = Date.now();
+      api('/api/story').then(function (next) {
+        story = next;
+        if (selected >= story.steps.length) selected = 0;
+        paint();
+      }).catch(function () { paint(); });
+      return;
     }
+    paint();
+  }
+
+  function boot() {
+    return api('/api/setup').then(function (data) {
+      setup = data;
+      story = data.story || story;
+
+      $('theme').innerHTML = setup.themes.map(function (t) {
+        return '<option value="' + esc(t.file) + '"' + (t.ok ? '' : ' disabled') + '>' +
+          esc(t.label) + '</option>';
+      }).join('') || '<option value="theme.json">default</option>';
+      paintThemeDetail();
+
+      var ready = setup.ready || {};
+      options.narration = !!ready.narration;
+      if (!ready.narration) {
+        Array.prototype.forEach.call($('sw-narration').children, function (b) { b.disabled = true; });
+        $('narration-note').textContent =
+          'Needs an ElevenLabs key, which this machine does not have. The video will be silent, ' +
+          'and just as long.';
+      }
+      paintSwitch('sw-narration', options.narration);
+      paintSwitch('sw-captions', options.captions);
+      wireSwitch('sw-narration', 'narration');
+      wireSwitch('sw-captions', 'captions');
+
+      var pill = $('ready-pill');
+      if (ready.ffmpeg === false) {
+        pill.textContent = 'Video tools missing';
+        pill.className = 'pill bad';
+        pill.hidden = false;
+      } else if (ready.browser === false) {
+        pill.textContent = 'Browser still downloading';
+        pill.className = 'pill open';
+        pill.hidden = false;
+      }
+
+      var stream = new EventSource('/api/events?token=' + TOKEN);
+      stream.onmessage = function (e) { apply(JSON.parse(e.data)); };
+      apply(setup.state);
+    });
+  }
+
+  window.addEventListener('beforeunload', flush);
+
+  boot().catch(function (err) {
+    document.body.innerHTML = '<div class="shell"><div class="notice bad">' +
+      '<b>Could not start.</b><br>' + esc(err.message) + '</div></div>';
   });
-
-  $('render').addEventListener('click', () => api('/api/render', {
-    theme: $('theme').value,
-    narration: $('narration').checked && !$('narration').disabled,
-    captions: $('captions').checked,
-    name: $('name').value,
-  }).catch((err) => { $('idle-note').textContent = err.message; }));
-
-  $('open-settings').addEventListener('click', () => openSettings());
-  $('close-settings').addEventListener('click', closeSettings);
-  $('settings-cancel').addEventListener('click', closeSettings);
-  $('settings-save').addEventListener('click', saveSettings);
-  $('rerecord').addEventListener('click', () => show('idle'));
-  $('again').addEventListener('click', () => { $('player').removeAttribute('src'); show('idle'); });
-  $('reveal').addEventListener('click', () => api('/api/reveal', {}));
-  $('back').addEventListener('click', () => api('/api/reset', {}));
-  $('url').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('start').click(); });
-
-  boot().catch((err) => {
-    document.body.innerHTML = '<div class="wrap"><div class="card notice warn">' +
-      'Could not start: ' + escapeHtml(err.message) + '</div></div>';
-  });
+})();
 </script>
 </body>
 </html>

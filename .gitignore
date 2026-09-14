@@ -11,3 +11,9 @@ tmp/
 # Passwords typed into the app window. Local to one machine.
 .secrets.json
 **/.secrets.json
+
+# Step screenshots for the storyboard, rebuilt every time you record.
+.thumbs/
+**/.thumbs/
+.storyboard.json
+**/.storyboard.json

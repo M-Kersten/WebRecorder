@@ -94,9 +94,35 @@ one somewhere the tool cannot guess.
 site-tutorial-video ui
 ```
 
-One window, five screens: paste a URL, walk through the site, pick a style,
-press **Make the video**, watch it back. It drives the same pipeline the flags
-do, so there is nothing it can produce that the CLI cannot.
+One window, two tabs. **Storyboard** is where the work happens and **Style** is
+where the video's look is set. It drives the same pipeline the flags do, so
+there is nothing it can produce that the CLI cannot.
+
+The storyboard is a filmstrip of the walkthrough. Every step recorded during
+capture kept a screenshot of the page as it stood, so the board shows what each
+step is looking at rather than a CSS selector, and somebody who did not do the
+recording can still read it. Picking a frame opens that step: its narration and
+its hint, both saved to `flow.json` as you type.
+
+Beside each step is how long it will be on screen, and what decides that:
+
+```
+ON SCREEN            WHAT SETS IT
+5.2 s                What is said        5.2 s
+                     Reading the hint    3.5 s
+                     Shortest allowed    1.4 s
+```
+
+Those numbers come from `pacing.js`, which is the same rule `recorder.js`
+follows while recording, so the board and the finished file agree. They are
+floors: a page that takes four seconds to load makes its step four seconds
+longer, and nothing before a render can know that. The bar across the top pane
+is the same information laid end to end, one segment per step, as wide as the
+step is long and amber where nothing is said yet.
+
+A `flow.json` already on disk is picked up when the window opens, so a
+walkthrough recorded yesterday is on screen rather than behind a form asking
+for a web address you already gave once.
 
 The **Start Recorder** launchers exist so a colleague never sees a terminal.
 They check for Node.js, run `npm install` on the first launch, fetch the
@@ -581,8 +607,12 @@ src/
   capture-panel.js  the panel you fill in while walking the site
   selector.js   picks a selector that will still work next month
   ui.js         the local app: state machine, small HTTP API, window
+  pacing.js     how long a step is on screen; read by the recorder and the board
+  shots.js      the per-step screenshots the storyboard is built from
+  settings.js   the fields the Style tab shows, and where they are saved
+  workdir.js    temp folders, and cleaning them up on Windows
   preflight.js  checks and fetches what the machine is missing
-ui/app.html     the window itself
+ui/app.html     the window itself: storyboard and style, in one page
 Start Recorder.command / .bat    double-click launchers
 fonts/          bundled .ttf/.otf, see fonts/README.md
 theme-rebels.json    a real-world theme: brand colour, Overused Grotesk

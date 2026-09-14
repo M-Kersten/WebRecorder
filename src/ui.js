@@ -8,11 +8,13 @@ const crypto = require('crypto');
 const { spawn } = require('child_process');
 
 const { capture } = require('./capture');
-const { loadFlow } = require('./config');
+const { loadFlow, readJson, ConfigError } = require('./config');
 const { listPlaceholders } = require('./secrets');
 const { loadTheme, validateTheme, deepMerge } = require('./theme');
 const settingsStore = require('./settings');
 const { launch } = require('./browser');
+const shotStore = require('./shots');
+const { estimateFlow, breakdownStep } = require('./pacing');
 
 /**
  * A small local app for people who should not have to open a terminal.
@@ -131,6 +133,93 @@ function createApp(options = {}) {
         usedByFlow: wanted.includes(name),
       })),
     };
+  }
+
+  /**
+   * The walkthrough as a storyboard: one entry per step, with the picture taken
+   * while it was recorded and how long it will be on screen.
+   *
+   * The lengths come from the same rule the recorder follows, so what the board
+   * says before a render is what the render does. They are floors: a page that
+   * takes four seconds to load makes its step four seconds longer, and nothing
+   * here can know that yet.
+   */
+  function readStory() {
+    const blank = { exists: false, name: '', startUrl: '', steps: [], totalMs: 0, problem: null };
+    if (!fs.existsSync(flowFile)) return blank;
+
+    let flow = null;
+    let theme = null;
+    try {
+      ({ flow, theme } = currentConfig());
+    } catch (err) {
+      return { ...blank, problem: friendly(err) };
+    }
+    if (!Array.isArray(flow.steps) || !flow.steps.length) return blank;
+
+    const pictures = shotStore.readManifest(flowFile);
+    const timing = estimateFlow(flow, theme);
+    return {
+      exists: true,
+      name: flow.name || '',
+      startUrl: startOf(flow),
+      totalMs: timing.totalMs,
+      problem: null,
+      steps: flow.steps.map((step, i) => ({
+        index: i,
+        action: step.action,
+        label: step.label || '',
+        target: step.selector || step.url || '',
+        narration: step.narration || '',
+        hint: step.hint || '',
+        secret: !!step.secret,
+        hasShot: !!pictures[i],
+        estimateMs: timing.steps[i],
+        timing: breakdownStep(step, flow, theme),
+      })),
+    };
+  }
+
+  /**
+   * Save narration and hints back into flow.json.
+   *
+   * Only those two fields and the name. Selectors, typed text and the mask are
+   * what the recording is; the storyboard is for writing what gets said over it,
+   * and a text box has no business rewriting how a step finds its element.
+   */
+  function writeStory(body = {}) {
+    if (!fs.existsSync(flowFile)) throw new Error('There is no recording to write for yet.');
+    const raw = readJson(path.resolve(flowFile), 'flow file');
+    if (!raw || !Array.isArray(raw.steps)) {
+      throw new ConfigError('That flow file has no steps in it.');
+    }
+    if (typeof body.name === 'string' && body.name.trim()) raw.name = body.name.trim().slice(0, 120);
+
+    for (const edit of Array.isArray(body.steps) ? body.steps : []) {
+      const step = raw.steps[edit.index];
+      if (!step) continue;
+      for (const field of ['narration', 'hint']) {
+        if (typeof edit[field] !== 'string') continue;
+        const text = edit[field].replace(/\s+/g, ' ').trim();
+        if (text) step[field] = text; else delete step[field];
+      }
+    }
+
+    fs.writeFileSync(path.resolve(flowFile), `${JSON.stringify(raw, null, 2)}\n`, 'utf8');
+    state.steps = raw.steps;
+    broadcast();
+    return readStory();
+  }
+
+  /** Where the walkthrough starts, spelled out in full. */
+  function startOf(flow) {
+    const first = flow.steps.find((s) => s.action === 'goto');
+    if (!first) return flow.baseUrl || '';
+    try {
+      return require('./recorder').resolveUrl(first.url, flow.baseUrl);
+    } catch {
+      return first.url || flow.baseUrl || '';
+    }
   }
 
   /** The theme and flow as they stand, with the saved settings layered on. */
@@ -255,7 +344,7 @@ function createApp(options = {}) {
       const code = await run(argv);
       if (code !== 0) throw new Error('The video could not be finished.');
       state.videoPath = outFile;
-      state.durationSec = null;
+      state.durationSec = await measure(outFile);
       setPhase('done', 'Your video is ready.');
     } catch (err) {
       state.error = friendly(err);
@@ -265,10 +354,13 @@ function createApp(options = {}) {
     }
   }
 
-  /** Show the finished file where the operating system shows files. */
+  /**
+   * Show the work in the file manager: the finished video if there is one, and
+   * the folder everything lives in if there is not.
+   */
   function revealVideo() {
-    if (!state.videoPath) return false;
-    const target = path.dirname(state.videoPath);
+    const target = state.videoPath ? path.dirname(state.videoPath) : projectDir;
+    if (!fs.existsSync(target)) return false;
     const opener = process.platform === 'darwin' ? 'open'
       : process.platform === 'win32' ? 'explorer' : 'xdg-open';
     spawn(opener, [target], { detached: true, stdio: 'ignore' }).unref();
@@ -283,9 +375,16 @@ function createApp(options = {}) {
     };
 
     try {
+      // The window asks for this and nothing serves it, which puts a 403 in
+      // the console of a page that is working perfectly well.
+      if (url.pathname === '/favicon.ico') {
+        res.writeHead(204).end();
+        return undefined;
+      }
+
       if (url.pathname === '/') {
         const html = fs.readFileSync(path.join(ROOT, 'ui', 'app.html'), 'utf8')
-          .replace('__TOKEN__', token);
+          .replace(/__TOKEN__/g, token);
         return send(200, html, 'text/html; charset=utf-8');
       }
 
@@ -305,6 +404,42 @@ function createApp(options = {}) {
         return undefined;
       }
 
+      if (url.pathname === '/api/story' && req.method !== 'POST') {
+        return send(200, readStory());
+      }
+
+      if (url.pathname === '/api/story' && req.method === 'POST') {
+        return send(200, writeStory(await readJsonBody(req)));
+      }
+
+      // The picture taken while step N was recorded.
+      if (url.pathname === '/api/shot') {
+        const index = Number(url.searchParams.get('i'));
+        const names = shotStore.readManifest(flowFile);
+        const file = Number.isInteger(index) ? shotStore.fileFor(flowFile, names[index]) : null;
+        if (!file) return send(404, { error: 'No screenshot for that step' });
+        const stat = fs.statSync(file);
+        res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Content-Length': stat.size });
+        return fs.createReadStream(file).pipe(res);
+      }
+
+      // The window is styled in the same face the videos are, which means
+      // serving it from the bundle rather than hoping the machine has it.
+      if (url.pathname.startsWith('/api/font/')) {
+        const name = path.basename(url.pathname);
+        const file = path.join(ROOT, 'fonts', name);
+        if (!/^[A-Za-z0-9_-]+\.(?:ttf|otf)$/.test(name) || !fs.existsSync(file)) {
+          return send(404, { error: 'No such font' });
+        }
+        const stat = fs.statSync(file);
+        res.writeHead(200, {
+          'Content-Type': name.endsWith('.otf') ? 'font/otf' : 'font/ttf',
+          'Content-Length': stat.size,
+          'Cache-Control': 'max-age=3600',
+        });
+        return fs.createReadStream(file).pipe(res);
+      }
+
       if (url.pathname === '/api/settings' && req.method !== 'POST') {
         return send(200, readSettings());
       }
@@ -320,6 +455,7 @@ function createApp(options = {}) {
           ready: await readiness(),
           projectDir,
           state: publicState(),
+          story: readStory(),
         });
       }
 
@@ -358,6 +494,21 @@ function createApp(options = {}) {
     }
   });
 
+  // A flow already on disk is a walkthrough somebody recorded and did not
+  // finish. Open on it rather than on an empty form asking for a web address
+  // they already gave once.
+  try {
+    const existing = readStory();
+    if (existing.exists) {
+      state.steps = loadFlow(flowFile).steps;
+      state.phase = 'captured';
+      state.message = `Picked up from last time: ${existing.steps.length} steps.`;
+    }
+  } catch {
+    // A flow file that will not load is the storyboard's problem to report,
+    // not a reason for the window to refuse to open.
+  }
+
   return {
     server,
     token,
@@ -374,7 +525,19 @@ function createApp(options = {}) {
     writeSettings,
     startCapture,
     startRender,
+    readStory,
+    writeStory,
   };
+}
+
+/** How long the finished file actually runs, for the storyboard to show. */
+async function measure(file) {
+  try {
+    const { probeDuration } = require('./ffmpeg');
+    return await probeDuration(file);
+  } catch {
+    return null;
+  }
 }
 
 function readJsonBody(req) {
@@ -430,7 +593,7 @@ async function openWindow(url, log = () => {}) {
       headless: false,
       viewport: null,
       ...(executablePath ? { executablePath } : {}),
-      args: [`--app=${url}`, '--window-size=980,880'],
+      args: [`--app=${url}`, '--window-size=1240,900'],
     });
     return {
       kind: 'app',

@@ -259,3 +259,59 @@ test('a selector taken before the data arrives still resolves after it does', as
       `"${step.selector}" matched ${count} elements once the table filled in`);
   } finally { await browser.close(); }
 });
+
+// --- step screenshots ---------------------------------------------------
+
+/** Width and height out of a JPEG's start-of-frame marker. */
+function jpegSize(file) {
+  const buf = fs.readFileSync(file);
+  let i = 2;
+  while (i + 9 < buf.length) {
+    if (buf[i] !== 0xFF) { i++; continue; }
+    const marker = buf[i + 1];
+    const isFrame = marker >= 0xC0 && marker <= 0xCF &&
+      marker !== 0xC4 && marker !== 0xC8 && marker !== 0xCC;
+    if (isFrame) return { height: buf.readUInt16BE(i + 5), width: buf.readUInt16BE(i + 7) };
+    i += 2 + buf.readUInt16BE(i + 2);
+  }
+  return null;
+}
+
+test('every recorded step gets a picture, lined up by the manifest', async () => {
+  const shots = require('../src/shots');
+  const { flow, outFile } = await captureWith(async (page) => {
+    await page.click('#tile-hours');
+    await page.waitForTimeout(150);
+    await page.click('#tile-profile');
+    await page.waitForTimeout(150);
+  });
+
+  const manifest = shots.readManifest(outFile);
+  assert.strictEqual(manifest.length, flow.steps.length, 'one entry per step, in step order');
+  assert.ok(manifest.every(Boolean), 'and every step got one');
+  for (const name of manifest) {
+    assert.ok(shots.fileFor(outFile, name), `${name} should be on disk`);
+  }
+});
+
+// Playwright can hide an element for the length of a screenshot, but that makes
+// the panel blink out from under whoever is mid-click. It gets cropped instead.
+test('the recording panel is cropped out of the picture, not hidden mid-session', async () => {
+  const shots = require('../src/shots');
+  const { outFile } = await captureWith(async (page) => {
+    await page.click('#tile-hours');
+    await page.waitForTimeout(200);
+    // The panel is still laid out and visible after a screenshot has been taken.
+    const width = await page.evaluate(() => {
+      const shadow = document.getElementById('__tut_capture_panel').shadowRoot;
+      return shadow.querySelector('.panel').getBoundingClientRect().width;
+    });
+    assert.strictEqual(width, 380, 'the panel stays put while pictures are taken');
+  });
+
+  const file = shots.fileFor(outFile, shots.readManifest(outFile)[1]);
+  const size = jpegSize(file);
+  assert.ok(size, 'the file should be a readable jpeg');
+  assert.strictEqual(size.height, 900, 'full height of the recording viewport');
+  assert.strictEqual(size.width, 1440 - 380, 'and everything left of the panel');
+});
