@@ -837,6 +837,15 @@
       }
       return '<select' + attrs + '>' + opts.join('') + '</select>';
     }
+    if (field.type === 'voice') {
+      var voices = (settings.voices || []).map(function (v) {
+        return '<option value="' + esc(v.id) + '"' + (v.id === value ? ' selected' : '') +
+          '>' + esc(v.name) + '</option>';
+      });
+      voices.unshift('<option value=""' + (value ? '' : ' selected') + '>' +
+        'The stock voice</option>');
+      return '<select' + attrs + '>' + voices.join('') + '</select>';
+    }
     if (field.type === 'text') {
       return '<input type="text" class="wide-text"' + attrs + ' value="' + esc(value) + '"' +
         (field.maxLength ? ' maxlength="' + field.maxLength + '"' : '') + '>';
@@ -857,6 +866,15 @@
       (field.step !== undefined ? ' step="' + field.step + '"' : '') + '>';
   }
 
+  function rows(fields) {
+    return fields.map(function (f) {
+      return '<div class="row"><div><div class="k">' + esc(f.label) + '</div>' +
+        (f.help ? '<div class="d">' + esc(f.help) + '</div>' : '') + '</div>' +
+        '<div class="ctl">' + control(f, settings.values[f.key]) +
+        (f.unit ? '<span class="unit">' + esc(f.unit) + '</span>' : '') + '</div></div>';
+    }).join('');
+  }
+
   function paintStyle() {
     var groups = [];
     settings.fields.forEach(function (f) {
@@ -864,6 +882,9 @@
       if (!g) groups.push(g = { name: f.section, fields: [] });
       g.fields.push(f);
     });
+    // The narration section is drawn by hand, with the key above its fields.
+    var narration = groups.filter(function (g) { return g.name === 'Narration'; })[0];
+    groups = groups.filter(function (g) { return g !== narration; });
 
     var html = settings.problem ? '<div class="notice bad">' + esc(settings.problem) + '</div>' : '';
 
@@ -892,17 +913,13 @@
         (key.set ? 'unchanged' : 'paste your key here') + '">' +
         '<div class="d" style="margin-top:8px">Kept beside the project, readable only by you, ' +
         'and never written into a recording. Emptying the box leaves what is already saved.</div>' +
+        (narration ? rows(narration.fields) : '') +
         '</div></details>';
     }
 
     groups.forEach(function (g, i) {
       html += '<details class="grp"' + (i < 2 ? ' open' : '') + '><summary>' + esc(g.name) +
-        '</summary><div class="grp-body">' + g.fields.map(function (f) {
-          return '<div class="row"><div><div class="k">' + esc(f.label) + '</div>' +
-            (f.help ? '<div class="d">' + esc(f.help) + '</div>' : '') + '</div>' +
-            '<div class="ctl">' + control(f, settings.values[f.key]) +
-            (f.unit ? '<span class="unit">' + esc(f.unit) + '</span>' : '') + '</div></div>';
-        }).join('') + '</div></details>';
+        '</summary><div class="grp-body">' + rows(g.fields) + '</div></details>';
     });
 
     var passwords = (settings.secrets || []).filter(function (s) { return s.role !== 'narration'; });

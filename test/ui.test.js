@@ -601,3 +601,45 @@ test('a key in the environment wins, and is reported as coming from there', asyn
     delete process.env.ELEVENLABS_API_KEY;
   }
 });
+
+// --- the voice ----------------------------------------------------------
+
+test('the window offers the voices the project lists', async () => {
+  await withApp(async ({ call, dir }) => {
+    fs.writeFileSync(path.join(dir, 'voices.json'), JSON.stringify([
+      { id: 'nl_sanne', name: 'Sanne (Dutch)' },
+      { id: 'nl_tom', name: 'Tom (Dutch, low)' },
+    ]));
+
+    const s = await call('/api/settings').then((r) => r.json());
+    assert.deepStrictEqual(s.voices.map((v) => v.name), ['Sanne (Dutch)', 'Tom (Dutch, low)']);
+    assert.ok(s.fields.some((f) => f.key === 'flow.voiceId' && f.type === 'voice'));
+
+    const after = await call('/api/settings', { values: { 'flow.voiceId': 'nl_tom' } })
+      .then((r) => r.json());
+    assert.strictEqual(after.values['flow.voiceId'], 'nl_tom');
+
+    const layer = JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8'));
+    assert.strictEqual(layer.flow.voiceId, 'nl_tom', 'and it lands where the CLI reads it');
+  });
+});
+
+// The dropdown is built from voices.json, so anything else came another way.
+test('a voice the project does not list is refused', async () => {
+  await withApp(async ({ call, dir }) => {
+    fs.writeFileSync(path.join(dir, 'voices.json'), JSON.stringify([{ id: 'nl_sanne', name: 'Sanne' }]));
+    const res = await call('/api/settings', { values: { 'flow.voiceId': 'somebody-elses' } });
+    assert.strictEqual(res.status, 400);
+    assert.match((await res.json()).error, /not in voices.json/);
+    assert.ok(!fs.existsSync(path.join(dir, 'settings.json')), 'nothing was written');
+  });
+});
+
+test('a voices.json with a mistake in it is reported, not swallowed', async () => {
+  await withApp(async ({ call, dir }) => {
+    fs.writeFileSync(path.join(dir, 'voices.json'), '[{ "name": "no id here" }]');
+    const s = await call('/api/settings').then((r) => r.json());
+    assert.match(s.problem, /needs an ElevenLabs voice "id"/);
+    assert.ok(s.fields.length, 'and the rest of the form still works');
+  });
+});

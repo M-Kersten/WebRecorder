@@ -14,6 +14,7 @@ const { loadTheme, validateTheme, deepMerge } = require('./theme');
 const settingsStore = require('./settings');
 const { launch } = require('./browser');
 const shotStore = require('./shots');
+const { loadVoices } = require('./voices');
 const { estimateFlow, breakdownStep } = require('./pacing');
 
 /**
@@ -97,6 +98,7 @@ function createApp(options = {}) {
   function readSettings() {
     let values = {};
     let fonts = [];
+    let voices = [];
     let problem = null;
     try {
       const { theme, flow } = currentConfig();
@@ -107,6 +109,14 @@ function createApp(options = {}) {
       }));
     } catch (err) {
       problem = friendly(err);
+    }
+
+    try {
+      voices = loadVoices(projectDir);
+    } catch (err) {
+      // A voices.json with a typo in it should say so, and leave everything
+      // else in the form usable.
+      problem = problem || friendly(err);
     }
 
     const stored = new Set(Object.keys(settingsStore.loadSecrets(projectDir)));
@@ -132,6 +142,7 @@ function createApp(options = {}) {
       fields: settingsStore.FIELDS,
       values,
       fonts,
+      voices,
       problem,
       secrets: [NARRATION_KEY, ...fromFlow].map((name) => ({
         name,
@@ -262,10 +273,13 @@ function createApp(options = {}) {
     }
     if (values) {
       const base = loadTheme(path.join(projectDir, 'theme.json'));
-      const fontKeys = Object.keys(base.fonts || {});
-      const layer = settingsStore.toLayer(values, { fontKeys });
+      const context = {
+        fontKeys: Object.keys(base.fonts || {}),
+        voiceIds: loadVoices(projectDir).map((voice) => voice.id),
+      };
+      const layer = settingsStore.toLayer(values, context);
       validateTheme(deepMerge(base, layer.theme), 'These settings');
-      settingsStore.saveSettings(settingsFile, values, { fontKeys });
+      settingsStore.saveSettings(settingsFile, values, context);
     }
     if (secrets) settingsStore.saveSecrets(projectDir, secrets);
     return { ...readSettings(), keyCheck };

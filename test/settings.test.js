@@ -23,7 +23,7 @@ test('every field names a real place in the theme or the flow', () => {
   const values = settings.readValues(theme, flow);
   for (const field of settings.FIELDS) {
     assert.ok(field.key in values, `${field.key} was not read`);
-    assert.ok(['number', 'boolean', 'select', 'color', 'text', 'font'].includes(field.type),
+    assert.ok(['number', 'boolean', 'select', 'color', 'text', 'font', 'voice'].includes(field.type),
       `${field.key} has an unknown type "${field.type}"`);
     assert.ok(field.label && field.section, `${field.key} needs a label and a section`);
     if (field.type === 'select') assert.ok(field.options.length, `${field.key} needs options`);
@@ -198,5 +198,86 @@ test('every colour and font field points at something the theme really has', () 
     }
     if (field.type === 'color') assert.match(String(value), /^#[0-9A-Fa-f]{3,6}$/, field.key);
     else assert.ok(theme.fonts[value], `${field.key} names a font the theme does not have`);
+  }
+});
+
+// --- the voice ----------------------------------------------------------
+
+const { loadVoices } = require('../src/voices');
+
+test('a voice has to be one the project lists', () => {
+  const context = { voiceIds: ['abc123', 'def456'] };
+  assert.deepStrictEqual(
+    settings.toLayer({ 'flow.voiceId': 'def456' }, context),
+    { theme: {}, flow: { voiceId: 'def456' } }
+  );
+
+  // The dropdown is built from voices.json, so anything else arrived by
+  // another route and should not reach the synthesiser.
+  assert.throws(() => settings.toLayer({ 'flow.voiceId': 'made-up' }, context),
+    /not in voices.json/);
+  assert.throws(() => settings.toLayer({ 'flow.voiceId': 'made-up' }, context),
+    /abc123, def456/);
+});
+
+test('choosing nothing means the stock voice, not a broken one', () => {
+  assert.deepStrictEqual(
+    settings.toLayer({ 'flow.voiceId': '' }, { voiceIds: ['abc123'] }),
+    { theme: {}, flow: { voiceId: null } }
+  );
+});
+
+test('a project with no voices.json still offers one', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tutvid-voices-'));
+  try {
+    const voices = loadVoices(dir);
+    assert.strictEqual(voices.length, 1);
+    assert.ok(voices[0].id && voices[0].name, 'so the dropdown is never empty');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('the list is read as written, comments and all', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tutvid-voices-'));
+  try {
+    fs.writeFileSync(path.join(dir, 'voices.json'), `
+      // the ones we use
+      [
+        { "id": "aaa", "name": "Sanne (Dutch)" },
+        { "id": "bbb", "name": "  Tom (Dutch, low)  " }
+      ]
+    `);
+    assert.deepStrictEqual(loadVoices(dir), [
+      { id: 'aaa', name: 'Sanne (Dutch)' },
+      { id: 'bbb', name: 'Tom (Dutch, low)' },
+    ]);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a voices.json that cannot be used says which entry is wrong', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tutvid-voices-'));
+  const write = (text) => fs.writeFileSync(path.join(dir, 'voices.json'), text);
+  try {
+    write('{ "aaa": "Sanne" }');
+    assert.throws(() => loadVoices(dir), /list of/);
+
+    write('[{ "name": "Sanne" }]');
+    assert.throws(() => loadVoices(dir), /voices\[0\] needs an ElevenLabs voice "id"/);
+
+    write('[{ "id": "aaa", "name": "One" }, { "id": "aaa", "name": "Again" }]');
+    assert.throws(() => loadVoices(dir), /"aaa" is listed twice/);
+
+    // An id with no name is still usable: the id is the label.
+    write('[{ "id": "aaa" }]');
+    assert.deepStrictEqual(loadVoices(dir), [{ id: 'aaa', name: 'aaa' }]);
+
+    // And an empty list is nothing chosen, not nothing available.
+    write('[]');
+    assert.strictEqual(loadVoices(dir).length, 1);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 });

@@ -210,6 +210,7 @@ function initProject(cwd) {
   };
 
   copyIfNew(path.join(pkgRoot, 'theme.example.json'), path.join(cwd, 'theme.json'), 'theme.json');
+  copyIfNew(path.join(pkgRoot, 'voices.json'), path.join(cwd, 'voices.json'), 'voices.json');
 
   const flowTarget = path.join(cwd, 'flow.json');
   if (fs.existsSync(flowTarget)) {
@@ -238,7 +239,8 @@ function initProject(cwd) {
   write('Next:');
   write('  1. point flow.json at your site and describe the steps');
   write('  2. edit theme.json - fonts, colours, intro/outro text');
-  write('  3. site-tutorial-video --no-tts     free preview, no API key needed');
+  write('  3. put your ElevenLabs voice ids in voices.json, or skip it for the stock voice');
+  write('  4. site-tutorial-video --no-tts     free preview, no API key needed');
   write('');
   write('  site-tutorial-video --check         validate without recording');
   write('  site-tutorial-video --help          every option');
@@ -343,6 +345,9 @@ async function main(argv) {
     ui.step(args.tts ? 'narration' : 'narration (silent, --no-tts)');
     const audio = await synthesizeAll(flow.steps, {
       noTts: !args.tts,
+      // Nothing chosen leaves this undefined, which is what lets the
+      // ELEVENLABS_VOICE_ID default inside tts.js still apply.
+      voiceId: flow.voiceId || undefined,
       cacheDir: path.join(process.cwd(), '.tts-cache'),
       log: ui.detail,
     });

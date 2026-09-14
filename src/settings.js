@@ -20,6 +20,14 @@ const { readJson, ConfigError } = require('./config');
 
 const FIELDS = [
   {
+    key: 'flow.voiceId',
+    section: 'Narration',
+    label: 'Voice',
+    help: 'Listed in voices.json, beside this project. Changing it regenerates every ' +
+      'line at ElevenLabs\u2019 usual cost.',
+    type: 'voice', nullable: true,
+  },
+  {
     key: 'theme.cursor.moveMs',
     section: 'Movement',
     label: 'Cursor travel time',
@@ -381,6 +389,19 @@ function coerce(field, raw, context = {}) {
       );
     }
     return text.toUpperCase();
+  }
+
+  if (field.type === 'voice') {
+    const id = String(raw === null || raw === undefined ? '' : raw).trim();
+    if (!id) return field.nullable ? null : undefined;
+    const known = context.voiceIds || [];
+    if (!known.includes(id)) {
+      throw new ConfigError(
+        `${field.label}: "${id}" is not in voices.json. ` +
+        (known.length ? `It lists: ${known.join(', ')}.` : 'That file lists no voices yet.')
+      );
+    }
+    return id;
   }
 
   if (field.type === 'font') {

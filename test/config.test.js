@@ -198,3 +198,32 @@ test('an unknown or valueless option is rejected', () => {
   assert.throws(() => parseArgs(['--nope']), /Unknown option "--nope"/);
   assert.throws(() => parseArgs(['--theme']), /--theme needs a value/);
 });
+
+// The CLI builds the flow it records from as `loadFlow` plus the settings
+// layer, and then hands `flow.voiceId` to the synthesiser. If that merge ever
+// stopped carrying keys the loader does not know about, a voice picked in the
+// window would silently be ignored.
+test('the settings layer reaches the flow, including keys loadFlow never saw', () => {
+  const { loadSettings } = require('../src/settings');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tutvid-merge-'));
+  try {
+    const flowFile = path.join(dir, 'flow.json');
+    fs.writeFileSync(flowFile, JSON.stringify({
+      baseUrl: 'https://x.test',
+      minStepMs: 1000,
+      steps: [{ action: 'goto', url: '/' }],
+    }));
+    fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify({
+      flow: { minStepMs: 2200, voiceId: 'nl_tom' },
+    }));
+
+    const settings = loadSettings(path.join(dir, 'settings.json'));
+    const flow = Object.assign(loadFlow(flowFile), settings.flow);
+
+    assert.strictEqual(flow.voiceId, 'nl_tom');
+    assert.strictEqual(flow.minStepMs, 2200, 'and it still wins over the flow file');
+    assert.strictEqual(flow.steps.length, 1, 'without disturbing anything else');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

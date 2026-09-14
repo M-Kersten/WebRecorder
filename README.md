@@ -154,7 +154,7 @@ The app window has a settings screen, grouped into sections:
 | Opening card | on or off, title, subtitle, their fonts and colours, background, how long it shows |
 | Closing card | the same |
 | Video | size and frame rate |
-| Narration | the ElevenLabs key |
+| Narration | the ElevenLabs key, and which voice reads the lines |
 | Passwords | one field per `${VAR}` the walkthrough needs |
 
 Font dropdowns offer what the theme declares, by family name. Colours take a
@@ -202,6 +202,33 @@ storyboard unlocks, without reopening the window.
 `ELEVENLABS_API_KEY` in the environment still works and still wins. Only the
 window counts a saved key; `site-tutorial-video setup` reports on the
 environment, because the CLI has no window to have typed one into.
+
+### Voices
+
+`voices.json`, beside the project, is a list you write yourself:
+
+```jsonc
+[
+  { "id": "21m00Tcm4TlvDq8ikWAM", "name": "Rachel (English, calm)" },
+  { "id": "...", "name": "Sanne (Dutch, warm)" }
+]
+```
+
+The name is yours to choose and is what the dropdown shows, so write whatever
+tells one ID apart from the next. IDs come from elevenlabs.io: open Voices, pick
+one, copy its ID. Your own cloned voices work the same way.
+
+Deliberately a file rather than a live call. ElevenLabs can list every voice on
+an account with a preview of each, which is a better way to go shopping, and it
+needs a working key before the dropdown holds anything and puts the network
+between somebody and an open window. A list of IDs already decided on opens
+instantly and works offline. A missing or empty `voices.json` falls back to the
+stock voice, so the dropdown is never empty.
+
+The choice is written to `settings.json` as `flow.voiceId` and merged over the
+flow, which is what `--settings` already does for everything else. Changing
+voice regenerates every line at ElevenLabs' usual cost: the narration cache is
+keyed on the voice, so switching back to one you used before costs nothing.
 
 ## Recording a flow
 
@@ -623,6 +650,7 @@ src/
   selector.js   picks a selector that will still work next month
   ui.js         the local app: state machine, small HTTP API, window
   pacing.js     how long a step is on screen; read by the recorder and the board
+  voices.js     the voices.json list, and the stock voice to fall back on
   shots.js      the per-step screenshots the storyboard is built from
   settings.js   the fields the Style tab shows, and where they are saved
   workdir.js    temp folders, and cleaning them up on Windows
@@ -631,6 +659,7 @@ ui/app.html     the window itself: storyboard and style, in one page
 Start Recorder.command / .bat    double-click launchers
 fonts/          bundled .ttf/.otf, see fonts/README.md
 theme-rebels.json    a real-world theme: brand colour, Overused Grotesk
+voices.json     the ElevenLabs voices this project can narrate in
 assets/         logos and other card artwork
 demo/           demo site and flow, used by every test
   portal/       a login plus a dashboard, for the auth and masking examples
