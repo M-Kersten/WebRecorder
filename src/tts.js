@@ -75,10 +75,37 @@ function cacheKey(text, opts) {
       voiceId: opts.voiceId,
       modelId: opts.modelId,
       languageCode: opts.languageCode || null,
+      previousText: opts.previousText || null,
       voiceSettings: opts.voiceSettings,
     }))
     .digest('hex')
     .slice(0, 32);
+}
+
+/**
+ * Terminal punctuation, because its absence is heard.
+ *
+ * ElevenLabs reads prosody off the punctuation. A line handed over without a
+ * full stop is an unfinished clause, and the voice ends it suspended, as though
+ * it were drawing breath for whatever comes next. Nobody types a full stop into
+ * a one-line box, so one is added here rather than asked for.
+ */
+function polishLine(text) {
+  let line = String(text == null ? '' : text).replace(/\s+/g, ' ').trim();
+  if (!line) return '';
+
+  // A closing quote or bracket can sit after the punctuation that matters, so
+  // set it aside and put it back.
+  const tail = (line.match(/[)\]}"'\u2019\u201d\u00bb]+$/) || [''])[0];
+  if (tail) line = line.slice(0, -tail.length);
+
+  // A comma, colon, semicolon or dash at the end is the written form of exactly
+  // what this is meant to stop: it tells the voice to hang, and the next line
+  // is seconds away. Every line here is heard on its own, so it ends.
+  line = line.replace(/[\s,;:\u2013\u2014-]+$/, '');
+  if (!line) return '';
+  if (!/[.!?\u2026]$/.test(line)) line += '.';
+  return line + tail;
 }
 
 async function callElevenLabs(text, opts) {
@@ -97,6 +124,12 @@ async function callElevenLabs(text, opts) {
       // dates. eleven_multilingual_v2 ignores it; v3 and the turbo models
       // honour it, which is what stops a Dutch line being read as English.
       ...(opts.languageCode ? { language_code: opts.languageCode } : {}),
+      // What was said before, so the line does not start cold. `next_text` is
+      // deliberately left out: it exists for chunks that will be butted
+      // together, and these are not. They land seconds apart at measured
+      // timestamps, so telling the model that something follows immediately is
+      // what makes it lean forward into a sentence nobody has reached yet.
+      ...(opts.previousText ? { previous_text: opts.previousText } : {}),
     }),
   });
 
@@ -147,24 +180,31 @@ async function synthesizeAll(steps, options = {}) {
   let hits = 0;
   let misses = 0;
 
+  // What was said before this line, so each one is read as part of a
+  // walkthrough rather than as an island.
+  let previousText = null;
+
   for (const step of steps) {
-    const text = (step.narration || '').trim();
-    if (!text) {
+    const raw = (step.narration || '').trim();
+    if (!raw) {
       results.push(null);
       continue;
     }
+    const text = polishLine(raw);
+    const here = { ...opts, previousText };
+    previousText = text;
 
     if (noTts) {
       // Silence long enough to say the line, so blocking and timing match a
       // real run without spending a credit.
       const seconds = estimateDuration(text);
-      const file = path.join(cacheDir, `silence-${cacheKey(text, { ...opts, voiceId: 'silence' })}.m4a`);
+      const file = path.join(cacheDir, `silence-${cacheKey(text, { ...here, voiceId: 'silence' })}.m4a`);
       if (!fs.existsSync(file)) await generateSilence(seconds, file);
       results.push({ file, durationSec: seconds, cached: false, silent: true });
       continue;
     }
 
-    const file = path.join(cacheDir, `${cacheKey(text, opts)}.mp3`);
+    const file = path.join(cacheDir, `${cacheKey(text, here)}.mp3`);
     if (fs.existsSync(file) && fs.statSync(file).size > 0) {
       hits++;
       results.push({ file, durationSec: await probeDuration(file), cached: true });
@@ -173,7 +213,7 @@ async function synthesizeAll(steps, options = {}) {
 
     misses++;
     log(`  synthesising: "${truncate(text)}"`);
-    const audio = await callElevenLabs(text, opts);
+    const audio = await callElevenLabs(text, here);
     // Write via a temp name so an interrupted run cannot leave a truncated
     // file in the cache that later runs would treat as a hit.
     const tmp = `${file}.part`;
@@ -216,5 +256,5 @@ const truncate = (s, n = 60) => (s.length > n ? `${s.slice(0, n - 1)}...` : s);
 
 module.exports = {
   synthesizeAll, estimateDuration, cacheKey, defaultVoiceSettings, voiceSettingsFrom,
-  verifyKey, MODELS, DEFAULT_VOICE, DEFAULT_MODEL,
+  polishLine, verifyKey, MODELS, DEFAULT_VOICE, DEFAULT_MODEL,
 };

@@ -231,6 +231,22 @@ request goes out: a 422 three minutes into a render is a bad way to learn that
 speed tops out at 1.2. All of it is part of the cache key, so changing the speed
 regenerates the lines rather than handing back clips read at the old one.
 
+**Every line is handed over as a finished sentence.** ElevenLabs reads prosody
+off the punctuation, and a line with no full stop is an unfinished clause: the
+voice ends it suspended, as though drawing breath for whatever comes next. A
+trailing comma, colon or dash says the same thing in writing. Nobody types a
+full stop into a one-line box, so `polishLine` adds one, and replaces a hanging
+comma with one.
+
+**And it is told what came before it.** `previous_text` carries the previous
+line, so each one is read as part of a walkthrough rather than as an island; a
+four-word line on its own gives the model almost nothing to shape a sentence
+around. `next_text` exists too and is deliberately not used: it is for chunks
+that get butted together, and these are not. They land seconds apart at measured
+timestamps, so telling the model something follows immediately is what makes it
+lean forward into a sentence the listener will not reach for another three
+seconds.
+
 ### Fonts
 
 Every `.ttf` and `.otf` in the project's `fonts` folder is offered to every
