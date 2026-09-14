@@ -158,13 +158,14 @@ Two pages, split by what a thing actually changes.
 | Fades | hint fade, fade between segments |
 | Colours | the ring, the pointer and its outline, the ripple, the hint, the colour behind the page |
 | Type | which bundled font the hints and subtitles use, and at what size |
-| Opening card | on or off, title, subtitle, their fonts and colours, background, how long it shows |
+| Opening card | on or off, title, subtitle, their fonts and colours, background, a sound, how long it shows |
 | Closing card | the same |
+| Music | a track, how loud, how long it fades |
 | Frame | size and frame rate |
 
 | Settings | the whole project |
 | --- | --- |
-| Narration | the ElevenLabs key, and which voice reads the lines |
+| Narration | the ElevenLabs key, the model, the voice, its expression, speed and language |
 | Pacing | shortest a step can be, pause after each one, typing speed |
 | Passwords | one field per `${VAR}` the walkthrough needs |
 
@@ -179,6 +180,56 @@ of what a style is. The shipped `theme-social.json` is 1080x1920; a global size
 would quietly flatten it back to landscape.
 
 Colours take a hex, with a swatch beside the field for picking one.
+
+### Sound
+
+Three places a video can make a noise beyond the narration, all set per style:
+
+- **Opening card** and **Closing card** each take a clip, played over that card.
+- **Music** plays under everything, cards included.
+
+Clips come from an `audio` folder beside the project, the same way fonts come
+from `fonts`. A folder rather than a path typed into a form: the settings screen
+is a form, and a form has no business pointing the renderer at an arbitrary file
+on the machine. Drop an `.mp3`, `.m4a`, `.wav`, `.ogg`, `.opus`, `.aac` or
+`.flac` in and it turns up in the dropdowns, with a play button beside it,
+because hearing a clip is the only way to know it is the right one.
+
+A card's length is what the pacing was worked out against, so it does not move
+to fit its clip: a longer clip is cut off at the end, with a short fade so it
+does not stop dead, and a shorter one leaves silence.
+
+The music goes on last, after the cards are attached, so it plays under those
+too. It is looped to reach the end and faded at both ends, and the pass copies
+the video stream rather than re-encoding it, so a bed costs an audio encode and
+not a second trip over every frame. It is not ducked under the narration, it is
+simply quiet; `music.volume` is against a narration of 1, and the mix does not
+normalise, so the voice comes out exactly where it went in.
+
+Nothing ships in `audio/`. Music and stings are licensed per use, and guessing
+on somebody's behalf is not a favour.
+
+### How the narration is read
+
+```jsonc
+"flow": {
+  "voiceModel": "eleven_v3",   // v3, multilingual v2, turbo or flash
+  "voiceId": "nl_sanne",       // from voices.json
+  "voiceLanguage": "nl",       // ISO 639-1, ignored by multilingual v2
+  "voiceStyle": 0.26,          // 0 to 1
+  "voiceSpeed": 0.9            // 0.7 to 1.2
+}
+```
+
+`voiceStyle` and `voiceSpeed` ride in the request's `voice_settings`;
+`voiceLanguage` is a top-level `language_code`, which pins how numbers and dates
+are read. ElevenLabs ignores it on `eleven_multilingual_v2` and follows the text
+instead, which the field's help text says.
+
+The ranges are the ones ElevenLabs accepts, and they are checked before a
+request goes out: a 422 three minutes into a render is a bad way to learn that
+speed tops out at 1.2. All of it is part of the cache key, so changing the speed
+regenerates the lines rather than handing back clips read at the old one.
 
 ### Fonts
 
@@ -724,7 +775,7 @@ src/
   overlay.js    the injected cursor/highlight/hint script, built from the theme
   captions.js   cues, .srt, .ass, and the theme-to-ASS style mapping
   titlecard.js  HTML -> screenshot for intro/outro
-  ffmpeg.js     narration track, mux, image-to-video, concat, caption burn
+  ffmpeg.js     narration track, mux, image-to-video, music bed, concat, caption burn
   browser.js    finds a usable Chromium
   server.js     static server for --serve
   secrets.js    ${VAR} interpolation, and keeping the value out of the log
@@ -734,6 +785,7 @@ src/
   ui.js         the local app: state machine, small HTTP API, window
   pacing.js     how long a step is on screen; read by the recorder and the board
   voices.js     the voices.json list, and the stock voice to fall back on
+  sounds.js     the audio folder: stings and music, by name
   fontcatalog.js  reads a fonts folder into theme-shaped declarations
   shots.js      the per-step screenshots the storyboard is built from
   settings.js   the fields the Style tab shows, and where they are saved
@@ -742,6 +794,7 @@ src/
 ui/app.html     the window itself: storyboard and style, in one page
 Start Recorder.command / .bat    double-click launchers
 fonts/          bundled .ttf/.otf, see fonts/README.md
+audio/          stings and music for the cards and the bed, see audio/README.md
 theme-rebels.json    a real-world theme: brand colour, Overused Grotesk
 voices.json     the ElevenLabs voices this project can narrate in
 assets/         logos and other card artwork

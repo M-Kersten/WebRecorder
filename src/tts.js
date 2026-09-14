@@ -12,13 +12,54 @@ const DEFAULT_VOICE = '21m00Tcm4TlvDq8ikWAM'; // Rachel, ElevenLabs' stock voice
 const DEFAULT_MODEL = 'eleven_multilingual_v2';
 
 /**
+ * The models worth offering, and whether they take a language code. Kept here
+ * rather than in the settings list so one place knows what ElevenLabs has.
+ */
+const MODELS = [
+  { id: 'eleven_multilingual_v2', label: 'Multilingual v2', languageCode: false },
+  { id: 'eleven_v3', label: 'v3', languageCode: true },
+  { id: 'eleven_turbo_v2_5', label: 'Turbo v2.5', languageCode: true },
+  { id: 'eleven_flash_v2_5', label: 'Flash v2.5', languageCode: true },
+];
+
+/**
  * Narration is generated before the browser starts, never during. That is what
  * lets the recorder hold each step on screen for at least as long as its line
  * takes to say - the durations have to be known up front.
  */
 
 function defaultVoiceSettings() {
-  return { stability: 0.5, similarity_boost: 0.75, style: 0, use_speaker_boost: true };
+  return { stability: 0.5, similarity_boost: 0.75, style: 0, speed: 1, use_speaker_boost: true };
+}
+
+/** What ElevenLabs will accept, so a typo is caught before it costs a request. */
+const SETTING_RANGE = {
+  stability: [0, 1],
+  similarity_boost: [0, 1],
+  style: [0, 1],
+  speed: [0.7, 1.2],
+};
+
+/**
+ * Build the voice_settings body from whatever was asked for, leaving out
+ * anything nobody set. A value outside the range ElevenLabs accepts comes back
+ * as a sentence rather than as a 422 three minutes into a render.
+ */
+function voiceSettingsFrom(overrides = {}) {
+  const settings = defaultVoiceSettings();
+  for (const [name, value] of Object.entries(overrides)) {
+    if (value === null || value === undefined || value === '') continue;
+    const range = SETTING_RANGE[name];
+    if (!range) { settings[name] = value; continue; }
+    const number = Number(value);
+    if (!Number.isFinite(number) || number < range[0] || number > range[1]) {
+      throw new Error(
+        `Voice ${name.replace(/_/g, ' ')} has to be between ${range[0]} and ${range[1]} (got ${value}).`
+      );
+    }
+    settings[name] = number;
+  }
+  return settings;
 }
 
 /**
@@ -33,6 +74,7 @@ function cacheKey(text, opts) {
       text,
       voiceId: opts.voiceId,
       modelId: opts.modelId,
+      languageCode: opts.languageCode || null,
       voiceSettings: opts.voiceSettings,
     }))
     .digest('hex')
@@ -51,6 +93,10 @@ async function callElevenLabs(text, opts) {
       text,
       model_id: opts.modelId,
       voice_settings: opts.voiceSettings,
+      // Pins the language for the model and for how it reads numbers and
+      // dates. eleven_multilingual_v2 ignores it; v3 and the turbo models
+      // honour it, which is what stops a Dutch line being read as English.
+      ...(opts.languageCode ? { language_code: opts.languageCode } : {}),
     }),
   });
 
@@ -81,6 +127,7 @@ async function synthesizeAll(steps, options = {}) {
     modelId = process.env.ELEVENLABS_MODEL_ID || DEFAULT_MODEL,
     apiKey = process.env.ELEVENLABS_API_KEY,
     voiceSettings = defaultVoiceSettings(),
+    languageCode = process.env.ELEVENLABS_LANGUAGE || null,
     log = () => {},
   } = options;
 
@@ -95,7 +142,7 @@ async function synthesizeAll(steps, options = {}) {
     );
   }
 
-  const opts = { voiceId, modelId, apiKey, voiceSettings };
+  const opts = { voiceId, modelId, apiKey, voiceSettings, languageCode: languageCode || null };
   const results = [];
   let hits = 0;
   let misses = 0;
@@ -168,6 +215,6 @@ const firstLine = (text) => String(text || '').split('\n')[0];
 const truncate = (s, n = 60) => (s.length > n ? `${s.slice(0, n - 1)}...` : s);
 
 module.exports = {
-  synthesizeAll, estimateDuration, cacheKey, defaultVoiceSettings, verifyKey,
-  DEFAULT_VOICE, DEFAULT_MODEL,
+  synthesizeAll, estimateDuration, cacheKey, defaultVoiceSettings, voiceSettingsFrom,
+  verifyKey, MODELS, DEFAULT_VOICE, DEFAULT_MODEL,
 };

@@ -23,7 +23,7 @@ test('every field names a real place in the theme or the flow', () => {
   const values = settings.readValues(theme, flow);
   for (const field of settings.FIELDS) {
     assert.ok(field.key in values, `${field.key} was not read`);
-    assert.ok(['number', 'boolean', 'select', 'color', 'text', 'font', 'voice'].includes(field.type),
+    assert.ok(['number', 'boolean', 'select', 'color', 'text', 'font', 'voice', 'sound'].includes(field.type),
       `${field.key} has an unknown type "${field.type}"`);
     assert.ok(field.label && field.section, `${field.key} needs a label and a section`);
     if (field.type === 'select') assert.ok(field.options.length, `${field.key} needs options`);
@@ -365,4 +365,27 @@ test('every field says which tab it belongs on, from what it changes', () => {
   for (const section of styleSections) {
     assert.ok(!other.has(section), `"${section}" cannot be on both tabs`);
   }
+});
+
+test('a clip has to be one the audio folder holds', () => {
+  const context = { sounds: ['brand-sting.mp3', 'soft-loop.mp3'] };
+  assert.strictEqual(
+    settings.toLayer({ 'theme.music.file': 'soft-loop.mp3' }, context).theme.music.file,
+    'soft-loop.mp3'
+  );
+  assert.strictEqual(settings.toLayer({ 'theme.intro.audio': '' }, context).theme.intro.audio, null,
+    'no clip is a valid answer');
+
+  assert.throws(() => settings.toLayer({ 'theme.music.file': 'nope.mp3' }, context),
+    /no clip called "nope.mp3".*brand-sting.mp3, soft-loop.mp3/s);
+  assert.throws(() => settings.toLayer({ 'theme.music.file': 'nope.mp3' }, { sounds: [] }),
+    /which is empty or missing/);
+});
+
+test('the voice settings are ranged the way ElevenLabs is', () => {
+  assert.strictEqual(settings.toLayer({ 'flow.voiceSpeed': '0.9' }).flow.voiceSpeed, 0.9);
+  assert.throws(() => settings.toLayer({ 'flow.voiceSpeed': 2 }), /cannot be above 1.2/);
+  assert.throws(() => settings.toLayer({ 'flow.voiceSpeed': 0.5 }), /cannot be below 0.7/);
+  assert.throws(() => settings.toLayer({ 'flow.voiceStyle': 1.4 }), /cannot be above 1/);
+  assert.throws(() => settings.toLayer({ 'flow.voiceModel': 'eleven_made_up' }), /is not one of/);
 });

@@ -125,6 +125,13 @@ function loadFlow(flowPath) {
     stepPaddingMs: Number.isFinite(flow.stepPaddingMs) ? flow.stepPaddingMs : 600,
     // Per-keystroke delay for "type" steps, unless a step overrides it.
     typeDelayMs: Number.isFinite(flow.typeDelayMs) ? flow.typeDelayMs : 55,
+    // How the narration is read. Spelled out rather than left undefined, so the
+    // settings screen can show what the voice will actually do.
+    voiceId: flow.voiceId || null,
+    voiceModel: flow.voiceModel || 'eleven_multilingual_v2',
+    voiceLanguage: flow.voiceLanguage || null,
+    voiceStyle: Number.isFinite(flow.voiceStyle) ? flow.voiceStyle : 0,
+    voiceSpeed: Number.isFinite(flow.voiceSpeed) ? flow.voiceSpeed : 1,
     steps: flow.steps,
     mask,
     auth,

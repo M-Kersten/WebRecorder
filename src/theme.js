@@ -5,6 +5,7 @@ const path = require('path');
 const { readJson, ConfigError } = require('./config');
 const { readFontFamilies, readFontMetrics } = require('./fontname');
 const fontcatalog = require('./fontcatalog');
+const sounds = require('./sounds');
 
 /**
  * Built-in defaults. A theme.json only has to name what it wants to change;
@@ -90,6 +91,8 @@ const DEFAULTS = {
   intro: {
     enabled: false,
     durationSec: 3,
+    // A clip from the project's "audio" folder, played over this card.
+    audio: null,
     backgroundColor: '#0F1115',
     backgroundGradient: null,
     logo: null,
@@ -103,6 +106,8 @@ const DEFAULTS = {
   outro: {
     enabled: false,
     durationSec: 3,
+    // A clip from the project's "audio" folder, played over this card.
+    audio: null,
     backgroundColor: '#0F1115',
     backgroundGradient: null,
     logo: null,
@@ -112,6 +117,13 @@ const DEFAULTS = {
     subtitleFont: null,
     titleColor: '#FFFFFF',
     subtitleColor: '#A0A6B8',
+  },
+  // A bed under the whole video, looped to reach the end. Quiet on purpose:
+  // it sits under narration, it does not compete with it.
+  music: {
+    file: null,
+    volume: 0.15,
+    fadeSec: 1.5,
   },
   video: {
     width: 1920,
@@ -193,6 +205,7 @@ function validateTheme(theme, label = theme.path || '(theme)') {
   validateHints(theme, label);
   validateTransitions(theme, label);
   validateCards(theme, baseDir, label);
+  validateMusic(theme, baseDir, label);
 
   // libass takes a single fontsdir, and captions are the only thing it renders,
   // so the caption font's own directory is the one that matters.
@@ -444,9 +457,46 @@ function validateTransitions(theme, abs) {
   }
 }
 
+/**
+ * One clip from the project's "audio" folder, by name.
+ *
+ * A name rather than a path: this is set from a form, and a form has no
+ * business pointing the renderer at an arbitrary file on the machine.
+ */
+function resolveSound(name, baseDir, where, abs) {
+  if (name === null || name === undefined || name === '') return null;
+  if (typeof name !== 'string') {
+    throw new ThemeError(`${abs}: ${where} must be the name of a file in "${sounds.DIR_NAME}/", or null`);
+  }
+  const file = sounds.fileFor(baseDir, name);
+  if (!file) {
+    const there = sounds.scan(baseDir).map((s) => s.file);
+    throw new ThemeError(
+      `${abs}: ${where} is "${name}", which is not in ${sounds.dirFor(baseDir)}.\n` +
+      (there.length ? `That folder holds: ${there.join(', ')}` : 'That folder is empty or missing.')
+    );
+  }
+  return file;
+}
+
+function validateMusic(theme, baseDir, abs) {
+  const m = theme.music;
+  if (!isPlainObject(m)) throw new ThemeError(`${abs}: "music" must be an object`);
+  if (!(Number.isFinite(m.volume) && m.volume >= 0 && m.volume <= 1)) {
+    throw new ThemeError(`${abs}: music.volume must be between 0 and 1 (got ${JSON.stringify(m.volume)})`);
+  }
+  if (!(Number.isFinite(m.fadeSec) && m.fadeSec >= 0)) {
+    throw new ThemeError(`${abs}: music.fadeSec must be a non-negative number of seconds`);
+  }
+  m.path = resolveSound(m.file, baseDir, 'music.file', abs);
+}
+
 function validateCards(theme, baseDir, abs) {
   for (const card of ['intro', 'outro']) {
     const c = theme[card];
+    // The clip is resolved whether or not the card is on, so switching the card
+    // back on does not surface a missing file three minutes into a render.
+    c.audioPath = resolveSound(c.audio, baseDir, `${card}.audio`, abs);
     if (!c.enabled) continue;
     if (!(Number.isFinite(c.durationSec) && c.durationSec > 0)) {
       throw new ThemeError(`${abs}: ${card}.durationSec must be a positive number`);

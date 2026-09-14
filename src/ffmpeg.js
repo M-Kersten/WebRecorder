@@ -286,16 +286,70 @@ async function muxAudioVideo(videoFile, audioFile, outFile, video, fade) {
 }
 
 /** A still image as a video segment, with the same streams as the main clip. */
-async function imageToVideo(imageFile, durationSec, outFile, video, fadeSec) {
+async function imageToVideo(imageFile, durationSec, outFile, video, fadeSec, audioFile = null) {
   const { width, height, fps } = video;
   const f = fadeFilters({ fadeSec, durationSec });
   const vf = [`scale=${width}:${height}`, `fps=${fps}`, ...f.video, 'format=yuv420p'];
+
+  // The card's length is what it is. A clip longer than the card is cut off at
+  // the end; a shorter one leaves silence after it rather than stretching the
+  // card to fit, so the card and its narration timings stay predictable.
+  const audioIn = audioFile
+    ? ['-i', audioFile]
+    : ['-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=48000'];
+  const af = audioFile
+    ? [
+      'aresample=48000',
+      `atrim=0:${durationSec.toFixed(3)}`,
+      'asetpts=N/SR/TB',
+      `apad=whole_dur=${durationSec.toFixed(3)}`,
+      // Never let a trimmed clip stop dead on the cut.
+      `afade=t=out:st=${Math.max(0, durationSec - 0.35).toFixed(3)}:d=0.35`,
+    ]
+    : null;
+
   await ffmpeg([
     '-loop', '1', '-i', imageFile,
-    '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=48000',
+    ...audioIn,
     '-t', durationSec.toFixed(3),
     '-vf', vf.join(','),
+    ...(af ? ['-af', af.join(',')] : []),
     '-c:v', 'libx264', '-preset', 'medium', '-crf', '20',
+    '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-ac', '2',
+    '-movflags', '+faststart',
+    outFile,
+  ]);
+  return outFile;
+}
+
+/**
+ * Lay a music bed under a finished video.
+ *
+ * Last, so it covers the cards as well as the walkthrough, and video-copy only,
+ * so a bed costs an audio encode rather than a second pass over every frame.
+ * The track is looped to reach the end and faded at both ends; it is not ducked
+ * under the narration, it is simply quiet.
+ */
+async function addMusicBed(videoFile, musicFile, outFile, { volume, fadeSec, durationSec }) {
+  const end = Math.max(0, durationSec - fadeSec);
+  const bed = [
+    'aresample=48000',
+    'aformat=channel_layouts=stereo',
+    `volume=${Math.max(0, Math.min(1, volume)).toFixed(3)}`,
+    `atrim=0:${durationSec.toFixed(3)}`,
+    'asetpts=N/SR/TB',
+    ...(fadeSec > 0 ? [`afade=t=in:st=0:d=${fadeSec.toFixed(3)}`] : []),
+    ...(fadeSec > 0 ? [`afade=t=out:st=${end.toFixed(3)}:d=${fadeSec.toFixed(3)}`] : []),
+  ].join(',');
+
+  await ffmpeg([
+    '-i', videoFile,
+    // Loop the track rather than letting a two-minute video run out of music.
+    '-stream_loop', '-1', '-i', musicFile,
+    '-filter_complex',
+    `[1:a]${bed}[bed];[0:a][bed]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[out]`,
+    '-map', '0:v', '-map', '[out]',
+    '-c:v', 'copy',
     '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-ac', '2',
     '-movflags', '+faststart',
     outFile,
@@ -457,6 +511,7 @@ module.exports = {
   buildNarrationTrack,
   muxAudioVideo,
   imageToVideo,
+  addMusicBed,
   burnSubtitles,
   concatDemuxer,
   concatFilter,

@@ -363,6 +363,18 @@
   .switch:checked::after { transform: translateX(18px); }
   /* A font is chosen by looking at it, so every option is set in its own
      face. A native select cannot promise that across platforms. */
+  .soundpick { display: flex; align-items: center; gap: 8px; width: 100%; }
+  .soundpick select { flex: 1; min-width: 0; }
+  .soundpick .play {
+    width: 34px; height: 34px; flex: none; border-radius: 50%; cursor: pointer;
+    border: 1px solid var(--edge); background: var(--card);
+    display: grid; place-items: center; color: var(--ink);
+  }
+  .soundpick .play:hover:not(:disabled) { background: var(--sunken); }
+  .soundpick .play:disabled { opacity: .35; cursor: not-allowed; }
+  .soundpick .play svg { width: 9px; height: 9px; margin-left: 1px; }
+  .soundpick .play.on { background: var(--pink); border-color: var(--pink); color: #fff; }
+
   .fontpick { position: relative; width: 100%; }
   .fp-btn {
     display: flex; align-items: center; gap: 8px; width: 100%; cursor: pointer;
@@ -989,6 +1001,19 @@
       voices.unshift('<option value=""' + (value ? '' : ' selected') + '>The stock voice</option>');
       return '<select' + attrs + '>' + voices.join('') + '</select>';
     }
+    if (field.type === 'sound') {
+      var clips = (settings.sounds || []).map(function (c) {
+        return '<option value="' + esc(c.file) + '"' + (c.file === value ? ' selected' : '') +
+          '>' + esc(c.label) + '</option>';
+      });
+      clips.unshift('<option value=""' + (value ? '' : ' selected') + '>' +
+        (clips.length ? 'None' : 'Nothing in the audio folder') + '</option>');
+      return '<span class="soundpick">' +
+        '<select' + attrs + '>' + clips.join('') + '</select>' +
+        '<button type="button" class="play" title="Play"' + (value ? '' : ' disabled') + '>' +
+        '<svg viewBox="0 0 10 12" fill="currentColor" aria-hidden="true"><path d="M0 0l10 6-10 6z"/></svg>' +
+        '</button></span>';
+    }
     if (field.type === 'text') {
       return '<input type="text"' + attrs + ' value="' + esc(value) + '"' +
         (field.maxLength ? ' maxlength="' + field.maxLength + '"' : '') + '>';
@@ -1063,6 +1088,40 @@
     });
   }
 
+  var preview = null;
+
+  /** Play the clip a row is pointing at, and stop anything already playing. */
+  function wireSoundPickers(root) {
+    Array.prototype.forEach.call(root.querySelectorAll('.soundpick'), function (pick) {
+      var select = pick.querySelector('select');
+      var play = pick.querySelector('.play');
+
+      select.addEventListener('change', function () {
+        play.disabled = !select.value;
+        stopPreview();
+      });
+
+      play.addEventListener('click', function () {
+        var wasThis = preview && preview.name === select.value && !preview.audio.paused;
+        stopPreview();
+        if (wasThis || !select.value) return;
+        var audio = new Audio('/api/sound?name=' + encodeURIComponent(select.value) +
+          '&token=' + TOKEN);
+        preview = { audio: audio, name: select.value, button: play };
+        play.classList.add('on');
+        audio.addEventListener('ended', stopPreview);
+        audio.play().catch(function () { stopPreview(); });
+      });
+    });
+  }
+
+  function stopPreview() {
+    if (!preview) return;
+    preview.audio.pause();
+    preview.button.classList.remove('on');
+    preview = null;
+  }
+
   function closeFontPickers() {
     Array.prototype.forEach.call(document.querySelectorAll('.fp-list'), function (l) {
       l.hidden = true;
@@ -1123,6 +1182,7 @@
   }
 
   var PANE_LEDE = {
+    'Music': 'A bed under the whole video, cards included.',
     'Cursor and ring': 'The pointer drawn into the video, and the ring that marks what it reached.',
     'Fades': 'How long things take to appear and disappear.',
     'Colours': 'Everything drawn over the page.',
@@ -1130,7 +1190,7 @@
     'Opening card': 'A full-screen card before the walkthrough starts.',
     'Closing card': 'And one after it ends.',
     'Frame': 'The size and frame rate of the finished file.',
-    'Narration': 'The key that gives the video a voice, and which voice that is.',
+    'Narration': 'The key that gives the video a voice, which voice it is, and how it reads.',
     'Pacing': 'How long steps hold, whatever style they are rendered in.',
     'Passwords': 'What the walkthrough needs to sign in with.'
   };
@@ -1171,6 +1231,7 @@
 
     loadFontFaces();
     wireFontPickers($(bodyId));
+    wireSoundPickers($(bodyId));
 
     // Keep each swatch and its hex box showing the same thing.
     Array.prototype.forEach.call($(bodyId).querySelectorAll('[data-fills]'), function (sw) {
@@ -1320,7 +1381,7 @@
   /* ------------------------------------------------------------------ *
    * Wiring
    * ------------------------------------------------------------------ */
-  $('tab-btn-board').addEventListener('click', function () { tab = 'board'; paint(); });
+  $('tab-btn-board').addEventListener('click', function () { stopPreview(); tab = 'board'; paint(); });
   $('tab-btn-styles').addEventListener('click', function () { openPrefs('style').catch(noop); });
   $('tab-btn-settings').addEventListener('click', function () { openPrefs('settings').catch(noop); });
 

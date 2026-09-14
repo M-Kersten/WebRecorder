@@ -20,6 +20,38 @@ const { readJson, ConfigError } = require('./config');
 
 const FIELDS = [
   {
+    key: 'flow.voiceModel',
+    section: 'Narration',
+    label: 'Model',
+    help: 'v3 is the most expressive and the only one that takes a language code. ' +
+      'Changing it regenerates every line.',
+    type: 'select',
+    options: require('./tts').MODELS.map((m) => ({ value: m.id, label: m.label })),
+  },
+  {
+    key: 'flow.voiceLanguage',
+    section: 'Narration',
+    label: 'Language',
+    help: 'Two letters, such as nl or en. Pins how numbers and dates are read. ' +
+      'Multilingual v2 ignores it and follows the text instead.',
+    type: 'text', maxLength: 8, nullable: true,
+  },
+  {
+    key: 'flow.voiceStyle',
+    section: 'Narration',
+    label: 'Expression',
+    help: 'How far the voice leans into its own character. Past about half it ' +
+      'starts to wander off the text.',
+    type: 'number', min: 0, max: 1, step: 0.05,
+  },
+  {
+    key: 'flow.voiceSpeed',
+    section: 'Narration',
+    label: 'Speed',
+    help: 'One is the voice as it comes. Slower gives a walkthrough more room.',
+    type: 'number', min: 0.7, max: 1.2, step: 0.05,
+  },
+  {
     key: 'flow.voiceId',
     section: 'Narration',
     label: 'Voice',
@@ -227,6 +259,14 @@ const FIELDS = [
     type: 'color',
   },
   {
+    key: 'theme.intro.audio',
+    section: 'Opening card',
+    label: 'Sound',
+    help: 'A clip from the project\u2019s "audio" folder, played over this card. ' +
+      'Longer than the card and it is cut off; shorter and the rest is silence.',
+    type: 'sound', nullable: true,
+  },
+  {
     key: 'theme.intro.durationSec',
     section: 'Opening card',
     label: 'How long it shows',
@@ -282,12 +322,42 @@ const FIELDS = [
     type: 'color',
   },
   {
+    key: 'theme.outro.audio',
+    section: 'Closing card',
+    label: 'Sound',
+    help: 'A clip from the project\u2019s "audio" folder, played over this card. ' +
+      'Longer than the card and it is cut off; shorter and the rest is silence.',
+    type: 'sound', nullable: true,
+  },
+  {
     key: 'theme.outro.durationSec',
     section: 'Closing card',
     label: 'How long it shows',
     type: 'number', unit: 'seconds', min: 0.5, max: 20, step: 0.5,
   },
 
+  {
+    key: 'theme.music.file',
+    section: 'Music',
+    label: 'Track',
+    help: 'Plays under the whole video, cards included, looped to reach the end.',
+    type: 'sound', nullable: true,
+  },
+  {
+    key: 'theme.music.volume',
+    section: 'Music',
+    label: 'Level',
+    help: 'Against the narration, which is 1. It sits under the voice rather than ' +
+      'ducking out of its way, so keep it low.',
+    type: 'number', min: 0, max: 1, step: 0.01,
+  },
+  {
+    key: 'theme.music.fadeSec',
+    section: 'Music',
+    label: 'Fade',
+    help: 'In at the start and out at the end.',
+    type: 'number', unit: 'seconds', min: 0, max: 10, step: 0.1,
+  },
   {
     key: 'theme.video.width',
     section: 'Frame',
@@ -446,6 +516,19 @@ function coerce(field, raw, context = {}) {
       );
     }
     return text.toUpperCase();
+  }
+
+  if (field.type === 'sound') {
+    const name = String(raw === null || raw === undefined ? '' : raw).trim();
+    if (!name) return field.nullable ? null : undefined;
+    const known = context.sounds || [];
+    if (!known.includes(name)) {
+      throw new ConfigError(
+        `${field.label}: there is no clip called "${name}" in the audio folder` +
+        (known.length ? `. It holds: ${known.join(', ')}.` : ', which is empty or missing.')
+      );
+    }
+    return name;
   }
 
   if (field.type === 'voice') {

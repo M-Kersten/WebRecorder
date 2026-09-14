@@ -772,3 +772,100 @@ test('a new style needs a name that becomes a usable file name', async () => {
     assert.match((await again.json()).error, /already a style/);
   });
 });
+
+// --- sound --------------------------------------------------------------
+
+function withClips(dir, names) {
+  fs.mkdirSync(path.join(dir, 'audio'), { recursive: true });
+  for (const name of names) {
+    fs.writeFileSync(path.join(dir, 'audio', name), 'pretend audio');
+  }
+}
+
+test('the audio folder is offered to the cards and to the music', async () => {
+  await withApp(async ({ call, dir }) => {
+    withClips(dir, ['brand-sting.mp3', 'soft-loop.mp3']);
+    const s = await call('/api/settings').then((r) => r.json());
+
+    assert.deepStrictEqual(s.sounds, [
+      { file: 'brand-sting.mp3', label: 'Brand sting' },
+      { file: 'soft-loop.mp3', label: 'Soft loop' },
+    ]);
+    const keys = s.fields.filter((f) => f.type === 'sound').map((f) => f.key);
+    assert.deepStrictEqual(keys.sort(),
+      ['theme.intro.audio', 'theme.music.file', 'theme.outro.audio']);
+    assert.ok(s.fields.filter((f) => f.type === 'sound').every((f) => f.tab === 'style'),
+      'sound belongs to a style, like everything else you can see or hear');
+  });
+});
+
+test('a clip lands in the style, and one that is not there is refused', async () => {
+  await withApp(async ({ call, dir }) => {
+    withClips(dir, ['brand-sting.mp3']);
+    await call('/api/settings', {
+      style: 'theme.json',
+      values: { 'theme.intro.audio': 'brand-sting.mp3', 'theme.music.volume': 0.1 },
+    });
+
+    const written = JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8'));
+    assert.strictEqual(written.styles['theme.json'].intro.audio, 'brand-sting.mp3');
+    assert.strictEqual(written.styles['theme.json'].music.volume, 0.1);
+
+    const bad = await call('/api/settings', { values: { 'theme.music.file': 'nowhere.mp3' } });
+    assert.strictEqual(bad.status, 400);
+    assert.match((await bad.json()).error, /no clip called "nowhere.mp3".*brand-sting.mp3/s);
+  });
+});
+
+// Hearing a clip is the only way to know it is the right one.
+test('a clip can be played back, and only a clip in the folder', async () => {
+  await withApp(async ({ call, dir }) => {
+    withClips(dir, ['brand-sting.mp3']);
+    fs.writeFileSync(path.join(dir, 'secret.json'), 'shh');
+
+    const ok = await call('/api/sound?name=brand-sting.mp3');
+    assert.strictEqual(ok.status, 200);
+    assert.strictEqual(ok.headers.get('content-type'), 'audio/mpeg');
+    assert.strictEqual(await ok.text(), 'pretend audio');
+
+    for (const bad of ['../secret.json', 'audio/brand-sting.mp3', 'nothing.mp3', '']) {
+      assert.strictEqual((await call(`/api/sound?name=${encodeURIComponent(bad)}`)).status, 404,
+        `"${bad}" must not be served`);
+    }
+  });
+});
+
+test('the voice can be given a style, a speed and a language', async () => {
+  await withApp(async ({ call, dir }) => {
+    const s = await call('/api/settings').then((r) => r.json());
+    const narration = s.fields.filter((f) => f.section === 'Narration').map((f) => f.key);
+    assert.deepStrictEqual(narration.sort(), [
+      'flow.voiceId', 'flow.voiceLanguage', 'flow.voiceModel',
+      'flow.voiceSpeed', 'flow.voiceStyle',
+    ]);
+
+    await call('/api/settings', {
+      values: {
+        'flow.voiceModel': 'eleven_v3',
+        'flow.voiceLanguage': 'nl',
+        'flow.voiceStyle': 0.26,
+        'flow.voiceSpeed': 0.9,
+      },
+    });
+    const written = JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8'));
+    assert.deepStrictEqual(written.flow, {
+      voiceModel: 'eleven_v3', voiceLanguage: 'nl', voiceStyle: 0.26, voiceSpeed: 0.9,
+    });
+
+    // They hold for the project, not for one style.
+    assert.ok(!JSON.stringify(written.styles).includes('voiceSpeed'));
+  });
+});
+
+test('a speed ElevenLabs would refuse comes back as a sentence', async () => {
+  await withApp(async ({ call }) => {
+    const res = await call('/api/settings', { values: { 'flow.voiceSpeed': 2 } });
+    assert.strictEqual(res.status, 400);
+    assert.match((await res.json()).error, /cannot be above 1.2/);
+  });
+});

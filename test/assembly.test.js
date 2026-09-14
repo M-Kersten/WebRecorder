@@ -337,3 +337,105 @@ test('the letterbox uses the theme colour rather than black', async () => {
   assert.ok(rgb[0] > 180, `pillarbox should be red, got rgb(${rgb[0]},${rgb[1]},${rgb[2]})`);
   assert.ok(rgb[1] < 70 && rgb[2] < 70, `pillarbox should be red, got rgb(${rgb[0]},${rgb[1]},${rgb[2]})`);
 });
+
+// --- card sound and the music bed ---------------------------------------
+
+/** Mean volume over one window of a file, in dB. -91 means silence. */
+function loudness(file, fromSec, seconds) {
+  const out = spawnSync(ffmpegPath(), [
+    '-hide_banner', '-v', 'info', '-y',
+    '-ss', String(fromSec), '-t', String(seconds), '-i', file,
+    '-af', 'volumedetect', '-f', 'null', '-',
+  ], { encoding: 'utf8' }).stderr;
+  const mean = out.match(/mean_volume:\s*(-?[\d.]+) dB/);
+  return mean ? Number(mean[1]) : -91;
+}
+
+/** A tone, standing in for a sting or a music track. */
+function makeClip(hz, seconds, out) {
+  execFileSync(ffmpegPath(), [
+    '-hide_banner', '-loglevel', 'error', '-y',
+    '-f', 'lavfi', '-i', `sine=frequency=${hz}:duration=${seconds}`,
+    '-c:a', 'libmp3lame', '-b:a', '128k', out,
+  ]);
+  return out;
+}
+
+function makeCardImage(out) {
+  execFileSync(ffmpegPath(), [
+    '-hide_banner', '-loglevel', 'error', '-y',
+    '-f', 'lavfi', '-i', `color=c=#101418:s=${VIDEO.width}x${VIDEO.height}`,
+    '-frames:v', '1', out,
+  ]);
+  return out;
+}
+
+test('a card without a clip is silent, and with one is not', async () => {
+  const image = makeCardImage(tmp('card.png'));
+  const silent = await ff.imageToVideo(image, 2, tmp('card-silent.mp4'), VIDEO, 0);
+  assert.ok(loudness(silent, 0, 2) < -80, 'a card with no clip should be silence');
+
+  const sting = makeClip(440, 1.2, tmp('sting.mp3'));
+  const sounded = await ff.imageToVideo(image, 2, tmp('card-sound.mp4'), VIDEO, 0, sting);
+  assert.ok(loudness(sounded, 0, 1) > -30, 'the clip should be audible over the card');
+  assert.strictEqual(Math.round(await ff.probeDuration(sounded)), 2,
+    'and the card stays the length the style asked for');
+});
+
+// A clip longer than its card is cut off; a shorter one leaves silence. The
+// card's length is what the pacing was worked out against, so it does not move.
+test('a clip is trimmed to its card, and a short one leaves silence', async () => {
+  const image = makeCardImage(tmp('card2.png'));
+  const long = makeClip(440, 6, tmp('long.mp3'));
+  const cut = await ff.imageToVideo(image, 2, tmp('card-cut.mp4'), VIDEO, 0, long);
+  assert.ok(Math.abs(await ff.probeDuration(cut) - 2) < 0.2, 'the card is still two seconds');
+  assert.ok(loudness(cut, 0, 1) > -30);
+
+  const short = makeClip(440, 0.5, tmp('short.mp3'));
+  const padded = await ff.imageToVideo(image, 3, tmp('card-pad.mp4'), VIDEO, 0, short);
+  assert.ok(Math.abs(await ff.probeDuration(padded) - 3) < 0.2, 'and three when asked for three');
+  assert.ok(loudness(padded, 0, 0.4) > -30, 'the clip plays');
+  assert.ok(loudness(padded, 1.5, 1.4) < -80, 'and the rest of the card is silence');
+});
+
+test('the music bed runs the whole length, quietly, and fades at both ends', async () => {
+  const silentVideo = makeSegment('#202020', 8, tmp('quiet.mp4'));
+  const music = makeClip(220, 3, tmp('loop.mp3'));      // shorter than the video
+
+  const withBed = await ff.addMusicBed(silentVideo, music, tmp('bed.mp4'), {
+    volume: 0.15, fadeSec: 1, durationSec: 8,
+  });
+
+  // Looped, so a three-second track still covers eight seconds.
+  assert.ok(loudness(withBed, 4, 3) > -60, 'the bed should still be playing past the track length');
+  assert.ok(loudness(withBed, 4, 3) < -15, 'and it should be sitting well under a voice');
+  assert.ok(loudness(withBed, 0, 0.3) < loudness(withBed, 3, 1) - 4, 'it fades in');
+  assert.ok(loudness(withBed, 7.7, 0.3) < loudness(withBed, 3, 1) - 4, 'and out');
+
+  // The picture is untouched: a bed costs an audio encode, not a second pass.
+  assert.ok(Math.abs(await ff.probeDuration(withBed) - 8) < 0.2);
+  const before = await ff.probeStreams(silentVideo);
+  const after = await ff.probeStreams(withBed);
+  assert.strictEqual(after.video.width, before.video.width);
+  assert.strictEqual(after.video.frames, before.video.frames);
+});
+
+test('a bed does not drown what is already there', async () => {
+  const loud = tmp('loudvideo.mp4');
+  execFileSync(ffmpegPath(), [
+    '-hide_banner', '-loglevel', 'error', '-y',
+    '-f', 'lavfi', '-i', `color=c=#303030:s=${VIDEO.width}x${VIDEO.height}:r=${VIDEO.fps}`,
+    '-f', 'lavfi', '-i', 'sine=frequency=880',
+    '-t', '4', '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p',
+    '-c:a', 'aac', '-b:a', '128k', '-ar', '48000', '-ac', '2', loud,
+  ]);
+  const spoken = loudness(loud, 1, 2);
+
+  const music = makeClip(220, 4, tmp('loop2.mp3'));
+  const mixed = await ff.addMusicBed(loud, music, tmp('mixed.mp4'), {
+    volume: 0.15, fadeSec: 0, durationSec: 4,
+  });
+  // Mixing without normalising: the voice comes out where it went in.
+  assert.ok(Math.abs(loudness(mixed, 1, 2) - spoken) < 1.5,
+    'the narration should not be pushed around by the bed');
+});

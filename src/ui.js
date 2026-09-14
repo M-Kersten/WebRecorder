@@ -15,6 +15,7 @@ const settingsStore = require('./settings');
 const { launch } = require('./browser');
 const shotStore = require('./shots');
 const { loadVoices } = require('./voices');
+const sounds = require('./sounds');
 const { estimateFlow, breakdownStep } = require('./pacing');
 
 /**
@@ -27,6 +28,11 @@ const { estimateFlow, breakdownStep } = require('./pacing');
 
 const ROOT = path.join(__dirname, '..');
 const STATES = ['idle', 'capturing', 'captured', 'rendering', 'done', 'error'];
+
+const TYPE_FOR = {
+  '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.aac': 'audio/aac',
+  '.wav': 'audio/wav', '.ogg': 'audio/ogg', '.opus': 'audio/ogg', '.flac': 'audio/flac',
+};
 
 function createApp(options = {}) {
   const {
@@ -155,6 +161,7 @@ function createApp(options = {}) {
       values,
       fonts,
       voices,
+      sounds: sounds.scan(projectDir),
       problem,
       secrets: [NARRATION_KEY, ...fromFlow].map((name) => ({
         name,
@@ -273,7 +280,12 @@ function createApp(options = {}) {
     const theme = deepMerge(loadTheme(path.join(projectDir, style)), layer.theme);
     const flow = fs.existsSync(flowFile)
       ? Object.assign(loadFlow(flowFile), layer.flow)
-      : { minStepMs: 1400, stepPaddingMs: 600, typeDelayMs: 55, ...layer.flow };
+      : {
+        minStepMs: 1400, stepPaddingMs: 600, typeDelayMs: 55,
+        voiceModel: 'eleven_multilingual_v2', voiceStyle: 0, voiceSpeed: 1,
+        voiceId: null, voiceLanguage: null,
+        ...layer.flow,
+      };
     return { theme, flow, layer, style };
   }
 
@@ -303,6 +315,7 @@ function createApp(options = {}) {
       const context = {
         fontKeys: Object.keys(base.fonts || {}),
         voiceIds: loadVoices(projectDir).map((voice) => voice.id),
+        sounds: sounds.scan(projectDir).map((clip) => clip.file),
         styleFile: style,
       };
       const layer = settingsStore.toLayer(values, context);
@@ -531,6 +544,19 @@ function createApp(options = {}) {
         if (!file) return send(404, { error: 'No screenshot for that step' });
         const stat = fs.statSync(file);
         res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Content-Length': stat.size });
+        return fs.createReadStream(file).pipe(res);
+      }
+
+      // So a clip can be heard before a style is committed to it.
+      if (url.pathname === '/api/sound') {
+        const file = sounds.fileFor(projectDir, url.searchParams.get('name') || '');
+        if (!file) return send(404, { error: 'No such clip' });
+        const stat = fs.statSync(file);
+        res.writeHead(200, {
+          'Content-Type': TYPE_FOR[path.extname(file).toLowerCase()] || 'application/octet-stream',
+          'Content-Length': stat.size,
+          'Accept-Ranges': 'none',
+        });
         return fs.createReadStream(file).pipe(res);
       }
 

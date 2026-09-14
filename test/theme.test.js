@@ -327,3 +327,53 @@ test('Overused Grotesk is bundled as two static weights of one family', () => {
   // flag alone. That is what the weight on each declaration is for.
   assert.strictEqual(theme.captions.font, 'overused-grotesk');
 });
+
+// --- sound -------------------------------------------------------------
+
+function projectWithAudio(clips, theme) {
+  const dir = fs.mkdtempSync(path.join(work, 'audio-'));
+  fs.mkdirSync(path.join(dir, 'audio'));
+  for (const name of clips) fs.writeFileSync(path.join(dir, 'audio', name), 'pretend audio');
+  const file = path.join(dir, 'theme.json');
+  fs.writeFileSync(file, JSON.stringify(theme));
+  return { dir, theme: loadTheme(file) };
+}
+
+test('a project with no sound set makes no sound', () => {
+  const theme = withTheme({});
+  assert.strictEqual(theme.music.file, null);
+  assert.strictEqual(theme.music.path, null);
+  assert.strictEqual(theme.intro.audio, null);
+  assert.strictEqual(theme.intro.audioPath, null);
+  assert.strictEqual(theme.music.volume, 0.15, 'quiet by default: it sits under a voice');
+});
+
+test('a clip is resolved to the file in the audio folder', () => {
+  const { dir, theme } = projectWithAudio(['sting.mp3', 'loop.mp3'], {
+    intro: { enabled: true, title: 'Q Portal', audio: 'sting.mp3' },
+    music: { file: 'loop.mp3', volume: 0.2 },
+  });
+  assert.strictEqual(theme.intro.audioPath, path.join(dir, 'audio', 'sting.mp3'));
+  assert.strictEqual(theme.music.path, path.join(dir, 'audio', 'loop.mp3'));
+  assert.strictEqual(theme.music.volume, 0.2);
+});
+
+// A card that is off still has its clip checked, so switching the card on does
+// not surface a missing file three minutes into a render.
+test('a clip that is not there says so, and says what is', () => {
+  assert.throws(() => projectWithAudio(['sting.mp3'], {
+    intro: { enabled: false, audio: 'gone.mp3' },
+  }), /intro.audio is "gone.mp3".*That folder holds: sting.mp3/s);
+
+  assert.throws(() => projectWithAudio([], { music: { file: 'nothing.mp3' } }),
+    /That folder is empty or missing/);
+
+  // A name, never a path. The renderer reads that folder and nowhere else.
+  assert.throws(() => projectWithAudio(['ok.mp3'], { music: { file: '../../etc/passwd' } }),
+    /is not in/);
+});
+
+test('the music level and fade are checked before a render starts', () => {
+  assert.throws(() => withTheme({ music: { volume: 3 } }), /music.volume must be between 0 and 1/);
+  assert.throws(() => withTheme({ music: { fadeSec: -1 } }), /music.fadeSec must be a non-negative/);
+});

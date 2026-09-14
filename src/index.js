@@ -6,8 +6,8 @@ const path = require('path');
 const os = require('os');
 
 const { loadFlow, ConfigError } = require('./config');
-const { loadTheme, describeTheme, deepMerge } = require('./theme');
-const { synthesizeAll } = require('./tts');
+const { loadTheme, validateTheme, describeTheme, deepMerge } = require('./theme');
+const { synthesizeAll, voiceSettingsFrom } = require('./tts');
 const { record, describeStep, authenticate, sessionIsFresh, sessionPath } = require('./recorder');
 const { resolveFlowSecrets } = require('./secrets');
 const captions = require('./captions');
@@ -261,7 +261,14 @@ async function main(argv) {
   // The visual layer is kept per style, so this has to say which one it wants.
   const settings = loadSettings(args.settings, args.theme);
 
-  const theme = applyOverrides(deepMerge(loadTheme(args.theme), settings.theme), args);
+  // Checked again after the layer is merged on. A layer can point a card at a
+  // clip or a style at a font, and those are resolved during validation: doing
+  // it only before the merge leaves the resolved paths describing the file as
+  // it was written, not as it is about to be rendered.
+  const theme = validateTheme(
+    applyOverrides(deepMerge(loadTheme(args.theme), settings.theme), args),
+    args.theme
+  );
   if (args.printTheme) { write(describeTheme(theme)); return 0; }
 
   const flow = Object.assign(loadFlow(args.flow), settings.flow);
@@ -346,9 +353,12 @@ async function main(argv) {
     ui.step(args.tts ? 'narration' : 'narration (silent, --no-tts)');
     const audio = await synthesizeAll(flow.steps, {
       noTts: !args.tts,
-      // Nothing chosen leaves this undefined, which is what lets the
-      // ELEVENLABS_VOICE_ID default inside tts.js still apply.
+      // Nothing chosen leaves these undefined, which is what lets the
+      // ELEVENLABS_* defaults inside tts.js still apply.
       voiceId: flow.voiceId || undefined,
+      modelId: flow.voiceModel || undefined,
+      languageCode: flow.voiceLanguage || undefined,
+      voiceSettings: voiceSettingsFrom({ style: flow.voiceStyle, speed: flow.voiceSpeed }),
       cacheDir: path.join(process.cwd(), '.tts-cache'),
       log: ui.detail,
     });
@@ -421,7 +431,19 @@ async function main(argv) {
     }
 
     if (segments.length > 1) ui.step(`joining ${segments.length} segments`);
-    const { method } = await ff.concatSegments(segments, outFile, theme.video, workDir, ui.detail);
+    // With music to lay under it, join into the work folder first: the bed goes
+    // on after the cards are attached, so it plays under those too.
+    const joined = theme.music.path ? path.join(workDir, 'joined.mp4') : outFile;
+    const { method } = await ff.concatSegments(segments, joined, theme.video, workDir, ui.detail);
+
+    if (theme.music.path) {
+      ui.step(`music (${path.basename(theme.music.path)})`);
+      await ff.addMusicBed(joined, theme.music.path, outFile, {
+        volume: theme.music.volume,
+        fadeSec: theme.music.fadeSec,
+        durationSec: await ff.probeDuration(joined),
+      });
+    }
     ui.finish();
 
     const finalSec = await ff.probeDuration(outFile);
@@ -560,7 +582,8 @@ async function buildCardSegment(which, theme, workDir, fadeSec) {
   const card = theme[which];
   const png = await renderCard(card, theme, path.join(workDir, `${which}.png`));
   return ff.imageToVideo(
-    png, card.durationSec, path.join(workDir, `${which}.mp4`), theme.video, fadeSec
+    png, card.durationSec, path.join(workDir, `${which}.mp4`), theme.video, fadeSec,
+    card.audioPath
   );
 }
 
