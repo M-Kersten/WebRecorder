@@ -3,7 +3,12 @@
 const test = require('node:test');
 const assert = require('node:assert');
 
-const { verifyKey, estimateDuration } = require('../src/tts');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+
+const tts = require('../src/tts');
+const { verifyKey, estimateDuration } = tts;
 
 /** A stand-in for fetch that answers however the test needs it to. */
 const answers = (result) => (url, init) => {
@@ -228,5 +233,109 @@ test('the voice, the model and the language all reach the request', async () => 
   assert.strictEqual(sent[0].body.model_id, 'eleven_v3');
   assert.strictEqual(sent[0].body.language_code, 'nl');
   assert.strictEqual(sent[0].body.voice_settings.style, 0.26);
+  // And speed does not, because v3 has none. It used to be sent anyway: the
+  // request was accepted, the clip came back at the ordinary pace, and the only
+  // sign that the setting had done nothing was that the video sounded the same.
+  assert.strictEqual(sent[0].body.voice_settings.speed, undefined);
+});
+
+test('a model that does have speed is sent it', async () => {
+  const { sent } = await capture([{ narration: 'Hallo daar' }], {
+    voiceId: 'nl_tom', modelId: 'eleven_multilingual_v2',
+    voiceSettings: voiceSettingsFrom({ style: 0.26, speed: 0.9 }),
+  });
   assert.strictEqual(sent[0].body.voice_settings.speed, 0.9);
+  assert.strictEqual(sent[0].body.voice_settings.style, 0.26);
+  // Multilingual v2 is the one with no language code, so it is not sent one.
+  assert.strictEqual(sent[0].body.language_code, undefined);
+});
+
+/**
+ * Which settings the chosen model actually acts on.
+ *
+ * The API takes every setting for every model and quietly ignores the ones that
+ * model does not implement, which makes a slider that does nothing look exactly
+ * like one that works. ElevenLabs' own docs: "Speed is not available for the
+ * Eleven v3 model", and the same for Similarity and Speaker Boost.
+ */
+test('v3 does not take speed, similarity or speaker boost', () => {
+  const support = tts.modelSupport('eleven_v3');
+  assert.ok(support.includes('stability'));
+  assert.ok(support.includes('style'));
+  assert.ok(!support.includes('speed'), 'v3 has no speed control');
+  assert.ok(!support.includes('similarity_boost'));
+  assert.ok(!support.includes('use_speaker_boost'));
+  // The models that do take everything still do.
+  assert.ok(tts.modelSupport('eleven_multilingual_v2').includes('speed'));
+  assert.ok(tts.modelSupport('eleven_turbo_v2_5').includes('speed'));
+});
+
+test('multilingual v2 is the one with no language code', () => {
+  assert.strictEqual(tts.takesLanguageCode('eleven_multilingual_v2'), false);
+  assert.strictEqual(tts.takesLanguageCode('eleven_v3'), true);
+  assert.strictEqual(tts.takesLanguageCode('eleven_flash_v2_5'), true);
+  // An id this build has never heard of is given the benefit of the doubt
+  // rather than having half its settings stripped.
+  assert.strictEqual(tts.takesLanguageCode('eleven_something_new'), true);
+});
+
+test('a setting the model ignores is dropped, not sent and ignored', () => {
+  const asked = { stability: 0.4, similarity_boost: 0.75, style: 0.3, speed: 0.8, use_speaker_boost: true };
+  const { settings, dropped } = tts.settingsForModel(asked, 'eleven_v3');
+  assert.deepStrictEqual(settings, { stability: 0.4, style: 0.3 });
+  assert.deepStrictEqual(dropped.sort(), ['similarity_boost', 'speed', 'use_speaker_boost']);
+});
+
+test('dropping it keeps the cache honest, which is the whole point', () => {
+  // Two runs that differ only in a setting v3 ignores must hit the same clip.
+  // Otherwise moving that slider buys a fresh, identical file at full price.
+  const base = { voiceId: 'v', modelId: 'eleven_v3', languageCode: 'nl' };
+  const slow = tts.settingsForModel({ stability: 0.5, speed: 0.8 }, 'eleven_v3').settings;
+  const fast = tts.settingsForModel({ stability: 0.5, speed: 1.2 }, 'eleven_v3').settings;
+  assert.strictEqual(
+    tts.cacheKey('Hallo.', { ...base, voiceSettings: slow }),
+    tts.cacheKey('Hallo.', { ...base, voiceSettings: fast })
+  );
+
+  // And on a model that does use speed, they must not.
+  const m2 = { voiceId: 'v', modelId: 'eleven_multilingual_v2', languageCode: null };
+  const s2 = tts.settingsForModel({ stability: 0.5, speed: 0.8 }, m2.modelId).settings;
+  const f2 = tts.settingsForModel({ stability: 0.5, speed: 1.2 }, m2.modelId).settings;
+  assert.notStrictEqual(
+    tts.cacheKey('Hallo.', { ...m2, voiceSettings: s2 }),
+    tts.cacheKey('Hallo.', { ...m2, voiceSettings: f2 })
+  );
+});
+
+test('a run says out loud which of your settings the model is ignoring', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tutvid-tts-inert-'));
+  const lines = [];
+  await tts.synthesizeAll([{ narration: 'Hallo daar.' }], {
+    noTts: true,
+    cacheDir: dir,
+    modelId: 'eleven_v3',
+    voiceSettings: { stability: 0.5, style: 0.2, speed: 0.85, use_speaker_boost: true },
+    log: (l) => lines.push(l),
+  });
+  const said = lines.join('\n');
+  assert.match(said, /v3 does not use/);
+  assert.match(said, /speed/);
+  // use_speaker_boost was left at its default, so nobody asked for it and
+  // nobody needs telling about it.
+  assert.ok(!/speaker/i.test(said), said);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('a language code on a model with none is called out too', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tutvid-tts-lang-'));
+  const lines = [];
+  await tts.synthesizeAll([{ narration: 'Hallo daar.' }], {
+    noTts: true,
+    cacheDir: dir,
+    modelId: 'eleven_multilingual_v2',
+    languageCode: 'nl',
+    log: (l) => lines.push(l),
+  });
+  assert.match(lines.join('\n'), /Multilingual v2 has no language code/);
+  fs.rmSync(dir, { recursive: true, force: true });
 });

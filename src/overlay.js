@@ -108,6 +108,14 @@ function buildOverlayScript(theme, mask = []) {
       // sit on top of each other.
       reserve: captionBand(theme),
     },
+    // The stage, raised over a page while it loads. See the curtain block
+    // below for why this is here rather than in the recorder.
+    curtain: {
+      enabled: theme.video.curtain !== false,
+      color: theme.video.backgroundColor,
+      fadeMs: Number.isFinite(theme.video.curtainFadeMs) ? theme.video.curtainFadeMs : 260,
+      maxMs: 20000,
+    },
     fontFace: hintFont ? fontFaceCss(hintFont) : '',
   });
 
@@ -350,6 +358,119 @@ function buildOverlayScript(theme, mask = []) {
    */
   const TOP_FRAME = (() => {
     try { return window.self === window.top; } catch (e) { return false; }
+  })();
+
+  /* ------------------------------------------------------------------ *
+   * The curtain.
+   *
+   * A page being fetched, parsed and hydrated is not a thing anybody wants in
+   * a walkthrough: a flash of white, a half-styled skeleton, "Loading...", and
+   * then the content popping in. The browser will not hold the previous frame
+   * across a navigation, so the only way to cover it is from inside the new
+   * document, before it has painted anything.
+   *
+   * Which is why this sits in the injected script and not in the recorder. It
+   * has to run at document_start, and at document_start there is no
+   * documentElement yet - so the first thing here is a MutationObserver
+   * waiting for one, which fires while the parser is still working through the
+   * head. The recorder lowers it once the page has settled; the timeout is a
+   * safety net for a navigation nobody is driving, such as a link the flow
+   * clicked, so a video can never be left sitting on a blank stage.
+   * ------------------------------------------------------------------ */
+  let curtainEl = null;
+  let curtainTimer = null;
+
+  function raiseCurtain() {
+    if (!CFG.curtain.enabled || !TOP_FRAME) return true;
+    if (!document.documentElement) return false;
+    if (curtainEl && curtainEl.isConnected) return true;
+    curtainEl = document.createElement('div');
+    curtainEl.setAttribute('data-tut-curtain', '');
+    curtainEl.style.cssText = 'position:fixed;inset:0;z-index:2147483646;' +
+      'pointer-events:none;background:' + CFG.curtain.color + ';opacity:1;' +
+      'transition:opacity ' + CFG.curtain.fadeMs + 'ms ease';
+    document.documentElement.appendChild(curtainEl);
+    if (curtainTimer) clearTimeout(curtainTimer);
+    curtainTimer = setTimeout(() => lowerCurtain(), CFG.curtain.maxMs);
+    return true;
+  }
+
+  function lowerCurtain(fadeMs) {
+    if (curtainTimer) { clearTimeout(curtainTimer); curtainTimer = null; }
+    const el = curtainEl || document.querySelector('[data-tut-curtain]');
+    if (!el) return Promise.resolve();
+    const ms = fadeMs != null ? fadeMs : CFG.curtain.fadeMs;
+    el.style.transition = 'opacity ' + ms + 'ms ease';
+    // A reflow, so the browser has an opacity of 1 to animate away from. Set
+    // in the same frame it was created in, the transition never runs and the
+    // curtain vanishes instead of fading.
+    void el.offsetWidth;
+    el.style.opacity = '0';
+    return new Promise((resolve) => setTimeout(() => {
+      if (el.parentNode) el.parentNode.removeChild(el);
+      curtainEl = null;
+      resolve();
+    }, ms + 30));
+  }
+
+  if (!raiseCurtain()) {
+    const watcher = new MutationObserver(() => { if (raiseCurtain()) watcher.disconnect(); });
+    watcher.observe(document, { childList: true, subtree: false });
+  }
+
+  window.__tutCurtainDown = (ms) => lowerCurtain(ms);
+  window.__tutCurtainUp = () => { raiseCurtain(); };
+
+  /* ------------------------------------------------------------------ *
+   * In-flight requests.
+   *
+   * "Has the page stopped changing" is not answerable from the DOM alone. The
+   * shape almost every site has now is: render a shell, fetch, render the
+   * content. Between the shell and the response the DOM is perfectly still,
+   * for as long as the request takes - so a recorder watching only mutations
+   * calls it finished and films the skeleton.
+   *
+   * fetch and XMLHttpRequest are wrapped here rather than counted from
+   * outside, because this script runs before any of the page's own, which is
+   * the only moment where wrapping them is honest: a script that grabs its own
+   * reference to fetch afterwards still goes through this one.
+   * ------------------------------------------------------------------ */
+  (() => {
+    const net = { inflight: 0, at: Date.now() };
+    const done = () => { net.inflight = Math.max(0, net.inflight - 1); net.at = Date.now(); };
+
+    if (typeof window.fetch === 'function') {
+      const original = window.fetch;
+      window.fetch = function (...args) {
+        net.inflight++;
+        net.at = Date.now();
+        let result;
+        try {
+          result = original.apply(this, args);
+        } catch (e) {
+          done();
+          throw e;
+        }
+        return Promise.resolve(result).then(
+          (r) => { done(); return r; },
+          (e) => { done(); throw e; }
+        );
+      };
+    }
+
+    if (typeof window.XMLHttpRequest === 'function') {
+      const send = window.XMLHttpRequest.prototype.send;
+      window.XMLHttpRequest.prototype.send = function (...args) {
+        net.inflight++;
+        net.at = Date.now();
+        // loadend covers success, failure and abort alike, so a request that
+        // goes wrong cannot leave the counter stuck above zero forever.
+        this.addEventListener('loadend', done, { once: true });
+        return send.apply(this, args);
+      };
+    }
+
+    window.__tutNet = net;
   })();
 
   function init() {

@@ -346,6 +346,12 @@
   .row .ctl { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
   .row .ctl input[type=number], .row .ctl input[type=text], .row .ctl select { width: 100%; }
   .row .ctl input[type=number] { text-align: right; }
+  /* A setting the chosen voice model will not act on. Visible, because the
+     value is real and comes back when the model changes; not touchable, because
+     moving it would change nothing. */
+  .row.inert .k, .row.inert .unit { opacity: .55; }
+  .row.inert .ctl { opacity: .45; }
+  .row .d.ignored { color: var(--open-ink); }
   .row .unit { font-size: 12px; color: var(--muted); }
   .key-block { padding: 16px 0 4px; }
   .key-block .d { max-width: 62ch; }
@@ -1067,9 +1073,9 @@
    * ------------------------------------------------------------------ */
   var openSection = { style: null, settings: null };
 
-  function control(field, value) {
+  function control(field, value, inert) {
     var id = 'set-' + field.key.replace(/\./g, '-');
-    var attrs = ' id="' + id + '" data-key="' + field.key + '"';
+    var attrs = ' id="' + id + '" data-key="' + field.key + '"' + (inert ? ' disabled' : '');
     if (field.type === 'boolean') {
       return '<input type="checkbox" class="switch"' + attrs + (value ? ' checked' : '') + '>';
     }
@@ -1245,11 +1251,49 @@
   document.addEventListener('click', closeFontPickers);
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeFontPickers(); });
 
+  /** What the model in the form right now will ignore. */
+  function inertNow() {
+    var table = settings.inert || {};
+    var select = document.querySelector('[data-key="flow.voiceModel"]');
+    var model = select ? select.value : settings.values['flow.voiceModel'];
+    return table[model] || {};
+  }
+
+  /**
+   * Grey the controls the chosen model will not act on, and say why.
+   *
+   * Run again whenever the model changes, so the answer is visible before a
+   * save rather than after a render that came out the same as the last one.
+   */
+  function applyInert(bodyId) {
+    var inert = inertNow();
+    Array.prototype.forEach.call($(bodyId).querySelectorAll('[data-key]'), function (el) {
+      var row = el.closest('.row');
+      if (!row) return;
+      var why = inert[el.dataset.key];
+      row.classList.toggle('inert', !!why);
+      el.disabled = !!why;
+      var note = row.querySelector('.d.ignored');
+      if (why && !note) {
+        note = document.createElement('div');
+        note.className = 'd ignored';
+        row.querySelector('div').appendChild(note);
+      }
+      if (note) { note.textContent = why || ''; note.hidden = !why; }
+    });
+  }
+
   function rows(fields) {
+    var inert = inertNow();
     return fields.map(function (f) {
-      return '<div class="row"><div><div class="k">' + esc(f.label) + '</div>' +
-        (f.help ? '<div class="d">' + esc(f.help) + '</div>' : '') + '</div>' +
-        '<div class="ctl">' + control(f, settings.values[f.key]) + '</div>' +
+      // A control the chosen voice model will not act on is not a control. It
+      // stays visible, because its value is real and will come back the moment
+      // the model changes, but it says so and cannot be moved.
+      var why = inert[f.key];
+      return '<div class="row' + (why ? ' inert' : '') + '"><div><div class="k">' + esc(f.label) + '</div>' +
+        (f.help ? '<div class="d">' + esc(f.help) + '</div>' : '') +
+        (why ? '<div class="d ignored">' + esc(why) + '</div>' : '') + '</div>' +
+        '<div class="ctl">' + control(f, settings.values[f.key], !!why) + '</div>' +
         '<div class="unit">' + esc(f.unit || '') + '</div></div>';
     }).join('');
   }
@@ -1343,6 +1387,11 @@
     loadFontFaces();
     wireFontPickers($(bodyId));
     wireSoundPickers($(bodyId));
+
+    // Which settings are live depends on the model, so the answer changes as
+    // soon as somebody picks a different one - not after the next save.
+    var model = $(bodyId).querySelector('[data-key="flow.voiceModel"]');
+    if (model) model.addEventListener('change', function () { applyInert(bodyId); });
 
     // Keep each swatch and its hex box showing the same thing.
     Array.prototype.forEach.call($(bodyId).querySelectorAll('[data-fills]'), function (sw) {

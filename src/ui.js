@@ -163,6 +163,11 @@ function createApp(options = {}) {
       style,
       styles: listThemes(),
       values,
+      // Controls the chosen voice model will not act on, with the reason. The
+      // API takes every setting for every model and quietly ignores the ones it
+      // does not implement, so a control that does nothing looks exactly like
+      // one that works until somebody wonders why their video never changes.
+      inert: settingsStore.inertByModel(),
       fonts,
       voices,
       sounds: sounds.scan(projectDir),

@@ -15,12 +15,86 @@ const DEFAULT_MODEL = 'eleven_multilingual_v2';
  * The models worth offering, and whether they take a language code. Kept here
  * rather than in the settings list so one place knows what ElevenLabs has.
  */
+/**
+ * The models, and what each of them actually listens to.
+ *
+ * This table exists because the API accepts every setting for every model and
+ * silently ignores the ones that model does not implement. Ask v3 to read at
+ * 0.85 speed and you get a 200, a clip, a bill, and a voice reading at exactly
+ * the pace it always does. Nothing anywhere says so.
+ *
+ * ElevenLabs' own documentation is where these come from: "Speed is not
+ * available for the Eleven v3 model", and the same for Similarity and Speaker
+ * Boost. language_code is "not supported for multilingual_v2 models".
+ *
+ * Two things follow. The window can grey out a control the chosen model will
+ * ignore instead of offering it and doing nothing. And a setting that is going
+ * to be ignored is dropped before the request, which keeps it out of the cache
+ * key - otherwise moving a slider that changes nothing invalidates the cache
+ * and buys a fresh, identical clip at full price.
+ */
 const MODELS = [
-  { id: 'eleven_multilingual_v2', label: 'Multilingual v2', languageCode: false },
-  { id: 'eleven_v3', label: 'v3', languageCode: true },
-  { id: 'eleven_turbo_v2_5', label: 'Turbo v2.5', languageCode: true },
-  { id: 'eleven_flash_v2_5', label: 'Flash v2.5', languageCode: true },
+  {
+    id: 'eleven_multilingual_v2',
+    label: 'Multilingual v2',
+    languageCode: false,
+    supports: ['stability', 'similarity_boost', 'style', 'speed', 'use_speaker_boost'],
+  },
+  {
+    id: 'eleven_v3',
+    label: 'v3',
+    languageCode: true,
+    supports: ['stability', 'style'],
+  },
+  {
+    id: 'eleven_turbo_v2_5',
+    label: 'Turbo v2.5',
+    languageCode: true,
+    supports: ['stability', 'similarity_boost', 'style', 'speed', 'use_speaker_boost'],
+  },
+  {
+    id: 'eleven_flash_v2_5',
+    label: 'Flash v2.5',
+    languageCode: true,
+    supports: ['stability', 'similarity_boost', 'style', 'speed', 'use_speaker_boost'],
+  },
 ];
+
+const BY_ID = new Map(MODELS.map((m) => [m.id, m]));
+
+/** What this model listens to. An unknown id is assumed to take everything. */
+function modelSupport(modelId) {
+  const model = BY_ID.get(modelId);
+  return model ? model.supports : MODELS[0].supports;
+}
+
+/** Does this model read the top-level language_code? */
+function takesLanguageCode(modelId) {
+  const model = BY_ID.get(modelId);
+  return model ? model.languageCode : true;
+}
+
+/**
+ * The voice settings this model will actually act on, and the names of the ones
+ * that were dropped because it will not.
+ *
+ * Dropped, not sent-and-ignored, so the cache key only ever covers things that
+ * can change the sound.
+ */
+function settingsForModel(voiceSettings, modelId) {
+  const allowed = modelSupport(modelId);
+  const kept = {};
+  const dropped = [];
+  for (const [name, value] of Object.entries(voiceSettings || {})) {
+    if (allowed.includes(name)) kept[name] = value;
+    else dropped.push(name);
+  }
+  return { settings: kept, dropped };
+}
+
+/** The ones a person set deliberately, for a warning worth reading. */
+const DEFAULTS_BY_NAME = { stability: 0.5, similarity_boost: 0.75, style: 0, speed: 1, use_speaker_boost: true };
+const wasSetDeliberately = (name, value) => DEFAULTS_BY_NAME[name] !== value;
 
 /**
  * Narration is generated before the browser starts, never during. That is what
@@ -175,7 +249,29 @@ async function synthesizeAll(steps, options = {}) {
     );
   }
 
-  const opts = { voiceId, modelId, apiKey, voiceSettings, languageCode: languageCode || null };
+  // Settings this model will ignore are dropped rather than sent. Sending them
+  // costs nothing at the API and everything in the cache: a slider that changes
+  // nothing would still change the key, and the next run would pay for a clip
+  // identical to the one it already had.
+  const { settings: usable, dropped } = settingsForModel(voiceSettings, modelId);
+  const deliberate = dropped.filter((name) => wasSetDeliberately(name, voiceSettings[name]));
+  if (deliberate.length) {
+    const label = (BY_ID.get(modelId) || {}).label || modelId;
+    log(`  ${label} does not use ${deliberate.join(' or ')}; ` +
+      `${deliberate.length === 1 ? 'that setting is' : 'those settings are'} being ignored`);
+  }
+  if (languageCode && !takesLanguageCode(modelId)) {
+    const label = (BY_ID.get(modelId) || {}).label || modelId;
+    log(`  ${label} has no language code; it follows the text instead, so "${languageCode}" is being ignored`);
+  }
+
+  const opts = {
+    voiceId,
+    modelId,
+    apiKey,
+    voiceSettings: usable,
+    languageCode: takesLanguageCode(modelId) ? (languageCode || null) : null,
+  };
   const results = [];
   let hits = 0;
   let misses = 0;
@@ -257,4 +353,5 @@ const truncate = (s, n = 60) => (s.length > n ? `${s.slice(0, n - 1)}...` : s);
 module.exports = {
   synthesizeAll, estimateDuration, cacheKey, defaultVoiceSettings, voiceSettingsFrom,
   polishLine, verifyKey, MODELS, DEFAULT_VOICE, DEFAULT_MODEL,
+  modelSupport, settingsForModel, takesLanguageCode,
 };

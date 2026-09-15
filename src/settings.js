@@ -31,8 +31,9 @@ const FIELDS = [
     key: 'flow.voiceModel',
     section: 'Narration',
     label: 'Model',
-    help: 'v3 is the most expressive and the only one that takes a language code. ' +
-      'Changing it regenerates every line.',
+    help: 'v3 is the most expressive, and the one that ignores the most settings: ' +
+      'no speed, no similarity, no speaker boost. Changing the model regenerates ' +
+      'every line.',
     type: 'select',
     options: require('./tts').MODELS.map((m) => ({ value: m.id, label: m.label })),
   },
@@ -40,9 +41,10 @@ const FIELDS = [
     key: 'flow.voiceLanguage',
     section: 'Narration',
     label: 'Language',
-    help: 'Two letters, such as nl or en. Pins how numbers and dates are read. ' +
-      'Multilingual v2 ignores it and follows the text instead.',
+    help: 'Two letters, such as nl or en. Pins how numbers and dates are read.',
     type: 'text', maxLength: 8, nullable: true,
+    // Greyed out, with this reason, when the chosen model will not use it.
+    needs: { setting: 'language_code' },
   },
   {
     key: 'flow.voiceStyle',
@@ -51,6 +53,7 @@ const FIELDS = [
     help: 'How far the voice leans into its own character. Past about half it ' +
       'starts to wander off the text.',
     type: 'number', min: 0, max: 1, step: 0.05,
+    needs: { setting: 'style' },
   },
   {
     key: 'flow.voiceSpeed',
@@ -58,6 +61,7 @@ const FIELDS = [
     label: 'Speed',
     help: 'One is the voice as it comes. Slower gives a walkthrough more room.',
     type: 'number', min: 0.7, max: 1.2, step: 0.05,
+    needs: { setting: 'speed' },
   },
   {
     key: 'flow.voiceId',
@@ -109,10 +113,11 @@ const FIELDS = [
   {
     key: 'flow.settleMs',
     section: 'Pacing',
-    label: 'Wait after a page loads',
-    help: 'Held before the line for that step starts. A site that fetches its own ' +
-      'content has nothing on screen when the browser says it has loaded, and the ' +
-      'narration would talk over a blank page.',
+    label: 'Quiet before a page counts as loaded',
+    help: 'How long the page has to stop changing, with nothing still being ' +
+      'fetched, before the recording moves on. It is not a fixed pause: a site ' +
+      'that is already finished pays exactly this, one still assembling itself ' +
+      'pays until it stops.',
     type: 'number', unit: 'ms', min: 0, max: 10000,
   },
   {
@@ -568,6 +573,47 @@ function mergeDeep(base, patch) {
   return out;
 }
 
+/**
+ * Which narration fields the chosen model will actually act on.
+ *
+ * The API takes every setting for every model and quietly ignores the ones that
+ * model does not implement, so a control that does nothing looks exactly like
+ * one that works. Returns { key: reason } for the fields to grey out.
+ */
+function inertFields(modelId) {
+  const tts = require('./tts');
+  const id = modelId || tts.DEFAULT_MODEL;
+  const model = tts.MODELS.find((m) => m.id === id);
+  const label = model ? model.label : id;
+  const out = {};
+  for (const field of FIELDS) {
+    if (!field.needs) continue;
+    const name = field.needs.setting;
+    const live = name === 'language_code'
+      ? tts.takesLanguageCode(id)
+      : tts.modelSupport(id).includes(name);
+    if (live) continue;
+    out[field.key] = name === 'language_code'
+      ? `${label} has no language code. It follows the text instead.`
+      : `${label} does not use this. Changing it will not change the voice.`;
+  }
+  return out;
+}
+
+/**
+ * The same answer for every model, so the window can grey a control the moment
+ * somebody picks a different model rather than after a save and a reload.
+ *
+ * Sent rather than worked out in the page, because which model ignores what is
+ * a fact about ElevenLabs, and there should be one copy of it.
+ */
+function inertByModel() {
+  const { MODELS } = require('./tts');
+  const out = {};
+  for (const model of MODELS) out[model.id] = inertFields(model.id);
+  return out;
+}
+
 /** Pull the current value of every field out of a loaded theme and flow. */
 function readValues(theme, flow) {
   const values = {};
@@ -799,6 +845,8 @@ function applySecrets(dir, env = process.env) {
 
 module.exports = {
   applyFlowLayer,
+  inertFields,
+  inertByModel,
   FIELDS, SETTINGS_FILE, SECRETS_FILE, NARRATION_KEY, DEFAULT_STYLE,
   settingsPath, secretsPath,
   loadSettings, saveSettings, saveStyleChoice, readValues, toLayer, mergeDeep,

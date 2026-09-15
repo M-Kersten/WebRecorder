@@ -38,7 +38,14 @@ async function record(flow, theme, audio, options = {}) {
   const browser = await launch({
     headless,
     slowMo,
-    args: ['--force-color-profile=srgb', '--font-render-hinting=none', '--disable-lcd-text'],
+    args: [
+      '--force-color-profile=srgb', '--font-render-hinting=none', '--disable-lcd-text',
+      // What Chromium paints where no document has painted yet. Its own default
+      // is white, and that white is the first frame of every recording: one
+      // bright flash before the stage colour arrives, on a video that is meant
+      // to open on the brand's background.
+      `--default-background-color=${argb(theme.video.backgroundColor)}`,
+    ],
   });
 
   const context = await browser.newContext({
@@ -78,14 +85,18 @@ async function record(flow, theme, audio, options = {}) {
       const enteredAt = now();
       log(`  [${String(i + 1).padStart(2)}/${flow.steps.length}] ${describeStep(step)}`);
 
-      const targetRect = await runStep(page, step, flow, theme, { log: (m) => log(`       ${m}`) });
+      const stepLog = (m) => log(`       ${m}`);
+      const targetRect = await runStep(page, step, flow, theme, { log: stepLog });
+      const navigated = await settleAfterNavigation(page, flow, {
+        log: stepLog, timeout: timeoutFor(step, flow),
+      });
 
       // A navigation has nothing to look at until it has finished. Timing the
       // line from the moment the address changed means the voice describes a
       // page that is still blank, and everything after it sits a page load
       // early. Every other action is visible as it happens, so it counts from
       // the start.
-      const startSec = step.action === 'goto' ? now() : enteredAt;
+      const startSec = (step.action === 'goto' || navigated) ? now() : enteredAt;
 
       // The hint goes up once the action has happened, so it explains what the
       // viewer is looking at rather than covering it on the way in.
@@ -155,18 +166,17 @@ async function runStep(page, step, flow, theme, options = {}) {
         await page.waitForFunction(() => window.__tutOverlayReady === true, null, { timeout: 5000 })
           .catch(() => {});
       }
-      // The cookie wall comes down before the clock starts, so it never appears
-      // in the video and never pushes the narration out of step. It runs
-      // alongside the settle rather than after it: both are waiting for the
-      // same page to finish arriving, and doing them in turn puts two or three
-      // seconds of nothing into the video on every navigation.
+      // The cookie wall comes down while the page is still behind the curtain,
+      // so the banner never reaches the video and never pushes the narration
+      // out of step. It runs alongside the settle rather than after it: both
+      // are waiting for the same page to arrive, and doing them in turn puts
+      // two or three seconds of nothing into the video per navigation.
       const settleMs = Number.isFinite(flow.settleMs) ? flow.settleMs : 600;
       await Promise.all([
         flow.dismiss ? dismissConsent(page, flow.dismiss, { log }) : null,
-        // "load" fires before a site that fetches its own content has anything
-        // on screen. This is the beat that lets it arrive.
-        page.waitForTimeout(settleMs),
+        settled(page, { settleMs, timeout, log }),
       ].filter(Boolean));
+      if (overlay) await lowerCurtain(page);
       return null;
     }
     case 'click': {
@@ -259,6 +269,118 @@ async function runStep(page, step, flow, theme, options = {}) {
 }
 
 /**
+ * Wait until the page has stopped changing, or until the budget runs out.
+ *
+ * `load` is not the same question. It fires when the document and its subresources
+ * are in, which on anything built this decade is the moment before the real work
+ * starts: the shell is up, a fetch is in flight, and the content lands a beat
+ * later. A fixed pause is a guess about somebody else's network - too short and
+ * the video shows a skeleton, too long and every navigation costs seconds of
+ * nothing.
+ *
+ * So: watch the DOM, and call it settled once `settleMs` has passed with nothing
+ * changing. A page that was already finished pays exactly `settleMs`; a page
+ * still assembling itself pays until it stops, up to the step's own timeout.
+ *
+ * Mutations are counted in the page rather than streamed out, because a busy
+ * hydration can fire thousands and each one would otherwise be a round trip.
+ */
+async function settled(page, { settleMs = 600, timeout = 15000, stuckMs = 3000, log = () => {} } = {}) {
+  const started = Date.now();
+  const installed = await page.evaluate(() => {
+    if (window.__tutQuiet) { window.__tutQuiet.at = Date.now(); return true; }
+    const state = { at: Date.now() };
+    const bump = () => { state.at = Date.now(); };
+    state.observer = new MutationObserver(bump);
+    state.observer.observe(document.documentElement, {
+      childList: true, subtree: true, attributes: true, characterData: true,
+    });
+    window.__tutQuiet = state;
+    return true;
+  }).catch(() => false);
+
+  // No page to ask - about:blank, or a navigation under way. Fall back to the
+  // fixed pause rather than skipping the wait entirely.
+  if (!installed) {
+    await page.waitForTimeout(settleMs);
+    return { quiet: false, ms: settleMs };
+  }
+
+  const stop = () => page.evaluate(() => {
+    if (!window.__tutQuiet) return;
+    window.__tutQuiet.observer.disconnect();
+    delete window.__tutQuiet;
+  }).catch(() => {});
+
+  try {
+    await page.waitForFunction(
+      ({ ms, stuck }) => {
+        if (!window.__tutQuiet) return false;
+        const still = Date.now() - window.__tutQuiet.at;
+        // A request in the air is a change that has not happened yet, so the
+        // page cannot be finished however still it looks. __tutNet is the
+        // injected script's counter; without one (a rehearsal, say) the DOM is
+        // the whole answer.
+        const net = window.__tutNet;
+        if (!net) return still >= ms;
+        // Unless it has been in the air for a while and changed nothing. A
+        // long poll, a websocket fallback, an analytics beacon that never
+        // returns: plenty of sites hold a connection open for the whole visit,
+        // and what matters here is the picture, not the network. The network is
+        // only ever evidence that the picture is about to move.
+        if (net.inflight > 0) return still >= stuck;
+        return Date.now() - Math.max(window.__tutQuiet.at, net.at) >= ms;
+      },
+      { ms: settleMs, stuck: stuckMs },
+      { timeout, polling: 100 }
+    );
+    // Watching every node in the subtree costs something on a busy page, and
+    // the recording proper is about to start. Take it off again.
+    await stop();
+    return { quiet: true, ms: Date.now() - started };
+  } catch {
+    await stop();
+    // Something on the page never stops moving: a carousel, a clock, a spinner
+    // that outlived its request. Nothing is wrong with the recording, so say so
+    // once and carry on rather than failing a take over an animation.
+    log(`the page never stopped changing; recording it as it is after ` +
+      `${((Date.now() - started) / 1000).toFixed(1)}s`);
+    return { quiet: false, ms: Date.now() - started };
+  }
+}
+
+/**
+ * A step that navigated leaves a fresh curtain up, and the curtain's presence
+ * is the signal: only a new document can have one, because only a new document
+ * runs the injected script again.
+ *
+ * Clicking a link is a page load like any other. Without this it would be a
+ * load the viewer watches, with the narration for that step already running
+ * over it.
+ */
+async function settleAfterNavigation(page, flow, { log = () => {}, timeout = 15000 } = {}) {
+  const up = await page.evaluate(() => !!document.querySelector('[data-tut-curtain]'))
+    .catch(() => false);
+  if (!up) return false;
+
+  const settleMs = Number.isFinite(flow.settleMs) ? flow.settleMs : 600;
+  await Promise.all([
+    flow.dismiss ? dismissConsent(page, flow.dismiss, { log }) : null,
+    settled(page, { settleMs, timeout, log }),
+  ].filter(Boolean));
+  await lowerCurtain(page);
+  return true;
+}
+
+/** Fade the stage away, and wait for the fade so the next step is not behind it. */
+async function lowerCurtain(page) {
+  const waited = await page.evaluate(
+    () => (window.__tutCurtainDown ? window.__tutCurtainDown().then(() => true) : false)
+  ).catch(() => false);
+  return waited;
+}
+
+/**
  * Take the ring and the hint down between steps, and wait out their fades so
  * the next step does not start over the top of them.
  */
@@ -327,6 +449,13 @@ async function moveCursor(page, target, theme) {
   ).catch(() => {});
   // Also move the real mouse so hover styles fire under the drawn cursor.
   await page.mouse.move(target.x, target.y).catch(() => {});
+}
+
+/** #RGB or #RRGGBB as the AARRGGBB Chromium wants, fully opaque. */
+function argb(hex) {
+  const v = String(hex || '').replace('#', '');
+  const full = v.length === 3 ? v.split('').map((c) => c + c).join('') : v;
+  return `FF${(full.length === 6 ? full : '0F1115').toUpperCase()}`;
 }
 
 function resolveUrl(url, baseUrl) {
@@ -408,5 +537,6 @@ function sessionPath(flow) {
 
 module.exports = {
   record, runStep, resolveUrl, readingTimeMs, describeStep, showHighlight,
-  authenticate, sessionIsFresh, sessionPath,
+  authenticate, sessionIsFresh, sessionPath, settled, lowerCurtain, settleAfterNavigation,
+  argb,
 };

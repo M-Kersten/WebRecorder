@@ -141,6 +141,11 @@ const DEFAULTS = {
     // a recording that does not fill the frame. Without it the video opens on a
     // flash of blank white while the browser is still on about:blank.
     backgroundColor: '#0F1115',
+    // Hold this colour over a page while it loads, and fade it away once the
+    // page has stopped moving. A site being fetched, parsed and hydrated is not
+    // something anybody wants in a walkthrough.
+    curtain: true,
+    curtainFadeMs: 260,
   },
 };
 
@@ -555,6 +560,12 @@ function validateVideo(theme, abs) {
   // wall of ffmpeg output halfway through the run.
   if (width % 2 || height % 2) {
     throw new ThemeError(`${abs}: video.width and video.height must both be even (H.264 requirement)`);
+  }
+  const fade = theme.video.curtainFadeMs;
+  if (!(Number.isFinite(fade) && fade >= 0 && fade <= 5000)) {
+    throw new ThemeError(
+      `${abs}: video.curtainFadeMs must be between 0 and 5000 (got ${JSON.stringify(fade)})`
+    );
   }
 }
 
