@@ -72,7 +72,9 @@ function selectorsFor(dismiss) {
  * away is a thing to mention in the log, not a reason to abandon a recording.
  */
 async function dismissConsent(page, dismiss, options = {}) {
-  const { timeoutMs = 2000, pollMs = 150, log = () => {} } = options;
+  // 1500ms, because this now runs alongside the settle wait rather than after
+  // it: the budget is what a navigation costs, not what it costs on top.
+  const { timeoutMs = 1500, pollMs = 150, log = () => {} } = options;
   const selectors = selectorsFor(dismiss);
   if (!selectors.length) return null;
 

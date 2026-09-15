@@ -165,7 +165,7 @@ test('Styles and Settings are two pages, each with its own sections', async () =
     await page.click('#tab-btn-settings');
     await page.waitForSelector('#tab-settings', { state: 'visible' });
     assert.deepStrictEqual(await railNames(page, 'settings-rail'),
-      ['Narration', 'Pacing', 'Passwords']);
+      ['Narration', 'Pacing', 'The site', 'Passwords']);
     assert.deepStrictEqual(errors, []);
   });
 });
@@ -263,4 +263,93 @@ test('picking a font sets it, closes the list, and saves', async () => {
     const written = JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8'));
     assert.strictEqual(written.styles['theme.json'].hints.font, 'space-grotesk-bold');
   });
+});
+
+/**
+ * The check, driven from the window against a real site.
+ *
+ * A walkthrough is recorded once and re-rendered for months while the site
+ * underneath keeps moving, so the question this answers - does step 4 still
+ * work - is the one people ask most often and the most expensive one to answer
+ * by rendering.
+ */
+test('checking the steps marks the one that broke, on the step itself', async () => {
+  const { serveStatic } = require('../src/server');
+  const site = fs.mkdtempSync(path.join(os.tmpdir(), 'tutvid-site-'));
+  fs.writeFileSync(path.join(site, 'index.html'),
+    '<!doctype html><body><button id="open">Open</button></body>');
+  const server = await serveStatic(site);
+
+  try {
+    await withWindow(async ({ page }) => {
+      await page.waitForSelector('#board', { state: 'visible' });
+      assert.strictEqual(await page.textContent('#check-pill'), 'Not checked');
+
+      await page.click('#check');
+      await page.waitForFunction(
+        () => document.getElementById('check-pill').textContent !== 'Not checked',
+        null, { timeout: 60000 }
+      );
+
+      assert.strictEqual(await page.textContent('#check-pill'), 'Something broke');
+      const rows = await page.$$eval('.check-row', (els) => els.map((e) => e.textContent));
+      assert.strictEqual(rows.length, 3, 'one row per step, including the ones not tried');
+      assert.match(rows[1], /#gone/, 'the step that broke names what it was looking for');
+      assert.match(rows[2], /not tried/);
+
+      // And on the filmstrip, which is where people are actually looking.
+      const marks = await page.$$eval('.frame',
+        (els) => els.map((e) => e.className.replace('frame', '').trim()));
+      assert.ok(marks[1].includes('broke'), `step 2 reads as ${marks[1]}`);
+      assert.ok(marks[2].includes('untried'), `step 3 reads as ${marks[2]}`);
+    }, {
+      name: 'Check me',
+      baseUrl: server.url,
+      steps: [
+        { action: 'goto', url: server.url, narration: 'Here it is.' },
+        { action: 'click', selector: '#gone', timeoutMs: 1200 },
+        { action: 'click', selector: '#open' },
+      ],
+    });
+  } finally {
+    await server.close();
+    fs.rmSync(site, { recursive: true, force: true });
+  }
+});
+
+test('a check that passes says so, and leaves nothing marked', async () => {
+  const { serveStatic } = require('../src/server');
+  const site = fs.mkdtempSync(path.join(os.tmpdir(), 'tutvid-site-ok-'));
+  fs.writeFileSync(path.join(site, 'index.html'),
+    '<!doctype html><body><button id="open" ' +
+    'onclick="document.getElementById(\'p\').hidden=false">Open</button>' +
+    '<div id="p" hidden>Panel</div></body>');
+  const server = await serveStatic(site);
+
+  try {
+    await withWindow(async ({ page, errors }) => {
+      await page.waitForSelector('#board', { state: 'visible' });
+      await page.click('#check');
+      await page.waitForFunction(
+        () => document.getElementById('check-pill').textContent !== 'Not checked',
+        null, { timeout: 60000 }
+      );
+
+      assert.strictEqual(await page.textContent('#check-pill'), 'Every step works');
+      const marks = await page.$$eval('.frame', (els) => els.map((e) => e.className));
+      assert.ok(marks.every((m) => !/broke|untried/.test(m)), marks.join(' | '));
+      assert.deepStrictEqual(errors, []);
+    }, {
+      name: 'Fine',
+      baseUrl: server.url,
+      steps: [
+        { action: 'goto', url: server.url },
+        { action: 'click', selector: '#open' },
+        { action: 'waitFor', selector: '#p' },
+      ],
+    });
+  } finally {
+    await server.close();
+    fs.rmSync(site, { recursive: true, force: true });
+  }
 });

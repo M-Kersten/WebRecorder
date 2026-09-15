@@ -15,7 +15,7 @@ const { renderCard } = require('./titlecard');
 const ff = require('./ffmpeg');
 const { serveStatic } = require('./server');
 const { createWorkDir, removeWorkDir } = require('./workdir');
-const { loadSettings, applySecrets, SETTINGS_FILE } = require('./settings');
+const { loadSettings, applySecrets, applyFlowLayer, SETTINGS_FILE } = require('./settings');
 const { capture } = require('./capture');
 const { rehearse, describeRehearsal } = require('./rehearse');
 
@@ -276,7 +276,7 @@ async function main(argv) {
   );
   if (args.printTheme) { write(describeTheme(theme)); return 0; }
 
-  const flow = Object.assign(loadFlow(args.flow), settings.flow);
+  const flow = applyFlowLayer(loadFlow(args.flow), settings.flow);
   // Passwords saved from the window, for anything the environment has not set.
   applySecrets(path.dirname(path.resolve(args.settings)));
   const secretsUsed = resolveFlowSecrets(flow);

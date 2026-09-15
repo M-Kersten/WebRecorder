@@ -3,7 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const { readJson, ConfigError } = require('./config');
+const { readJson, ConfigError, validateViewport, validateDismiss } = require('./config');
 
 /**
  * The settings a person can change from the app window.
@@ -128,6 +128,41 @@ const FIELDS = [
     label: 'Pause after each step',
     help: 'Added once the narration for a step has finished.',
     type: 'number', unit: 'ms', min: 0, max: 10000,
+  },
+  {
+    key: 'flow.timeoutMs',
+    section: 'The site',
+    label: 'How long to wait for anything',
+    help: 'Before a step gives up on the thing it is pointing at. Fifteen seconds ' +
+      'suits a site that is already warm. A staging box that has to start up ' +
+      'first needs more, and telling it so here is cheaper than losing a take.',
+    type: 'number', unit: 'ms', min: 500, max: 120000,
+  },
+  {
+    key: 'flow.dismiss.builtins',
+    section: 'The site',
+    label: 'Close cookie banners',
+    help: 'Tries the accept buttons of the usual consent platforms, before the ' +
+      'clock starts, so the banner never reaches the video and never pushes the ' +
+      'narration out of step. Turn it off if your own banner is the thing you ' +
+      'want to show.',
+    type: 'boolean',
+  },
+  {
+    key: 'flow.viewportPreset',
+    section: 'The site',
+    label: 'Record the site at',
+    help: 'The window the site is shown in, which is not the frame the video is ' +
+      'delivered in. A phone-shaped walkthrough of a responsive site is ' +
+      'letterboxed onto the style\u2019s background.',
+    type: 'select',
+    options: [
+      { value: '', label: 'The same size as the video' },
+      { value: 'desktop', label: 'Desktop, 1920 \u00d7 1080' },
+      { value: 'laptop', label: 'Laptop, 1440 \u00d7 900' },
+      { value: 'tablet', label: 'Tablet, 1024 \u00d7 1366' },
+      { value: 'phone', label: 'Phone, 390 \u00d7 844' },
+    ],
   },
   {
     key: 'theme.hints.fadeMs',
@@ -488,6 +523,33 @@ function loadSettings(file, styleFile = null) {
   return { theme: styles[wanted] || {}, flow: raw.flow || {}, style, styles };
 }
 
+/**
+ * Put the window's flow settings onto a flow that has already been validated.
+ *
+ * A plain Object.assign is wrong for two of these. `dismiss` arrives from the
+ * form as `{ builtins: false }` and would replace the whole validated object,
+ * taking the flow's own consent selectors with it. And the form writes a
+ * viewport *preset name*, which the flow needs as a size.
+ *
+ * Both places that merge a layer - the render and the check - go through here,
+ * so there is one answer rather than two that drift.
+ */
+function applyFlowLayer(flow, layer) {
+  const { viewportPreset, dismiss, ...rest } = layer || {};
+  Object.assign(flow, rest);
+
+  if (dismiss !== undefined) {
+    flow.dismiss = validateDismiss(
+      { ...(flow.dismiss || {}), ...(typeof dismiss === 'object' ? dismiss : {}) },
+      'settings'
+    );
+  }
+  if (viewportPreset !== undefined) {
+    flow.viewport = validateViewport(viewportPreset || null, 'settings');
+  }
+  return flow;
+}
+
 /** Everything in settings.json, untouched, for a save to merge into. */
 function readRaw(file) {
   const abs = path.resolve(file);
@@ -514,6 +576,11 @@ function readValues(theme, flow) {
     const source = root === 'theme' ? theme : flow;
     values[field.key] = rest.reduce((o, k) => (o == null ? undefined : o[k]), source);
   }
+  // The form asks for a preset name; the flow holds the size it resolved to.
+  // A viewport written as an explicit width and height has no preset, and
+  // reading back as "the same size as the video" would quietly discard it on
+  // the next save, so it is left blank and the select shows nothing chosen.
+  values['flow.viewportPreset'] = (flow && flow.viewport && flow.viewport.preset) || '';
   return values;
 }
 
@@ -731,6 +798,7 @@ function applySecrets(dir, env = process.env) {
 }
 
 module.exports = {
+  applyFlowLayer,
   FIELDS, SETTINGS_FILE, SECRETS_FILE, NARRATION_KEY, DEFAULT_STYLE,
   settingsPath, secretsPath,
   loadSettings, saveSettings, saveStyleChoice, readValues, toLayer, mergeDeep,

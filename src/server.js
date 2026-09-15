@@ -15,9 +15,14 @@ const TYPES = {
 
 /**
  * A static server for the bundled demo site, so the demo flow can use ordinary
- * http:// URLs instead of file://. Nothing else depends on it.
+ * http:// URLs instead of file://.
+ *
+ * Port 0, so the operating system picks one that is free. A fixed number means
+ * the tool refuses to start because something unrelated happens to be holding
+ * it, and nothing here cares what the number is: the caller is handed the url
+ * this resolved to.
  */
-function serveStatic(root, port = 8099) {
+function serveStatic(root, port = 0) {
   const base = path.resolve(root);
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://localhost');

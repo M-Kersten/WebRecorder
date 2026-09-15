@@ -196,6 +196,20 @@
   }
   .frame:hover { border-color: var(--edge); }
   .frame.sel { border-color: var(--ink); }
+  .frame.broke { border-color: var(--warn-ink); }
+  .frame.untried { opacity: .5; }
+
+  /* ---------- the check ---------- */
+  .check-rows { display: grid; gap: 1px; background: var(--edge); border-radius: 12px; overflow: hidden; }
+  .check-row {
+    display: grid; grid-template-columns: 26px 1fr auto; gap: 12px; align-items: baseline;
+    background: var(--card); padding: 11px 14px; font-size: 13.5px;
+  }
+  .check-row .n { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12.5px; }
+  .check-row .why { display: block; color: var(--warn-ink); font-size: 12.5px; margin-top: 3px; }
+  .check-row .slow { display: block; color: var(--open-ink); font-size: 12.5px; margin-top: 3px; }
+  .check-row.bad { background: var(--warn-bg); }
+  .check-row.skipped { color: var(--muted); }
   .frame .shot {
     aspect-ratio: 16 / 10; border-radius: 9px; background: var(--sunken);
     overflow: hidden; display: grid; place-items: center; margin-bottom: 10px;
@@ -613,6 +627,22 @@
         </div>
       </section>
 
+      <section class="card" id="check-card">
+        <div class="panel-head">
+          <h3>Does it still work?</h3>
+          <span class="where">Walks your site again without making a video, so a
+            renamed button costs twenty seconds instead of a full render.</span>
+          <div class="end"><span class="pill" id="check-pill">Not checked</span></div>
+        </div>
+        <div class="render-row" id="check-results" hidden></div>
+        <div class="render-row">
+          <div class="sub" id="check-note">Worth doing before a render if the site has changed since you recorded.</div>
+          <div class="acts">
+            <button class="btn" id="check" type="button">Check the steps</button>
+          </div>
+        </div>
+      </section>
+
       <section class="card" id="render-card">
         <div class="panel-head">
           <h3>Make the video</h3>
@@ -767,7 +797,8 @@
     });
     if (tab !== 'board') return;
 
-    var busy = live.phase === 'capturing' || live.phase === 'rendering';
+    var busy = live.phase === 'capturing' || live.phase === 'rendering'
+      || live.phase === 'checking';
     var hasBoard = story.exists && story.steps.length > 0;
     var starting = !busy && (restarting || !hasBoard);
 
@@ -781,7 +812,9 @@
       var capturing = live.phase === 'capturing';
       $('busy-text').innerHTML = capturing
         ? '<b>Recording.</b> Use the browser window that just opened.'
-        : '<b>Making your video.</b> A minute or two, depending on how long it is.';
+        : live.phase === 'checking'
+          ? '<b>Checking your steps.</b> Walking the site, without making a video.'
+          : '<b>Making your video.</b> A minute or two, depending on how long it is.';
       $('busy-walk').hidden = !capturing;
       var log = $('busy-log');
       log.textContent = live.log.join('\n');
@@ -822,6 +855,8 @@
     paintStrip();
     paintEditor();
 
+    paintCheck();
+
     $('render-pill').textContent = live.hasVideo ? 'Made' : 'Not made yet';
     $('render-pill').className = 'pill' + (live.hasVideo ? ' ok' : '');
     $('player-row').hidden = !live.hasVideo;
@@ -843,11 +878,18 @@
   }
 
   function paintStrip() {
+    var check = checkByIndex();
     $('strip').innerHTML = story.steps.map(function (s, i) {
       var shot = s.hasShot
         ? '<img src="/api/shot?i=' + i + '&v=' + shotVersion + '&token=' + TOKEN + '" alt="">'
         : '<span class="none">no picture</span>';
-      return '<button type="button" class="frame' + (i === selected ? ' sel' : '') + '" data-i="' + i + '">' +
+      // A failed check shows on the step itself. Reading a log to find out
+      // which one broke is exactly the work this was meant to save.
+      var mark = check.has ? (check.byIndex[i]
+        ? (check.byIndex[i].ok ? '' : ' broke')
+        : ' untried') : '';
+      return '<button type="button" class="frame' + (i === selected ? ' sel' : '') + mark +
+        '" data-i="' + i + '">' +
         '<span class="shot">' + shot + '</span>' +
         '<span class="line"><b>Step ' + (i + 1) + '</b>' +
         '<span class="t num">' + secs(s.estimateMs) + '</span></span>' +
@@ -860,10 +902,79 @@
     if (chosen) chosen.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }
 
+  /**
+   * The last check, keyed by step, and whether there was one at all.
+   *
+   * A check goes stale the moment the steps change, so a recording made after
+   * it is treated as no check rather than a green one.
+   */
+  function checkByIndex() {
+    var c = live.check;
+    if (!c || !c.steps) return { has: false, byIndex: {} };
+    var byIndex = {};
+    c.steps.forEach(function (r) { byIndex[r.index] = r; });
+    return { has: true, ok: c.ok, byIndex: byIndex, notReached: c.notReached, at: c.at };
+  }
+
+  function paintCheck() {
+    var c = live.check;
+    var pill = $('check-pill');
+    var rows = $('check-results');
+
+    if (!c) {
+      pill.textContent = 'Not checked';
+      pill.className = 'pill';
+      rows.hidden = true;
+      $('check-note').textContent =
+        'Worth doing before a render if the site has changed since you recorded.';
+      return;
+    }
+
+    pill.textContent = c.ok ? 'Every step works' : 'Something broke';
+    pill.className = 'pill ' + (c.ok ? 'ok' : 'bad');
+    rows.hidden = false;
+
+    var seen = {};
+    c.steps.forEach(function (r) { seen[r.index] = r; });
+
+    var html = story.steps.map(function (step, i) {
+      var r = seen[i];
+      if (!r) {
+        return '<div class="check-row skipped"><span class="n">' + (i + 1) + '</span>' +
+          '<span>' + esc(describe(step)) + '</span><span class="n">not tried</span></div>';
+      }
+      var why = '';
+      if (!r.ok) {
+        why = '<span class="why">' + esc(r.error || 'it did not work') + '</span>';
+        (r.notes || []).forEach(function (n) { why += '<span class="why">' + esc(n) + '</span>'; });
+      } else if (r.matches > 1) {
+        why = '<span class="slow">matches ' + r.matches +
+          ' elements on the page; the recording uses the first one you can see</span>';
+      } else if (r.ms > 5000) {
+        why = '<span class="slow">took ' + (r.ms / 1000).toFixed(1) +
+          's, which is long enough that it may not always finish in time</span>';
+      }
+      return '<div class="check-row' + (r.ok ? '' : ' bad') + '">' +
+        '<span class="n">' + (i + 1) + '</span>' +
+        '<span>' + esc(describe(step)) + why + '</span>' +
+        '<span class="n">' + (r.ms / 1000).toFixed(1) + 's</span></div>';
+    }).join('');
+
+    rows.innerHTML = '<div class="check-rows" style="width:100%">' + html + '</div>';
+    $('check-note').textContent = c.ok
+      ? 'Checked just now. Nothing in the way of a render.'
+      : 'The steps after the one that broke were not tried: the page never got to ' +
+        'the state they expect.';
+  }
+
   function describe(step) {
     var what = step.label || step.target || '';
     if (step.action === 'goto') return 'opens ' + (what || 'the page');
     if (step.action === 'wait') return 'waits';
+    if (step.action === 'waitFor') {
+      return 'waits for ' + (what || 'the page') +
+        (step.state && step.state !== 'visible' ? ' to be ' + step.state : '');
+    }
     if (step.action === 'type') return (step.secret ? 'types a password' : 'types') + (what ? ' into ' + what : '');
     return step.action + (what ? ' ' + what : '');
   }
@@ -1537,6 +1648,13 @@
   $('start-cancel').addEventListener('click', function () {
     restarting = false;
     paint();
+  });
+
+  $('check').addEventListener('click', function () {
+    $('check').disabled = true;
+    api('/api/check', {}).catch(function (err) {
+      $('board-notices').innerHTML = '<div class="notice bad">' + esc(err.message) + '</div>';
+    }).then(function () { $('check').disabled = false; });
   });
 
   $('render').addEventListener('click', function () {

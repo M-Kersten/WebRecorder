@@ -7,6 +7,7 @@ const os = require('os');
 const path = require('path');
 
 const settings = require('../src/settings');
+const { applyFlowLayer, readValues } = settings;
 const { loadTheme, deepMerge } = require('../src/theme');
 const { listPlaceholders } = require('../src/secrets');
 
@@ -388,4 +389,42 @@ test('the voice settings are ranged the way ElevenLabs is', () => {
   assert.throws(() => settings.toLayer({ 'flow.voiceSpeed': 0.5 }), /cannot be below 0.7/);
   assert.throws(() => settings.toLayer({ 'flow.voiceStyle': 1.4 }), /cannot be above 1/);
   assert.throws(() => settings.toLayer({ 'flow.voiceModel': 'eleven_made_up' }), /is not one of/);
+});
+
+test('turning cookie banners off keeps the flow’s own consent selectors', () => {
+  // The form sends { builtins: false } and nothing else. A plain assign would
+  // replace the whole object and take the flow's own selectors with it, which
+  // is a silent loss of the one thing somebody had to write by hand.
+  const flow = {
+    dismiss: { builtins: true, selectors: ['#our-own-wall'], frames: ['#cmp'] },
+  };
+  applyFlowLayer(flow, { dismiss: { builtins: false } });
+  assert.strictEqual(flow.dismiss.builtins, false);
+  assert.deepStrictEqual(flow.dismiss.selectors, ['#our-own-wall']);
+  assert.deepStrictEqual(flow.dismiss.frames, ['#cmp']);
+});
+
+test('the viewport arrives as a preset name and lands as a size', () => {
+  const flow = { viewport: null };
+  applyFlowLayer(flow, { viewportPreset: 'phone' });
+  assert.deepStrictEqual(flow.viewport,
+    { width: 390, height: 844, preset: 'phone', deviceScaleFactor: 1 });
+
+  applyFlowLayer(flow, { viewportPreset: '' });
+  assert.strictEqual(flow.viewport, null, 'blank means the frame the video is in');
+});
+
+test('a viewport written by hand is not turned into a preset behind your back', () => {
+  const flow = { viewport: { width: 1280, height: 720, deviceScaleFactor: 2, preset: null } };
+  const values = readValues({}, flow);
+  assert.strictEqual(values['flow.viewportPreset'], '',
+    'no preset matches it, and claiming one would discard the size on the next save');
+  // Nothing sent for it means nothing written: the hand-written size survives.
+  applyFlowLayer(flow, { timeoutMs: 30000 });
+  assert.strictEqual(flow.viewport.width, 1280);
+  assert.strictEqual(flow.timeoutMs, 30000);
+});
+
+test('a preset the window does not offer is refused, not written through', () => {
+  assert.throws(() => applyFlowLayer({}, { viewportPreset: 'watch' }), /viewport/);
 });

@@ -54,6 +54,7 @@ async function rehearse(flow, theme, options = {}) {
       try {
         await runStep(page, step, flow, REHEARSAL, {
           log: (m) => report.notes.push(m),
+          overlay: false,
         });
         report.ok = true;
         report.matches = await countMatches(page, step);

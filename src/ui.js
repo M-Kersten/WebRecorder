@@ -27,7 +27,7 @@ const { estimateFlow, breakdownStep } = require('./pacing');
  */
 
 const ROOT = path.join(__dirname, '..');
-const STATES = ['idle', 'capturing', 'captured', 'rendering', 'done', 'error'];
+const STATES = ['idle', 'capturing', 'captured', 'checking', 'rendering', 'done', 'error'];
 
 const TYPE_FOR = {
   '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.aac': 'audio/aac',
@@ -61,6 +61,9 @@ function createApp(options = {}) {
     videoPath: null,
     durationSec: null,
     error: null,
+    // The last rehearsal, kept so the storyboard can mark the step that broke
+    // rather than making somebody read a log to find it.
+    check: null,
   };
   const listeners = new Set();
 
@@ -92,6 +95,7 @@ function createApp(options = {}) {
     videoName: state.videoPath ? path.basename(state.videoPath) : null,
     durationSec: state.durationSec,
     error: state.error,
+    check: state.check,
   });
 
   /**
@@ -279,9 +283,11 @@ function createApp(options = {}) {
     const layer = settingsStore.loadSettings(settingsFile, style);
     const theme = deepMerge(loadTheme(path.join(projectDir, style)), layer.theme);
     const flow = fs.existsSync(flowFile)
-      ? Object.assign(loadFlow(flowFile), layer.flow)
+      ? settingsStore.applyFlowLayer(loadFlow(flowFile), layer.flow)
       : {
         minStepMs: 1400, stepPaddingMs: 600, typeDelayMs: 55, settleMs: 600,
+        timeoutMs: 15000, viewport: null,
+        dismiss: { builtins: true, selectors: [], frames: [] },
         narration: true,
         voiceModel: 'eleven_multilingual_v2', voiceStyle: 0, voiceSpeed: 1,
         voiceId: null, voiceLanguage: null,
@@ -506,6 +512,54 @@ function createApp(options = {}) {
   }
 
   /**
+   * Walk the recording through the site again, without making a video.
+   *
+   * The reason to have this in the window rather than only on the command line:
+   * a walkthrough is recorded once and re-rendered for months, and the site
+   * underneath it keeps moving. Finding out that a button was renamed should
+   * cost twenty seconds, not a full render with a voice for every line.
+   */
+  async function startCheck() {
+    if (state.phase === 'capturing' || state.phase === 'rendering' || state.phase === 'checking') {
+      throw new Error('Something is already running.');
+    }
+    if (!fs.existsSync(flowFile)) throw new Error('There is no recording to check yet.');
+
+    state.log = [];
+    state.error = null;
+    state.check = null;
+    setPhase('checking', 'Walking through your site to see whether every step still works.');
+
+    // Not awaited: the window follows the event stream, same as a recording.
+    (async () => {
+      const { rehearse, describeRehearsal } = require('./rehearse');
+      const flow = loadFlow(flowFile);
+      settingsStore.applyFlowLayer(flow, settingsStore.loadSettings(settingsFile, currentStyle()).flow);
+      const theme = loadTheme(path.join(projectDir, path.basename(currentStyle())));
+      const { sessionIsFresh, sessionPath } = require('./recorder');
+      const state0 = flow.auth && sessionIsFresh(flow) ? sessionPath(flow) : null;
+      const result = await rehearse(flow, theme, { storageState: state0, log });
+      log('');
+      log(describeRehearsal(result, flow));
+      state.check = {
+        ok: result.ok,
+        at: Date.now(),
+        steps: result.steps.map((r) => ({
+          index: r.index, ok: r.ok, ms: r.ms, matches: r.matches,
+          error: r.error || null, notes: r.notes,
+        })),
+        notReached: result.notReached,
+      };
+      setPhase('captured', result.ok
+        ? `Every step still works (${(result.totalMs / 1000).toFixed(0)}s).`
+        : `Step ${result.failed.index + 1} no longer works.`);
+    })().catch((err) => {
+      state.error = friendly(err);
+      setPhase('error');
+    });
+  }
+
+  /**
    * Show the work in the file manager: the finished video if there is one, and
    * the folder everything lives in if there is not.
    */
@@ -649,6 +703,11 @@ function createApp(options = {}) {
       if (url.pathname === '/api/render' && req.method === 'POST') {
         const body = await readJsonBody(req);
         startRender(body).catch(() => {});
+        return send(200, { ok: true });
+      }
+
+      if (url.pathname === '/api/check' && req.method === 'POST') {
+        await startCheck();
         return send(200, { ok: true });
       }
 

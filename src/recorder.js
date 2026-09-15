@@ -141,21 +141,32 @@ async function record(flow, theme, audio, options = {}) {
  * something to configure rather than something to lose a take to.
  */
 async function runStep(page, step, flow, theme, options = {}) {
-  const { log = () => {} } = options;
+  const { log = () => {}, overlay = true } = options;
   const timeout = timeoutFor(step, flow);
 
   switch (step.action) {
     case 'goto': {
       await page.goto(resolveUrl(step.url, flow.baseUrl), { waitUntil: 'load', timeout });
-      // The overlay remounts itself after navigation; give it a tick.
-      await page.waitForFunction(() => window.__tutOverlayReady === true, null, { timeout: 5000 })
-        .catch(() => {});
+      // The overlay remounts itself after navigation; give it a tick. Only
+      // worth waiting for when one was injected - a rehearsal has no overlay,
+      // and waiting for a flag that will never be set spends five seconds on
+      // every navigation before giving up.
+      if (overlay) {
+        await page.waitForFunction(() => window.__tutOverlayReady === true, null, { timeout: 5000 })
+          .catch(() => {});
+      }
       // The cookie wall comes down before the clock starts, so it never appears
-      // in the video and never pushes the narration out of step.
-      if (flow.dismiss) await dismissConsent(page, flow.dismiss, { log });
-      // "load" fires before a site that fetches its own content has anything
-      // on screen. This is the beat that lets it arrive.
-      await page.waitForTimeout(Number.isFinite(flow.settleMs) ? flow.settleMs : 600);
+      // in the video and never pushes the narration out of step. It runs
+      // alongside the settle rather than after it: both are waiting for the
+      // same page to finish arriving, and doing them in turn puts two or three
+      // seconds of nothing into the video on every navigation.
+      const settleMs = Number.isFinite(flow.settleMs) ? flow.settleMs : 600;
+      await Promise.all([
+        flow.dismiss ? dismissConsent(page, flow.dismiss, { log }) : null,
+        // "load" fires before a site that fetches its own content has anything
+        // on screen. This is the beat that lets it arrive.
+        page.waitForTimeout(settleMs),
+      ].filter(Boolean));
       return null;
     }
     case 'click': {
