@@ -391,6 +391,22 @@ const FIELDS = [
     type: 'number', unit: 'seconds', min: 0, max: 10, step: 0.1,
   },
   {
+    key: 'theme.audio.loudnessLufs',
+    section: 'Music',
+    label: 'Sound level',
+    help: 'Every video is brought to this level, so one is not quiet and the next ' +
+      'loud. Streaming sits near -14, broadcast near -23.',
+    type: 'number', unit: 'LUFS', min: -40, max: -5, nullable: true,
+  },
+  {
+    key: 'theme.video.master',
+    section: 'Frame',
+    label: 'Also save a master',
+    help: 'A second file with no chroma subsampling, to edit from. The one you hand ' +
+      'out stays 4:2:0, which is what players and hardware decoders read.',
+    type: 'boolean',
+  },
+  {
     key: 'theme.video.width',
     section: 'Frame',
     label: 'Width',

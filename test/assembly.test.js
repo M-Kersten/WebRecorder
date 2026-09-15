@@ -439,3 +439,72 @@ test('a bed does not drown what is already there', async () => {
   assert.ok(Math.abs(loudness(mixed, 1, 2) - spoken) < 1.5,
     'the narration should not be pushed around by the bed');
 });
+
+// --- what leaves the building -------------------------------------------
+
+/** The colour properties a player reads off a file. */
+function colourTags(file) {
+  const out = spawnSync(ff.binaries().ffprobe, ['-v', 'error', '-select_streams', 'v:0',
+    '-show_entries', 'stream=pix_fmt,color_space,color_primaries,color_transfer,color_range',
+    '-of', 'default=nw=1', file], { encoding: 'utf8' }).stdout;
+  return Object.fromEntries(out.trim().split('\n').map((l) => l.split('=')));
+}
+
+// ffmpeg turns RGB into YUV with BT.601 coefficients unless told otherwise,
+// while a player assumes BT.709 for anything this size. That mismatch is the
+// shift in saturation. Tagging alone would be worse than nothing: measured
+// against a lossless reference, no tags scores 0.9979, a bare tag 0.9842, and
+// converting then tagging 0.9953.
+test('the delivered file says what it is, and is what it says', async () => {
+  const src = makeSegment('#3355aa', 1.5, tmp('untagged.mp4'));
+  assert.strictEqual(colourTags(src).color_space, 'unknown', 'the working file is untagged');
+
+  const out = await ff.deliver(src, tmp('delivered.mp4'), { profile: 'delivery' });
+  const tags = colourTags(out);
+  assert.strictEqual(tags.pix_fmt, 'yuv420p', 'what players and hardware decoders read');
+  assert.strictEqual(tags.color_space, 'bt709');
+  assert.strictEqual(tags.color_primaries, 'bt709');
+  assert.strictEqual(tags.color_transfer, 'bt709');
+  assert.strictEqual(tags.color_range, 'tv');
+});
+
+test('a master keeps its chroma, and is also tagged', async () => {
+  const src = makeSegment('#aa3355', 1.5, tmp('for-master.mp4'));
+  const out = await ff.deliver(src, tmp('master.mp4'), { profile: 'master' });
+  const tags = colourTags(out);
+  assert.strictEqual(tags.pix_fmt, 'yuv444p', 'nothing subsampled, for editing');
+  assert.strictEqual(tags.color_space, 'bt709');
+});
+
+test('the working profile keeps its chroma so a master can be real', () => {
+  assert.strictEqual(ff.profileFor('working').pixFmt, 'yuv444p');
+  assert.strictEqual(ff.profileFor('delivery').pixFmt, 'yuv420p');
+  assert.strictEqual(ff.profileFor('master').pixFmt, 'yuv444p');
+  // An unknown name is the working profile, never the delivery one: a stage
+  // that forgets to say which it is must not subsample halfway through.
+  assert.strictEqual(ff.profileFor('nonsense').pixFmt, 'yuv444p');
+});
+
+test('sound is levelled, and silence is left alone', async () => {
+  const quiet = tmp('quiet-in.mp4');
+  execFileSync(ffmpegPath(), [
+    '-hide_banner', '-loglevel', 'error', '-y',
+    '-f', 'lavfi', '-i', `color=c=0x222222:s=${VIDEO.width}x${VIDEO.height}:r=${VIDEO.fps}`,
+    '-f', 'lavfi', '-i', 'sine=frequency=440',
+    '-t', '3', '-af', 'volume=0.02',
+    '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p',
+    '-c:a', 'aac', '-b:a', '128k', '-ar', '48000', '-ac', '2', quiet,
+  ]);
+  const before = loudness(quiet, 0.5, 2);
+  assert.ok(before < -30, 'it should start well below the target');
+
+  const levelled = await ff.deliver(quiet, tmp('levelled.mp4'), { loudness: -16 });
+  const after = loudness(levelled, 0.5, 2);
+  assert.ok(after > before + 10, `a quiet clip should be brought up (${before} -> ${after})`);
+
+  // Nothing in the audio means nothing to level; loudnorm on silence only
+  // lifts whatever noise is there.
+  const silent = makeSegment('#111111', 2, tmp('silent-in.mp4'));
+  assert.strictEqual(await ff.hasSound(silent), false);
+  assert.strictEqual(await ff.hasSound(quiet), true);
+});

@@ -125,7 +125,15 @@ const DEFAULTS = {
     volume: 0.15,
     fadeSec: 1.5,
   },
+  // How the sound is levelled. Without this one video comes out quiet and the
+  // next loud, depending on the voice and what is under it.
+  audio: {
+    loudnessLufs: -16,
+  },
   video: {
+    // A second file with no chroma subsampling, to edit from. The delivered
+    // file stays 4:2:0, which is what players and hardware decoders read.
+    master: false,
     width: 1920,
     height: 1080,
     fps: 30,
@@ -206,6 +214,7 @@ function validateTheme(theme, label = theme.path || '(theme)') {
   validateTransitions(theme, label);
   validateCards(theme, baseDir, label);
   validateMusic(theme, baseDir, label);
+  validateAudio(theme, label);
 
   // libass takes a single fontsdir, and captions are the only thing it renders,
   // so the caption font's own directory is the one that matters.
@@ -483,6 +492,19 @@ function resolveSound(name, baseDir, where, abs) {
     );
   }
   return file;
+}
+
+function validateAudio(theme, abs) {
+  const a = theme.audio;
+  if (!isPlainObject(a)) throw new ThemeError(`${abs}: "audio" must be an object`);
+  if (a.loudnessLufs === null) return;
+  // Broadcast sits near -23, streaming near -14. Outside this range it is a typo.
+  if (!(Number.isFinite(a.loudnessLufs) && a.loudnessLufs >= -40 && a.loudnessLufs <= -5)) {
+    throw new ThemeError(
+      `${abs}: audio.loudnessLufs must be between -40 and -5, or null to leave the ` +
+      `sound as it is (got ${JSON.stringify(a.loudnessLufs)})`
+    );
+  }
 }
 
 function validateMusic(theme, baseDir, abs) {

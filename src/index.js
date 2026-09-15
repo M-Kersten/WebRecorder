@@ -372,6 +372,18 @@ async function main(argv) {
       storageState,
     });
 
+    // Playwright records at its own rate, and asking for more than that in the
+    // theme does not create motion: `fps=30` from a 25 fps source repeats every
+    // sixth frame, which reads as a stutter through exactly the cursor moves
+    // the video is made of. Deliver what was recorded.
+    const source = await ff.probeStreams(videoPath);
+    const sourceFps = source.video && source.video.fps;
+    if (sourceFps && theme.video.fps > sourceFps + 0.01) {
+      ui.detail(`recorded at ${sourceFps.toFixed(0)} fps; delivering at that rather than ` +
+        `repeating frames to reach ${theme.video.fps}`);
+      theme.video = { ...theme.video, fps: Math.round(sourceFps) };
+    }
+
     // 3. Narration track: each clip at the timestamp its step actually started.
     ui.step('narration track');
     const clips = [];
@@ -431,18 +443,33 @@ async function main(argv) {
     }
 
     if (segments.length > 1) ui.step(`joining ${segments.length} segments`);
-    // With music to lay under it, join into the work folder first: the bed goes
-    // on after the cards are attached, so it plays under those too.
-    const joined = theme.music.path ? path.join(workDir, 'joined.mp4') : outFile;
-    const { method } = await ff.concatSegments(segments, joined, theme.video, workDir, ui.detail);
+    // Everything so far is a working file: 4:4:4, so four internal encodes do
+    // not each throw away the colour in coloured text. The delivery pass at the
+    // end subsamples once.
+    let working = path.join(workDir, 'joined.mp4');
+    const { method } = await ff.concatSegments(segments, working, theme.video, workDir, ui.detail);
 
     if (theme.music.path) {
       ui.step(`music (${path.basename(theme.music.path)})`);
-      await ff.addMusicBed(joined, theme.music.path, outFile, {
+      const bedded = path.join(workDir, 'bedded.mp4');
+      await ff.addMusicBed(working, theme.music.path, bedded, {
         volume: theme.music.volume,
         fadeSec: theme.music.fadeSec,
-        durationSec: await ff.probeDuration(joined),
+        durationSec: await ff.probeDuration(working),
       });
+      working = bedded;
+    }
+
+    // 7. One subsample, one colour tag, one level. A video with nothing in its
+    //    audio has nothing to level, and loudnorm on silence only lifts noise.
+    const loudness = await ff.hasSound(working) ? theme.audio.loudnessLufs : null;
+    ui.step(loudness === null ? 'delivering' : `delivering (levelling to ${loudness} LUFS)`);
+    await ff.deliver(working, outFile, { profile: 'delivery', loudness });
+
+    if (theme.video.master) {
+      const masterFile = outFile.replace(/\.[^.]+$/, '') + '.master.mp4';
+      ui.step('master (4:4:4, for editing)');
+      await ff.deliver(working, masterFile, { profile: 'master', loudness });
     }
     ui.finish();
 
@@ -453,6 +480,9 @@ async function main(argv) {
     write(`  ${finalSec.toFixed(1)}s  ${theme.video.width}x${theme.video.height}  ` +
       `${theme.video.fps}fps  ${sizeMb.toFixed(1)} MB` +
       `${segments.length > 1 ? `  (${method} concat)` : ''}`);
+    if (theme.video.master) {
+      write(`  ${outFile.replace(/\.[^.]+$/, '')}.master.mp4   4:4:4, to edit from`);
+    }
     write(`  built in ${((Date.now() - startedAt) / 1000).toFixed(0)}s`);
     write('');
     return 0;
