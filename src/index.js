@@ -17,6 +17,7 @@ const { serveStatic } = require('./server');
 const { createWorkDir, removeWorkDir } = require('./workdir');
 const { loadSettings, applySecrets, SETTINGS_FILE } = require('./settings');
 const { capture } = require('./capture');
+const { rehearse, describeRehearsal } = require('./rehearse');
 
 const USAGE = `
 site-tutorial-video - turn a flow.json into a narrated, themed tutorial video
@@ -47,6 +48,8 @@ Options
   --keep-temp         Leave the intermediate files behind
   --print-theme       Resolve and print the theme, then exit
   --check             Validate the flow and theme without recording
+  --rehearse          Walk the flow through a real browser without recording,
+                      and report which steps no longer work
   -q, --quiet         Only print the result
   -h, --help          This text
 
@@ -86,6 +89,7 @@ function parseArgs(argv) {
     keepTemp: false,
     printTheme: false,
     check: false,
+    rehearse: false,
     quiet: false,
     help: false,
   };
@@ -117,6 +121,7 @@ function parseArgs(argv) {
       case '--keep-temp': args.keepTemp = true; break;
       case '--print-theme': args.printTheme = true; break;
       case '--check': args.check = true; break;
+      case '--rehearse': args.rehearse = true; break;
       case '-q': case '--quiet': args.quiet = true; break;
       case '-h': case '--help': args.help = true; break;
       default:
@@ -306,6 +311,25 @@ async function main(argv) {
     write('');
     write('flow and theme are valid.');
     return 0;
+  }
+
+  if (args.rehearse) {
+    const server = args.serve ? await serveStatic(args.serve) : null;
+    if (server) flow.baseUrl = server.url;
+    try {
+      write(`Rehearsing ${flow.steps.length} steps against the real site.`);
+      const state = flow.auth && sessionIsFresh(flow) ? sessionPath(flow) : null;
+      const result = await rehearse(flow, theme, {
+        headless: !args.headed,
+        storageState: state,
+        log: (line) => write(line),
+      });
+      write('');
+      write(describeRehearsal(result, flow));
+      return result.ok ? 0 : 1;
+    } finally {
+      if (server) await server.close();
+    }
   }
 
   await ff.checkToolchain();

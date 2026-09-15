@@ -341,8 +341,19 @@ function buildOverlayScript(theme, mask = []) {
   let maskObserver = null;
   let replacing = false;
 
+  /**
+   * addInitScript runs in every frame, iframes included. The mask has to run in
+   * all of them - a customer name inside an embedded dashboard is as personal
+   * as one in the page around it - while the cursor, ring and hint belong to the
+   * top frame only. Mounting them in a subframe puts a second pointer inside the
+   * widget, clipped to its box and offset from the real one.
+   */
+  const TOP_FRAME = (() => {
+    try { return window.self === window.top; } catch (e) { return false; }
+  })();
+
   function init() {
-    mount();
+    if (TOP_FRAME) mount();
     applyMask();
   }
 

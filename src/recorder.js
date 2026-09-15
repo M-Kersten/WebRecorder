@@ -6,6 +6,8 @@ const { launch } = require('./browser');
 const { buildOverlayScript } = require('./overlay');
 const { REDACTED } = require('./secrets');
 const { readingTimeMs, LEAD_IN_MS, TAIL_MS } = require('./pacing');
+const { timeoutFor, locate, describeTarget } = require('./target');
+const { dismissConsent } = require('./consent');
 
 /**
  * Drive the flow through a real browser and record it.
@@ -26,6 +28,10 @@ async function record(flow, theme, audio, options = {}) {
   } = options;
 
   const { width, height } = theme.video;
+  // The window the site is shown in. A flow may ask for a different shape than
+  // the video is delivered in - a phone layout inside a 1080p frame - and the
+  // mux letterboxes it onto the theme's background afterwards.
+  const shot = flow.viewport || { width, height, deviceScaleFactor: 1 };
   const videoDir = path.join(outDir, 'raw-video');
   fs.mkdirSync(videoDir, { recursive: true });
 
@@ -36,9 +42,9 @@ async function record(flow, theme, audio, options = {}) {
   });
 
   const context = await browser.newContext({
-    viewport: { width, height },
-    deviceScaleFactor: 1,
-    recordVideo: { dir: videoDir, size: { width, height } },
+    viewport: { width: shot.width, height: shot.height },
+    deviceScaleFactor: shot.deviceScaleFactor || 1,
+    recordVideo: { dir: videoDir, size: { width: shot.width, height: shot.height } },
     reducedMotion: 'no-preference',
     ...(storageState ? { storageState } : {}),
   });
@@ -72,7 +78,7 @@ async function record(flow, theme, audio, options = {}) {
       const enteredAt = now();
       log(`  [${String(i + 1).padStart(2)}/${flow.steps.length}] ${describeStep(step)}`);
 
-      const targetRect = await runStep(page, step, flow, theme);
+      const targetRect = await runStep(page, step, flow, theme, { log: (m) => log(`       ${m}`) });
 
       // A navigation has nothing to look at until it has finished. Timing the
       // line from the moment the address changed means the voice describes a
@@ -128,21 +134,32 @@ async function record(flow, theme, audio, options = {}) {
 /**
  * Run one step. Returns the bounding box of whatever it acted on, so a hint can
  * be anchored to it, or null when the step has no target.
+ *
+ * Every element is reached through a locator rather than a page-level selector
+ * string, which is what lets a step name an iframe and have the click land
+ * inside it. Every wait is the step's own budget, so a slow environment is
+ * something to configure rather than something to lose a take to.
  */
-async function runStep(page, step, flow, theme) {
+async function runStep(page, step, flow, theme, options = {}) {
+  const { log = () => {} } = options;
+  const timeout = timeoutFor(step, flow);
+
   switch (step.action) {
     case 'goto': {
-      await page.goto(resolveUrl(step.url, flow.baseUrl), { waitUntil: 'load' });
+      await page.goto(resolveUrl(step.url, flow.baseUrl), { waitUntil: 'load', timeout });
       // The overlay remounts itself after navigation; give it a tick.
       await page.waitForFunction(() => window.__tutOverlayReady === true, null, { timeout: 5000 })
         .catch(() => {});
+      // The cookie wall comes down before the clock starts, so it never appears
+      // in the video and never pushes the narration out of step.
+      if (flow.dismiss) await dismissConsent(page, flow.dismiss, { log });
       // "load" fires before a site that fetches its own content has anything
       // on screen. This is the beat that lets it arrive.
       await page.waitForTimeout(Number.isFinite(flow.settleMs) ? flow.settleMs : 600);
       return null;
     }
     case 'click': {
-      const target = await point(page, step.selector, theme);
+      const target = await point(page, step, flow, theme);
       await moveCursor(page, target, theme);
       await showHighlight(page, target, theme);
       if (theme.cursor.enabled) {
@@ -150,32 +167,34 @@ async function runStep(page, step, flow, theme) {
         // Let the ripple start before the page changes under it.
         await page.waitForTimeout(140);
       }
-      await page.click(step.selector, { timeout: 15000 });
+      await locate(page, step).click({ timeout });
       return target && target.rect;
     }
     case 'hover': {
-      const target = await point(page, step.selector, theme);
+      const target = await point(page, step, flow, theme);
       await moveCursor(page, target, theme);
       await showHighlight(page, target, theme);
-      await page.hover(step.selector, { timeout: 15000 });
+      await locate(page, step).hover({ timeout });
       return target && target.rect;
     }
     case 'type': {
-      const target = await point(page, step.selector, theme);
+      const target = await point(page, step, flow, theme);
+      const field = locate(page, step);
       await moveCursor(page, target, theme);
       await showHighlight(page, target, theme);
-      await page.click(step.selector, { timeout: 15000 });
+      await field.click({ timeout });
       // A visible per-character delay; instant fills do not read as typing.
-      await page.type(step.selector, step.text, {
+      await field.pressSequentially(step.text, {
         delay: step.delayMs ?? flow.typeDelayMs ?? 55,
+        timeout,
       });
       return target && target.rect;
     }
     case 'scroll': {
       let rect = null;
       if (step.selector) {
-        const locator = page.locator(step.selector).first();
-        await locator.scrollIntoViewIfNeeded({ timeout: 15000 });
+        const locator = locate(page, step);
+        await locator.scrollIntoViewIfNeeded({ timeout });
         await page.waitForTimeout(400);
         rect = await locator.boundingBox().catch(() => null);
         if (rect && theme.highlight.borderRadius === 'auto') {
@@ -196,6 +215,32 @@ async function runStep(page, step, flow, theme) {
     case 'wait': {
       await page.waitForTimeout(Number.isFinite(step.durationMs) ? step.durationMs : 1000);
       return null;
+    }
+    case 'waitFor': {
+      // Hold until the page says it is ready, instead of holding for a number
+      // somebody guessed once on a fast connection. A saved report, a table
+      // that loads after the shell, a spinner that has to go away: all of them
+      // are the difference between a walkthrough that works on any site and one
+      // that works on the machine it was written on.
+      const state = step.state || 'visible';
+      // Waiting for something to go is the one case that must look at every
+      // match rather than the visible ones: "is the visible spinner hidden yet"
+      // answers itself the moment the spinner hides, which is before the page
+      // behind it has finished arriving.
+      const waiting = locate(page, step, { visible: state === 'visible' });
+      try {
+        await waiting.waitFor({ state, timeout });
+      } catch {
+        throw new Error(
+          `Waited ${(timeout / 1000).toFixed(0)}s for ${describeTarget(step)} to be ` +
+          `${state}, and it never was`
+        );
+      }
+      // Something that has just appeared is usually still arriving. A short
+      // beat keeps the next step off the back of an animating layout.
+      await page.waitForTimeout(Number.isFinite(step.settleMs) ? step.settleMs : 250);
+      if (step.highlight === false || state === 'hidden' || state === 'detached') return null;
+      return locate(page, step).boundingBox().catch(() => null);
     }
     default:
       throw new Error(`Unhandled action "${step.action}" (config.js should have caught this)`);
@@ -224,12 +269,15 @@ async function clearDecorations(page, theme, hadHint) {
  * when the element cannot be located, so the step still runs without a cursor
  * move rather than failing the whole recording.
  */
-async function point(page, selector, theme) {
-  const locator = page.locator(selector).first();
+async function point(page, step, flow, theme) {
+  const locator = locate(page, step);
+  const timeout = timeoutFor(step, flow);
   try {
-    await locator.waitFor({ state: 'visible', timeout: 15000 });
+    await locator.waitFor({ state: 'visible', timeout });
   } catch {
-    throw new Error(`Selector "${selector}" never became visible`);
+    throw new Error(
+      `${describeTarget(step)} never became visible within ${(timeout / 1000).toFixed(0)}s`
+    );
   }
   await locator.scrollIntoViewIfNeeded().catch(() => {});
   const box = await locator.boundingBox();
@@ -284,10 +332,11 @@ function describeStep(step) {
     case 'goto': return `goto ${step.url}`;
     // A step whose text came from the environment is a password field in all
     // but name, so the console gets dots.
-    case 'type': return `type "${step.secret ? REDACTED : step.text}" into ${step.selector}`;
+    case 'type': return `type "${step.secret ? REDACTED : step.text}" into ${describeTarget(step)}`;
     case 'wait': return `wait ${step.durationMs ?? 1000}ms`;
     case 'scroll': return `scroll to ${step.selector || (step.to ?? 'one screen down')}`;
-    default: return `${step.action} ${step.selector || ''}`.trim();
+    case 'waitFor': return `wait for ${describeTarget(step)} to be ${step.state || 'visible'}`;
+    default: return `${step.action} ${describeTarget(step)}`.trim();
   }
 }
 
@@ -304,7 +353,11 @@ async function authenticate(flow, options = {}) {
 
   const browser = await launch({ headless });
   try {
-    const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const context = await browser.newContext({
+      viewport: flow.viewport
+        ? { width: flow.viewport.width, height: flow.viewport.height }
+        : { width: 1440, height: 900 },
+    });
     const page = await context.newPage();
     for (let i = 0; i < flow.auth.steps.length; i++) {
       const step = flow.auth.steps[i];
