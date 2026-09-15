@@ -67,13 +67,23 @@ say. Nothing is estimated after the fact.
 track is then built by placing every clip at its measured timestamp with
 `adelay`, and mixing. Audio is never assumed to run end to end.
 
-A `goto` is stamped once its page is actually there. `load` fires before a site
-that fetches its own content has drawn anything, so timing the line from the
-moment the address changed meant the voice describing a blank page and
-everything after it sitting a page load early. `flow.settleMs` is the beat held
-after a page loads, before its line starts; 600ms by default, and longer for a
-site that takes its time. Every other action is visible as it happens, so it
-still counts from the start.
+A `goto` is stamped once its page is actually there, and "there" is not what
+`load` means. On anything built this decade `load` fires at the moment the real
+work starts: the shell is up, a fetch is in flight, the content lands a beat
+later. So the recorder watches the page instead - it is settled once the DOM has
+stopped changing and nothing is still being fetched, for `flow.settleMs`
+(600ms by default). A page that was already finished pays exactly that; one
+still assembling itself pays until it stops. A request that has been open for
+seconds without changing anything stops counting, because a long poll is not
+evidence that the picture is about to move.
+
+None of that assembling reaches the video. A page being fetched, parsed and
+hydrated is not something anybody wants in a walkthrough, and the browser will
+not hold the previous frame across a navigation, so a curtain in the theme's
+background colour goes up inside the new document before it has painted and
+comes down once the page has settled. A click that navigates is a page load
+like any other: it gets the same curtain, and restarts that step's clock. Every
+other action is visible as it happens, so it still counts from the start.
 
 **Captions are a post-process.** Restyling them regenerates a subtitle file and
 re-burns; it never re-records. That matters when you are iterating on how a font
@@ -231,7 +241,7 @@ on somebody's behalf is not a favour.
 "flow": {
   "voiceModel": "eleven_v3",   // v3, multilingual v2, turbo or flash
   "voiceId": "nl_sanne",       // from voices.json
-  "voiceLanguage": "nl",       // ISO 639-1, ignored by multilingual v2
+  "voiceLanguage": "nl",       // ISO 639-1; see the table below
   "voiceStyle": 0.26,          // 0 to 1
   "voiceSpeed": 0.9            // 0.7 to 1.2
 }
@@ -239,13 +249,30 @@ on somebody's behalf is not a favour.
 
 `voiceStyle` and `voiceSpeed` ride in the request's `voice_settings`;
 `voiceLanguage` is a top-level `language_code`, which pins how numbers and dates
-are read. ElevenLabs ignores it on `eleven_multilingual_v2` and follows the text
-instead, which the field's help text says.
+are read.
+
+**Not every model listens to every setting, and the API will not tell you.** It
+accepts all of them for all of them and silently drops the ones that model does
+not implement, so a slider that does nothing looks exactly like one that works:
+
+| | stability | style | speed | similarity | speaker boost | language code |
+| --- | --- | --- | --- | --- | --- | --- |
+| Multilingual v2 | ✓ | ✓ | ✓ | ✓ | ✓ | — |
+| v3 | ✓ | ✓ | — | — | — | ✓ |
+| Turbo v2.5 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Flash v2.5 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+
+A setting the chosen model ignores is dropped before the request rather than
+sent into a void, a run says out loud which of yours are being ignored, and the
+window greys the control with the reason. Dropping matters beyond tidiness:
+everything sent is part of the cache key, so moving the speed slider on v3 used
+to buy a fresh clip identical to the one already on disk.
 
 The ranges are the ones ElevenLabs accepts, and they are checked before a
 request goes out: a 422 three minutes into a render is a bad way to learn that
-speed tops out at 1.2. All of it is part of the cache key, so changing the speed
-regenerates the lines rather than handing back clips read at the old one.
+speed tops out at 1.2. Everything the model does use is part of the cache key,
+so changing the speed on a model that has one regenerates the lines rather than
+handing back clips read at the old one.
 
 **Every line is handed over as a finished sentence.** ElevenLabs reads prosody
 off the punctuation, and a line with no full stop is an unfinished clause: the
@@ -766,16 +793,33 @@ Type scales off `video.height`, so one card design works at any resolution.
 ### `video`
 
 ```jsonc
-"video": { "width": 1920, "height": 1080, "fps": 30, "backgroundColor": "#0F1115" }
+"video": {
+  "width": 1920, "height": 1080, "fps": 30,
+  "backgroundColor": "#0F1115",
+  "curtain": true, "curtainFadeMs": 260,
+  "master": false
+}
 ```
 
 Sets the recording viewport and normalises every segment. Both dimensions must
 be even — H.264 requires it. Portrait works: `theme-social.json` is a 1080x1920
 example with no cards.
 
-`backgroundColor` is painted behind the page before the first navigation, and
-used to letterbox a recording that does not fill the frame. Without it the video
-opens on a flash of blank white while the browser is still on `about:blank`.
+`backgroundColor` is the stage. It is what Chromium paints where no document has
+painted yet, what the curtain is made of, and what letterboxes a recording that
+does not fill the frame.
+
+`curtain` holds that colour over a page while it loads and fades it away once
+the page has settled, so the video never shows a site assembling itself. Turn it
+off only if watching the load is the point. `curtainFadeMs` is how long the fade
+takes; 0 cuts straight.
+
+`master` writes a second file beside the delivered one with no chroma
+subsampling, to edit from.
+
+`fps` is a ceiling, not a promise. Playwright records at 25; asking for more
+produces a file that repeats frames and claims to be smoother than it is, so the
+source rate is measured and the theme capped to it.
 
 ## CLI
 
