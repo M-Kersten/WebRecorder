@@ -2,7 +2,7 @@
 
 const { launch } = require('./browser');
 const { rootFor, describeTarget, selectorQuality } = require('./target');
-const { runStep, describeStep } = require('./recorder');
+const { runStep, describeStep, settled } = require('./recorder');
 
 /**
  * Walk the flow through once, quickly, and report what would break.
@@ -56,6 +56,20 @@ async function rehearse(flow, theme, options = {}) {
           log: (m) => report.notes.push(m),
           overlay: false,
         });
+        // Let the page react before asking anything about it.
+        //
+        // This is not politeness, it is the difference between a rehearsal that
+        // means something and one that does not. The recording moves a cursor,
+        // draws a ring and waits out a ripple between steps; a rehearsal with
+        // none of that is a second quicker per step, and a second is plenty for
+        // a site to swap what you just clicked for a hydrated version of
+        // itself. Wikipedia does exactly that to its search box, and this
+        // rehearsal used to sail past a step the recording then failed on.
+        await settled(page, {
+          settleMs: Number.isFinite(flow.settleMs) ? flow.settleMs : 600,
+          timeout: 4000,
+        }).catch(() => {});
+
         report.ok = true;
         report.matches = await countMatches(page, step);
         if (report.matches > 1) {
