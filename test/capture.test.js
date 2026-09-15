@@ -418,3 +418,62 @@ test('every picture in a session comes out the same size', async () => {
   // Including the very first one, taken the moment the page finished loading.
   assert.strictEqual(sizes[0], `${1440 - 380}x900`);
 });
+
+test('a click inside an iframe records where the iframe is, not just what was clicked', async () => {
+  // Checkout widgets, chat bubbles and embedded dashboards all live in one, and
+  // a selector written from inside means nothing to the recorder on its own. A
+  // document inside a frame cannot see its own frame element either, so this is
+  // something only the side driving the browser can work out.
+  const { flow } = await captureWith(async (page) => {
+    await page.evaluate(() => {
+      const f = document.createElement('iframe');
+      f.id = 'widget';
+      f.srcdoc = '<body><button id="pay">Pay</button></body>';
+      f.style.cssText = 'position:fixed;left:20px;top:20px;width:300px;height:120px';
+      document.body.appendChild(f);
+    });
+    await page.frameLocator('#widget').locator('#pay').click();
+    await page.waitForTimeout(200);
+  });
+
+  const inside = flow.steps.filter((s) => s.frame);
+  assert.strictEqual(inside.length, 1, JSON.stringify(flow.steps, null, 2));
+  assert.strictEqual(inside[0].selector, '#pay');
+  assert.strictEqual(inside[0].frame, 'iframe#widget');
+});
+
+test('a captured frame step survives being written and read back', async () => {
+  const { outFile, flow } = await captureWith(async (page) => {
+    await page.evaluate(() => {
+      const f = document.createElement('iframe');
+      f.name = 'payment';
+      f.srcdoc = '<body><button id="pay">Pay</button></body>';
+      f.style.cssText = 'position:fixed;left:20px;top:20px;width:300px;height:120px';
+      document.body.appendChild(f);
+    });
+    await page.frameLocator('iframe[name="payment"]').locator('#pay').click();
+    await page.waitForTimeout(200);
+  });
+  assert.ok(flow.steps.some((s) => s.frame === 'iframe[name="payment"]'));
+
+  // loadFlow is where an unknown field would be dropped or refused.
+  const reloaded = loadFlow(outFile);
+  const step = reloaded.steps.find((s) => s.frame);
+  assert.strictEqual(step.frame, 'iframe[name="payment"]');
+});
+
+test('the capture panel does not mount a second copy inside an iframe', async () => {
+  await captureWith(async (page) => {
+    await page.evaluate(() => {
+      const f = document.createElement('iframe');
+      f.id = 'widget';
+      f.srcdoc = '<body><button id="pay">Pay</button></body>';
+      f.style.cssText = 'position:fixed;left:20px;top:20px;width:300px;height:120px';
+      document.body.appendChild(f);
+    });
+    await page.waitForTimeout(300);
+    const inside = await page.frameLocator('#widget')
+      .locator('#__tut_capture_panel').count();
+    assert.strictEqual(inside, 0, 'a panel inside the widget would push its layout around');
+  });
+});

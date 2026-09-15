@@ -121,7 +121,21 @@ ${SELECTOR_SCRIPT}
       '#' + PANEL_ID + '{position:fixed;inset:0 0 auto auto;z-index:2147483647}';
   }
 
+  /**
+   * The panel belongs to the top frame only.
+   *
+   * This script is injected into every frame, iframes included, and that is
+   * wanted: a click inside an embedded widget has to be recorded like any
+   * other. What must not happen is a second panel mounting inside the widget,
+   * squeezed into its box with its own margin pushing the widget's layout
+   * around.
+   */
+  const TOP_FRAME = (() => {
+    try { return window.self === window.top; } catch (e) { return false; }
+  })();
+
   function mount() {
+    if (!TOP_FRAME) return false;
     if (!document.body) return false;
     if (document.getElementById(PANEL_ID)) return true;
 
@@ -190,6 +204,7 @@ ${SELECTOR_SCRIPT}
   }
 
   function render() {
+    if (!TOP_FRAME) return;
     if (!listEl) return;
     if (!steps.length) {
       listEl.innerHTML = '<div class="empty">Nothing recorded yet.<br>' +

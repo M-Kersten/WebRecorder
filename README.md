@@ -445,6 +445,9 @@ site-tutorial-video --check
       "hint": "Filtering is instant - no submit button." },
     { "action": "click", "selector": "#run",    "narration": "Run rebuilds the numbers." },
     { "action": "scroll","selector": "#cohorts","narration": "Retention is further down." },
+    { "action": "waitFor","selector": "#report", "narration": "The report arrives." },
+    { "action": "click", "selector": "#pay", "frame": "#checkout",
+      "narration": "Paying happens in the widget." },
     { "action": "wait",  "durationMs": 1500 }
   ]
 }
@@ -458,6 +461,70 @@ site-tutorial-video --check
 | `hover` | `selector` | — |
 | `scroll` | — | `selector` to scroll to, or `to` in px |
 | `wait` | — | `durationMs` (default 1000) |
+| `waitFor` | `selector` | `state`: `visible` (default), `hidden`, `attached`, `detached` |
+
+Every step also accepts `timeoutMs`, which overrides the flow's own
+`timeoutMs` for that one step, and `frame`, described below.
+
+### Waiting for the page
+
+`waitFor` holds until the page says it is ready, rather than for a number
+somebody guessed once on a fast connection. A saved report, a table that loads
+after the shell, a spinner that has to go away: put a `waitFor` in front of the
+step that depends on it and the walkthrough stops depending on how fast the
+machine is that day.
+
+Anything that acts on an element - `click`, `hover`, `type`, `scroll` - already
+waits for it on its own, up to `timeoutMs`. `waitFor` is for the case where what
+you are waiting for is not what the next step touches.
+
+Acting steps target the first **visible** match rather than the first match. A
+mobile menu and a desktop menu carry the same markup, and the hidden one usually
+comes first in the document.
+
+### Frames
+
+A CSS selector only searches the document it runs against. Shadow DOM is not a
+problem - Playwright's engine pierces open shadow roots - but an iframe is a
+separate document, and checkout widgets, chat bubbles and embedded dashboards
+all live in one.
+
+```jsonc
+{ "action": "click", "selector": "#pay", "frame": "#checkout" }
+{ "action": "type",  "selector": "#card", "text": "4242", "frame": "name:payment" }
+{ "action": "click", "selector": "#ok",   "frame": ["#outer", "url:stripe.com/v3"] }
+```
+
+`frame` is a CSS selector for the `<iframe>` element, or `name:` / `url:`, which
+are shorthand for matching its `name` or `src`. An array descends through nested
+frames. Capture mode fills this in for you: click inside an embed while
+recording and the step comes out with the frame already on it.
+
+### Cookie banners
+
+Consent dialogs are dismissed before the clock starts, so the banner never
+reaches the video and never pushes the narration out of step. The built-in list
+covers the platforms that put a stable handle on their accept button - OneTrust,
+Cookiebot, Quantcast, TrustArc, Usercentrics, Didomi, Osano, Iubenda, Klaro,
+cookieconsent and a couple of WordPress plugins.
+
+```jsonc
+"dismiss": false                                   // leave banners alone
+"dismiss": ["#my-own-wall button.accept"]          // built-ins, then yours
+"dismiss": { "builtins": false, "selectors": ["#agree"], "frames": ["#cmp"] }
+```
+
+### Recording at a different size
+
+`viewport` is the window the site is shown in, which is not the frame the video
+is delivered in. Recording a responsive site at phone width and delivering 1080p
+letterboxes the phone layout onto the theme's background, which is a different
+thing from cropping the desktop one.
+
+```jsonc
+"viewport": "phone"                                     // or desktop, laptop, tablet
+"viewport": { "width": 1280, "height": 720, "deviceScaleFactor": 2 }
+```
 
 Every step may carry two optional pieces of text:
 
@@ -472,6 +539,13 @@ Every step may carry two optional pieces of text:
 
 Run `site-tutorial-video --check` to validate a flow and see what each step
 carries, without recording anything.
+
+Run `site-tutorial-video --rehearse` to walk it through a real browser without
+recording. It reports which step broke, whether its selector matches nothing or
+matches something that was not ready, how long each step really took, and which
+selectors are ambiguous. It stops at the first failure: everything after a step
+that did not happen is in an unknown state, and guessing about it would be worse
+than saying so. The app window has the same thing as **Check the steps**.
 
 ### Logging in
 
@@ -725,6 +799,7 @@ site-tutorial-video [options]
 | `--no-hints` | theme | skip the on-screen hint blocks |
 | `--no-fades` | theme | skip the fades between segments |
 | `--check` | | validate everything, print what each step carries and what is masked, and stop |
+| `--rehearse` | | walk the flow through a real browser without recording, and report what no longer works |
 | `--relogin` | | log in again even if the saved session is still valid |
 | `--headed` | | watch the browser, for debugging a flow |
 | `--keep-temp` | | leave the intermediate files behind |
@@ -741,10 +816,10 @@ later is a small change.
 cached under `.tts-cache/`, keyed by a hash of the text, voice, model and voice
 settings, so re-runs cost nothing unless a line actually changed.
 
-## Two things worth knowing
+## Three things worth knowing
 
-Both were found by rendering frames and looking at them, and both fail
-*silently* if you get them wrong.
+All three were found by rendering and measuring rather than reasoning, and all
+three fail *silently* if you get them wrong.
 
 **libass matches fonts by the name inside the file.** Not the filename, and not
 the string you write in `theme.json`. When they disagree it falls back to a
@@ -757,6 +832,21 @@ theme.json: fonts.body declares family "Intr", but Inter-Regular.ttf calls
 itself "Inter". libass matches on the name inside the file, so it would
 silently fall back to a system font. Set "family" to "Inter" or drop the field.
 ```
+
+**Tagging a video BT.709 without converting it makes the picture worse.**
+ffmpeg turns RGB into YUV with BT.601 coefficients unless it is told otherwise,
+while every player assumes BT.709 for HD. An untagged file is therefore wrong in
+a way most players quietly correct for; a file tagged 709 but encoded 601 is
+wrong in a way nothing corrects. Measured against a lossless reference: no tags
+scores 0.9979 SSIM, a bare `-colorspace bt709` scores **0.9842**, and converting
+with `scale=out_color_matrix=bt709` before tagging scores 0.9953. The delivery
+and master profiles convert, then tag.
+
+Two related measurements, in case they save somebody the same afternoon: 4:4:4
+intermediates buy nothing at all if the delivery is 4:2:0 (both chains score
+0.9840), and `crf` is not the lever it looks like - 20 and 12 score 0.9977 and
+0.9983 on the same source. Chroma subsampling is where the loss is, which is why
+the pipeline stays 4:4:4 internally and subsamples exactly once, at the end.
 
 **The concat demuxer does not reliably refuse mismatched segments.** Given
 segments with different codecs it can exit 0 and still write a file whose later
@@ -773,7 +863,12 @@ npm test
 
 A fourth set drives the app window itself, because it runs under Playwright
 like everything else here and that is exactly what makes a native dialog in it
-useless.
+useless. A fifth checks the parts that make this work on a site it has not seen:
+that a click lands inside an iframe and still reports where it acted in page
+coordinates, that a wait holds until the page is ready and gives up saying what
+it was waiting for, that a cookie wall is dismissed while a page without one is
+not held up, and that a rehearsal tells a renamed selector apart from one whose
+element was simply not ready yet.
 
 Unit tests cover the ASS colour conversion (`&HAABBGGRR`: alpha first, BGR
 order, and alpha inverted), the theme validation and its error messages, and
@@ -792,7 +887,7 @@ For anything visual, render frames and look at them:
 ffmpeg -i out/demo.mp4 -vf fps=1 out/frames/f%02d.png
 ```
 
-That is what caught both of the problems above.
+That is what caught all three of the problems above.
 
 ## Layout
 
@@ -800,6 +895,9 @@ That is what caught both of the problems above.
 src/
   index.js      CLI entry and pipeline order
   config.js     flow.json loading and validation
+  target.js     turns a step into a locator: frames, and the wait budget
+  consent.js    cookie walls, taken down before the clock starts
+  rehearse.js   walks a flow without recording, and reports what broke
   theme.js      theme.json loading, font resolution, validation
   fontname.js   reads family names and metrics out of a font file
   tts.js        ElevenLabs, caching, --no-tts silence

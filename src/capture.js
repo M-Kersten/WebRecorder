@@ -50,8 +50,14 @@ async function capture(options = {}) {
 
   // Bindings live on the context, so they survive navigation the same way the
   // panel script does.
-  await context.exposeBinding('__tutCaptureAdd', (source, step) => {
+  await context.exposeBinding('__tutCaptureAdd', async (source, step) => {
     const added = normalise(step);
+    // Which document the click happened in. A selector written inside an
+    // iframe means nothing to the recorder unless it is told where to look,
+    // and the page cannot work that out about itself - only Node can see the
+    // frame tree from outside.
+    const frame = await frameRef(source).catch(() => null);
+    if (frame) added.frame = frame;
     steps.push(added);
     log(`  ${steps.length}. ${summarise(added)}`);
     // Deliberately not awaited: the panel should not sit waiting on a
@@ -60,6 +66,7 @@ async function capture(options = {}) {
     return steps;
   });
   await context.exposeBinding('__tutCaptureList', () => steps);
+
   await context.exposeBinding('__tutCaptureUpdate', (_source, index, patch) => {
     if (steps[index]) Object.assign(steps[index], patch);
     return steps;
@@ -132,9 +139,56 @@ function normalise(step) {
     narration: step.narration || '',
     hint: step.hint || '',
     label: step.label || '',
+    ...(step.frame ? { frame: step.frame } : {}),
     ...(step.secret ? { secret: true } : {}),
     ...(step.shot ? { shot: step.shot } : {}),
   };
+}
+
+/**
+ * The frame a binding call came from, as something a step can carry.
+ *
+ * Returns null for the main frame, a selector for one level down, and an array
+ * for anything nested deeper - the same shapes `frame` takes in a flow file.
+ *
+ * Only Node can work this out. A document inside an iframe cannot see its own
+ * frame element, and on a cross-origin embed it cannot see the parent at all.
+ */
+async function frameRef(source) {
+  const frame = source && source.frame;
+  const page = source && source.page;
+  if (!frame || !page || frame === page.mainFrame()) return null;
+
+  const path = [];
+  for (let node = frame; node && node !== page.mainFrame(); node = node.parentFrame()) {
+    const element = await node.frameElement().catch(() => null);
+    if (!element) return null;      // the frame went away mid-click
+    const selector = await element.evaluate(frameSelector).catch(() => null);
+    await element.dispose().catch(() => {});
+    if (!selector) return null;
+    path.unshift(selector);
+  }
+  if (!path.length) return null;
+  return path.length === 1 ? path[0] : path;
+}
+
+/**
+ * A selector for one iframe element, run inside the document that holds it.
+ *
+ * In order of how well each survives a redeploy. The last one is positional and
+ * will break if the page gains another iframe above this one; it is there so a
+ * nameless, srcless embed still records something rather than nothing.
+ */
+function frameSelector(el) {
+  const esc = (v) => String(v).replace(/[\\"]/g, '\\$&');
+  if (el.id && !/^[0-9]/.test(el.id)) return 'iframe#' + esc(el.id);
+  const name = el.getAttribute('name');
+  if (name) return 'iframe[name="' + esc(name) + '"]';
+  const src = el.getAttribute('src');
+  if (src) return 'iframe[src="' + esc(src) + '"]';
+  const all = Array.prototype.slice.call(el.ownerDocument.querySelectorAll('iframe'));
+  const index = all.indexOf(el);
+  return index < 0 ? null : ':nth-match(iframe, ' + (index + 1) + ')';
 }
 
 /**
@@ -146,6 +200,7 @@ function toFlow(steps, startUrl) {
   const out = steps.map((step) => {
     const clean = { action: step.action };
     if (step.selector) clean.selector = step.selector;
+    if (step.frame) clean.frame = step.frame;
     if (step.url) {
       clean.url = step.url.startsWith(origin) ? step.url.slice(origin.length) || '/' : step.url;
     }
@@ -171,7 +226,8 @@ function toFlow(steps, startUrl) {
 
 function summarise(step) {
   const what = step.label ? `"${step.label}"` : step.selector || step.url || '';
-  return `${step.action} ${what}`.trim();
+  const where = step.frame ? ` (in ${[].concat(step.frame).join(' > ')})` : '';
+  return `${step.action} ${what}${where}`.trim();
 }
 
-module.exports = { capture, toFlow, normalise };
+module.exports = { capture, toFlow, normalise, frameRef, frameSelector };
