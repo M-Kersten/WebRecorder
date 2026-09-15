@@ -14,16 +14,86 @@ const SELECTOR_SCRIPT = `
 
   /**
    * Class and id names that a build tool made up. They change on the next
-   * deploy, so a selector built from them is worthless.
+   * deploy, so a selector built from them is worthless - and worse than
+   * worthless, because it works today and fails in a month with no clue why.
+   *
+   * The earlier version of this looked for a run of six hex characters, which
+   * is what a hash looked like when hashes were md5 prefixes. Pointed at real
+   * sites it let all of these through:
+   *
+   *   SkipLink-module-scss-module__n5hZGa__skipLink   (CSS modules)
+   *   LSqk9q_root                                     (Linaria)
+   *   ⚙1fpnohr                                        (Stripe's build)
+   *
+   * None of them contain six hex characters in a row. So the test is no longer
+   * "does it look like a hash" but "does this contain a token no person would
+   * have typed" - checked per token, because the giveaway is usually one
+   * segment of an otherwise readable name.
    */
   function looksGenerated(name) {
-    return (
-      /^[0-9]/.test(name) ||                       // starts with a digit
-      /^(css|sc|emotion|jsx|makeStyles|MuiBox)-/.test(name) ||
-      /^:r[0-9a-z]+:?$/i.test(name) ||             // React useId
-      /[a-f0-9]{6,}/i.test(name) && !/[aeiou]{2}/i.test(name) ||  // hash-looking
-      /^[a-z]{1,3}[0-9]{4,}$/i.test(name)
-    );
+    if (/^[0-9]/.test(name)) return true;                 // starts with a digit
+    if (/[^\u0020-\u007e]/.test(name)) return true;        // nobody types ⚙ into a class
+    // Anywhere in the name, not just at the front: styled-components writes
+    // "MainNavItemLogo-style__StyledLink-sc-d4709398-1", where the readable
+    // half is a decoy and the componentId after it is the part that moves.
+    if (/(^|-)(css|sc|emotion|jsx|makeStyles|MuiBox)-/.test(name)) return true;
+    if (/^:r[0-9a-z]+:?$/i.test(name)) return true;       // React useId
+    // CSS modules and friends: a double underscore around a hash segment, or
+    // the literal word "module" a bundler inserted.
+    if (/__[A-Za-z0-9]{4,}__/.test(name)) return true;
+    if (/-module[-_]/.test(name)) return true;
+    return tokens(name).some(randomLooking);
+  }
+
+  /**
+   * Split on separators and camel humps, keeping both halves of the answer.
+   *
+   * The whole separator-delimited part matters as much as its camel pieces: a
+   * hash like "3xY7kQ" splits into "3x", "Y7", "kQ", every one of them too
+   * short to judge, and looks perfectly innocent piece by piece.
+   */
+  function tokens(name) {
+    const parts = String(name).split(/[-_]+/).filter(Boolean);
+    const out = parts.slice();
+    for (const part of parts) {
+      for (const hump of part.split(/(?<=[a-z0-9])(?=[A-Z])/)) {
+        if (hump && hump !== part) out.push(hump);
+      }
+    }
+    return out;
+  }
+
+  /**
+   * A token no person would have typed.
+   *
+   * Three signals, each of which a hand-written name almost never has and a
+   * base-36 hash almost always does: letters and digits interleaved, case
+   * changing back and forth mid-word, and hardly any vowels.
+   */
+  function randomLooking(token) {
+    if (token.length < 5 || token.length > 24) return false;
+    if (/^[0-9]+$/.test(token)) return false;             // a plain number is a column, not a hash
+    const letters = token.replace(/[^A-Za-z]/g, '');
+    if (letters.length < 3) return false;
+
+    // Letters and digits taking turns. One or two changes is a version number
+    // or a grid column; half a dozen is base 36.
+    // Lookahead, so overlapping changes both count: in "q9q" the match must
+    // not eat the 9 and hide the second one.
+    const swaps = (token.match(/[A-Za-z](?=[0-9])|[0-9](?=[A-Za-z])/g) || []).length;
+    if (swaps >= 3) return true;
+    const digitInside = swaps >= 2;
+    // Two or more case changes after the first character: "n5hZGa", "IfRCG".
+    // One is ordinary camelCase, which people write all the time.
+    const flips = (token.slice(1).match(/(?<=[a-z])[A-Z]|(?<=[A-Z])[a-z]/g) || []).length;
+    const vowels = (letters.match(/[aeiouAEIOU]/g) || []).length;
+    // Not one vowel in five or more characters. Words have vowels; base-36
+    // hashes such as "jtyPqk" routinely do not, and an abbreviation that long
+    // without one is not something anybody types.
+    if (vowels === 0) return true;
+    const vowelStarved = vowels / letters.length < 0.22;
+
+    return (digitInside ? 1 : 0) + (flips >= 3 ? 1 : 0) + (vowelStarved ? 1 : 0) >= 2;
   }
 
   function cssEscape(value) {

@@ -953,12 +953,21 @@
       if (!r.ok) {
         why = '<span class="why">' + esc(r.error || 'it did not work') + '</span>';
         (r.notes || []).forEach(function (n) { why += '<span class="why">' + esc(n) + '</span>'; });
-      } else if (r.matches > 1) {
-        why = '<span class="slow">matches ' + r.matches +
-          ' elements on the page; the recording uses the first one you can see</span>';
-      } else if (r.ms > 5000) {
-        why = '<span class="slow">took ' + (r.ms / 1000).toFixed(1) +
-          's, which is long enough that it may not always finish in time</span>';
+      } else {
+        // A step that works today is not a step that works in March. What its
+        // selector rests on is the best warning available, and it is free.
+        if (r.grade === 'positional' || r.grade === 'tag') {
+          why += '<span class="slow">points at a position on the page rather than a name, ' +
+            'so it breaks as soon as anything above it moves</span>';
+        }
+        if (r.matches > 1) {
+          why += '<span class="slow">matches ' + r.matches +
+            ' elements on the page; the recording uses the first one you can see</span>';
+        }
+        if (r.ms > 5000) {
+          why += '<span class="slow">took ' + (r.ms / 1000).toFixed(1) +
+            's, which is long enough that it may not always finish in time</span>';
+        }
       }
       return '<div class="check-row' + (r.ok ? '' : ' bad') + '">' +
         '<span class="n">' + (i + 1) + '</span>' +

@@ -97,6 +97,50 @@ function describeTarget(step) {
   return frames.length ? `${step.selector} in ${frames.join(' > ')}` : step.selector;
 }
 
+/**
+ * What kind of handle a selector has on its element, and how long that is
+ * likely to last.
+ *
+ * This exists because the question "is this class name generated" has no
+ * reliable answer. Pointed at real sites, capture mode meets `jtyPqk`, `as-1r`
+ * and `iObqyc` - two of those are build output and one could be an
+ * abbreviation somebody typed, and nothing in the string says which. Rather
+ * than pretend to a confidence it does not have, the tool says what the
+ * selector is resting on and lets the person decide.
+ *
+ *   named       a test id, an id, an aria-label, a name attribute. Someone put
+ *               it there on purpose and it survives a redesign.
+ *   class       a class name. Fine if a person wrote it, worthless if a
+ *               bundler did, and there is no telling from here.
+ *   positional  a path counting children. Correct right now, and wrong the
+ *               moment anything above it moves.
+ */
+function selectorQuality(selector) {
+  const sel = String(selector || '');
+  if (!sel) return { grade: 'none', why: '' };
+  if (/:nth-of-type\(/.test(sel)) {
+    return {
+      grade: 'positional',
+      why: 'this points at a position on the page rather than at a name, so it ' +
+        'breaks as soon as anything above it moves. Worth giving the element a ' +
+        'data-testid, or picking something nearby that has one',
+    };
+  }
+  if (/\[data-(testid|test-id|test|cy|qa)=|\[aria-label=|\[name=|#[A-Za-z_]/.test(sel)) {
+    return { grade: 'named', why: '' };
+  }
+  if (/\./.test(sel)) {
+    return {
+      grade: 'class',
+      why: 'this rests on class names, which many sites regenerate on every ' +
+        'deploy. If the walkthrough stops working after a release, this is the ' +
+        'first place to look',
+    };
+  }
+  return { grade: 'tag', why: 'this matches by tag name alone, which is rarely one thing for long' };
+}
+
 module.exports = {
   DEFAULT_TIMEOUT_MS, timeoutFor, framePath, rootFor, locate, describeTarget,
+  selectorQuality,
 };

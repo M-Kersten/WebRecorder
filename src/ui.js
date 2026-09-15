@@ -551,7 +551,7 @@ function createApp(options = {}) {
         at: Date.now(),
         steps: result.steps.map((r) => ({
           index: r.index, ok: r.ok, ms: r.ms, matches: r.matches,
-          error: r.error || null, notes: r.notes,
+          grade: r.grade || null, error: r.error || null, notes: r.notes,
         })),
         notReached: result.notReached,
       };

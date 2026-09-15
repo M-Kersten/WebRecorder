@@ -527,6 +527,33 @@ are shorthand for matching its `name` or `src`. An array descends through nested
 frames. Capture mode fills this in for you: click inside an embed while
 recording and the step comes out with the frame already on it.
 
+### A page the server refused
+
+A `goto` checks what came back, not just that something did. Playwright resolves
+happily on a 403 or a 404 - the navigation worked, the server simply answered
+with an error page - and everything after it then runs against that page and
+reports itself fine. A rehearsal comes back green; a render produces four
+minutes of "Access denied". Any status of 400 or above now stops the step. For a
+flow that means to visit one, say so:
+
+```jsonc
+{ "action": "goto", "url": "/admin", "allowHttpError": true }
+```
+
+### How stable a selector is
+
+Capture mode prefers what a developer put there on purpose - a test id, an id,
+an aria-label - and refuses names a bundler made up. That refusal is a
+heuristic, and against real sites it is a heuristic with limits: `jtyPqk` and
+`sc-d4709398` are caught, `iObqyc` and `as-1r` are not, and nothing in those
+strings says which of them somebody typed.
+
+So rather than claim a confidence it does not have, the rehearsal reports what
+each step is resting on: a **name** somebody chose, a **class** that may or may
+not survive the next deploy, or a **position** that certainly will not. The
+storyboard's check card shows the same thing. A step whose selector counts
+children is the one to go back and give a `data-testid`.
+
 ### Cookie banners
 
 Consent dialogs are dismissed before the clock starts, so the banner never
@@ -568,9 +595,13 @@ Run `site-tutorial-video --check` to validate a flow and see what each step
 carries, without recording anything.
 
 Run `site-tutorial-video --rehearse` to walk it through a real browser without
-recording. It reports which step broke, whether its selector matches nothing or
-matches something that was not ready, how long each step really took, and which
-selectors are ambiguous. It stops at the first failure: everything after a step
+recording. It reports which step broke and why: whether the selector matches
+nothing, matches something a panel has not opened yet, or matches something that
+only exists in the site's phone layout - it narrows the window and looks, rather
+than guessing, because those last two are both `display: none` and want opposite
+fixes. It also says how long each step really took, which selectors are
+ambiguous, and which rest on a position rather than a name and will therefore
+break when the page changes. It stops at the first failure: everything after a step
 that did not happen is in an unknown state, and guessing about it would be worse
 than saying so. The app window has the same thing as **Check the steps**.
 

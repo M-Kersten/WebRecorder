@@ -157,7 +157,14 @@ async function runStep(page, step, flow, theme, options = {}) {
 
   switch (step.action) {
     case 'goto': {
-      await page.goto(resolveUrl(step.url, flow.baseUrl), { waitUntil: 'load', timeout });
+      const response = await page.goto(resolveUrl(step.url, flow.baseUrl),
+        { waitUntil: 'load', timeout });
+      // What came back, not just that something did. Playwright resolves goto
+      // happily on a 403 or a 404: the navigation worked, the server simply
+      // answered with an error page. Everything after it then runs against
+      // that error page and reports itself fine - a rehearsal comes back green
+      // and a render produces a video of "Access denied".
+      checkStatus(response, step);
       // The overlay remounts itself after navigation; give it a tick. Only
       // worth waiting for when one was injected - a rehearsal has no overlay,
       // and waiting for a flag that will never be set spends five seconds on
@@ -451,6 +458,33 @@ async function moveCursor(page, target, theme) {
   await page.mouse.move(target.x, target.y).catch(() => {});
 }
 
+/**
+ * Refuse a page the server did not agree to serve.
+ *
+ * Loud by default, because the alternative is a walkthrough of an error page
+ * that nothing in the pipeline objects to. `allowHttpError` on the step is the
+ * way out, for a flow that means to visit a page that answers 401 before
+ * logging in.
+ */
+function checkStatus(response, step) {
+  if (!response || step.allowHttpError) return;
+  const status = response.status();
+  if (status < 400) return;
+  throw new Error(
+    `${response.url()} answered ${status} ${statusName(status)}.\n` +
+    'Recording it would make a video of the error page. If this page is ' +
+    'meant to answer that, put "allowHttpError": true on this step.'
+  );
+}
+
+const STATUS_NAMES = {
+  400: 'Bad Request', 401: 'Unauthorized', 403: 'Forbidden', 404: 'Not Found',
+  408: 'Request Timeout', 410: 'Gone', 429: 'Too Many Requests',
+  500: 'Internal Server Error', 502: 'Bad Gateway', 503: 'Service Unavailable',
+  504: 'Gateway Timeout',
+};
+const statusName = (code) => STATUS_NAMES[code] || (code >= 500 ? 'Server Error' : 'Client Error');
+
 /** #RGB or #RRGGBB as the AARRGGBB Chromium wants, fully opaque. */
 function argb(hex) {
   const v = String(hex || '').replace('#', '');
@@ -538,5 +572,5 @@ function sessionPath(flow) {
 module.exports = {
   record, runStep, resolveUrl, readingTimeMs, describeStep, showHighlight,
   authenticate, sessionIsFresh, sessionPath, settled, lowerCurtain, settleAfterNavigation,
-  argb,
+  argb, checkStatus,
 };

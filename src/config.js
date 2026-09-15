@@ -115,6 +115,9 @@ function loadFlow(flowPath) {
       throw new ConfigError(`${where}: "durationMs" must be a non-negative number`);
     }
     validateStepTiming(step, where);
+    if (step.allowHttpError !== undefined && typeof step.allowHttpError !== 'boolean') {
+      throw new ConfigError(`${where}: "allowHttpError" must be true or false`);
+    }
     validateFrame(step.frame, where);
     if (step.action === 'waitFor' && step.state !== undefined && !WAIT_STATES.includes(step.state)) {
       throw new ConfigError(

@@ -1,7 +1,7 @@
 'use strict';
 
 const { launch } = require('./browser');
-const { rootFor, describeTarget } = require('./target');
+const { rootFor, describeTarget, selectorQuality } = require('./target');
 const { runStep, describeStep } = require('./recorder');
 
 /**
@@ -63,19 +63,32 @@ async function rehearse(flow, theme, options = {}) {
             `matches ${report.matches} elements; the recording will use the first`
           );
         }
+        // A step that worked and now matches nothing means the page replaced
+        // what it acted on - a search box swapped for a live one, a row
+        // re-rendered. Normal, and not worth a warning that reads like a fault.
+        if (report.matches === 0) report.matches = null;
+        // A step that works today is not the same as a step that will work in
+        // March. What the selector is resting on is the best predictor there
+        // is, and it costs nothing to say.
+        const quality = selectorQuality(step.selector);
+        report.grade = quality.grade;
+        if (quality.why) report.notes.push(quality.why);
       } catch (err) {
         report.error = firstLine(err.message);
-        // Why it failed matters more than that it did. A selector that matches
-        // nothing is a rename; one that matches something invisible is usually
-        // a panel that has not opened yet, and wants a waitFor in front of it.
+        // Why it failed matters more than that it did, and the three reasons
+        // want three different fixes: a selector that matches nothing is a
+        // rename, one whose element is on the page but laid out away is usually
+        // a responsive variant, and one that is simply late wants a waitFor.
         report.matches = await countMatches(page, step);
-        if (report.matches === 0 && step.selector) {
+        if (step.selector && report.matches === 0) {
           report.notes.push('nothing on the page matches this selector');
-        } else if (report.matches > 0 && step.selector) {
-          report.notes.push(
-            `${report.matches} element${report.matches === 1 ? '' : 's'} match, ` +
-            'but none of them were ready in time - a waitFor step before this one may be what it needs'
-          );
+        } else if (step.selector && report.matches > 0) {
+          const how = await describeHidden(page, step);
+          const many = `${report.matches} element${report.matches === 1 ? '' : 's'} match`;
+          report.notes.push(how
+            ? `${many}, but ${how}`
+            : `${many}, but none of them were ready in time - a waitFor step ` +
+              'before this one may be what it needs');
         }
       }
 
@@ -120,6 +133,52 @@ async function countMatches(page, step) {
   }
 }
 
+/**
+ * Why a matching element could not be acted on.
+ *
+ * A panel that has not opened and a hamburger that only exists below a
+ * breakpoint are both `display: none`, and they want opposite fixes: waiting
+ * longer, or recording the site at a different shape. The stylesheet will not
+ * say which, so this stops reasoning and runs the experiment - narrow the
+ * window, look again, put it back. One reflow, only ever on a failure, and it
+ * turns a guess into an answer.
+ */
+async function describeHidden(page, step) {
+  const shown = () => rootFor(page, step).locator(step.selector).first().isVisible()
+    .catch(() => false);
+  try {
+    const how = await rootFor(page, step).locator(step.selector).first().evaluate((el) => {
+      const style = getComputedStyle(el);
+      const box = el.getBoundingClientRect();
+      if (style.display === 'none') return 'display-none';
+      if (style.visibility === 'hidden') return 'visibility-hidden';
+      if (box.width === 0 || box.height === 0) return 'no-size';
+      return null;
+    });
+    if (how === 'visibility-hidden') {
+      return 'it is on the page and hidden, which usually means something has ' +
+        'to reveal it first';
+    }
+    if (how !== 'display-none' && how !== 'no-size') return null;
+
+    const size = page.viewportSize();
+    if (!size || size.width <= 420) return 'it is on the page but not laid out';
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.waitForTimeout(250);
+    const narrow = await shown();
+    await page.setViewportSize(size);
+    await page.waitForTimeout(150);
+
+    return narrow
+      ? 'it appears only at a narrower window - this is the phone layout of the ' +
+        'site. Set "viewport" to phone to record that one'
+      : 'it is on the page but not laid out, so something has to open it first. ' +
+        'A step that opens it, or a waitFor, is what this needs';
+  } catch {
+    return null;
+  }
+}
+
 /** Everything off. A rehearsal is about whether the steps work, not how they look. */
 const REHEARSAL = {
   cursor: { enabled: false },
@@ -152,6 +211,13 @@ function describeRehearsal(result, flow) {
     const many = result.steps.filter((s) => s.matches > 1);
     for (const s of many) {
       lines.push(`  step ${s.index + 1}: "${s.target}" matches ${s.matches} elements`);
+    }
+    const shaky = result.steps.filter((s) => s.grade === 'positional' || s.grade === 'tag');
+    if (shaky.length) {
+      lines.push('');
+      lines.push(`${shaky.length} step${shaky.length === 1 ? '' : 's'} point at a position ` +
+        'rather than a name, and will break when the page changes: ' +
+        shaky.map((s) => s.index + 1).join(', '));
     }
     return lines.join('\n');
   }

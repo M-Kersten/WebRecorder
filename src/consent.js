@@ -40,7 +40,10 @@ const KNOWN = [
   // WordPress plugins that are common enough to be worth naming
   '#cookie-law-info-bar #wt-cli-accept-all-btn',
   '.cmplz-accept',
-  // Google's own, which appears inside an iframe on some properties
+  // Google's own. The glue one is on developers.google.com and the rest of
+  // their docs estate; the aria-label appears inside an iframe on search and
+  // consent.google.com.
+  'button.glue-cookie-notification-bar__accept',
   'button[aria-label="Accept all"]',
 ];
 
