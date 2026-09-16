@@ -960,6 +960,10 @@
           why += '<span class="slow">points at a position on the page rather than a name, ' +
             'so it breaks as soon as anything above it moves</span>';
         }
+        if (r.grade === 'dated') {
+          why += '<span class="slow">has a date written into it, so this step stops ' +
+            'working once that day has passed</span>';
+        }
         if (r.matches > 1) {
           why += '<span class="slow">matches ' + r.matches +
             ' elements on the page; the recording uses the first one you can see</span>';

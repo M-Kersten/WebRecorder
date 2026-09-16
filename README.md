@@ -575,6 +575,12 @@ not survive the next deploy, or a **position** that certainly will not. The
 storyboard's check card shows the same thing. A step whose selector counts
 children is the one to go back and give a `data-testid`.
 
+There is a fourth: **dated**. A selector with a date in it -
+`input[aria-label="Holiday, 2026-09-05"]` - is the sturdiest-looking kind there
+is and the one that expires, because an aria-label generated from a row's date
+is not a name, it is this week's name. It works right up until the week rolls
+over, and it is reported whether or not the step passes.
+
 ### Cookie banners
 
 Consent dialogs are dismissed before the clock starts, so the banner never

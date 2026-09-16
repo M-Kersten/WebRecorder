@@ -233,6 +233,12 @@ function describeRehearsal(result, flow) {
         'rather than a name, and will break when the page changes: ' +
         shaky.map((s) => s.index + 1).join(', '));
     }
+    const dated = result.steps.filter((s) => s.grade === 'dated');
+    if (dated.length) {
+      lines.push('');
+      lines.push(`${dated.length} step${dated.length === 1 ? '' : 's'} have a date written ` +
+        `into the selector and stop working once it passes: ${dated.map((s) => s.index + 1).join(', ')}`);
+    }
     return lines.join('\n');
   }
   const f = result.failed;

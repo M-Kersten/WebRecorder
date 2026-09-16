@@ -216,3 +216,30 @@ test('a step whose element the page replaced under it is not reported as ambiguo
   assert.strictEqual(result.ok, true);
   assert.ok(result.steps.every((s) => s.matches === null || s.matches >= 1));
 });
+
+test('a date written into a selector is called out, however solid it looks', async () => {
+  // This one hides inside the sturdiest kind of handle there is. An aria-label
+  // a developer wrote is normally exactly what you want to select on; one a
+  // developer generated from a row's date is a selector with an expiry, and it
+  // reads as the safest step in the flow right up until the week rolls over.
+  const dated = http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    res.end('<!doctype html><body><input aria-label="Holiday, 2026-09-05"></body>');
+  });
+  await new Promise((r) => dated.listen(0, '127.0.0.1', r));
+  const url = `http://127.0.0.1:${dated.address().port}/`;
+
+  try {
+    const flow = flowOf([
+      { action: 'goto', url },
+      { action: 'click', selector: 'input[aria-label="Holiday, 2026-09-05"]' },
+    ]);
+    const result = await rehearse(flow, DEFAULTS);
+    assert.strictEqual(result.ok, true, 'it works today, which is the problem');
+    assert.strictEqual(result.steps[1].grade, 'dated');
+    assert.match(result.steps[1].notes.join('\n'), /2026-09-05/);
+    assert.match(describeRehearsal(result, flow), /stop working once it passes/);
+  } finally {
+    await new Promise((r) => dated.close(r));
+  }
+});

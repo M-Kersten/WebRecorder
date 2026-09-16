@@ -114,10 +114,27 @@ function describeTarget(step) {
  *               bundler did, and there is no telling from here.
  *   positional  a path counting children. Correct right now, and wrong the
  *               moment anything above it moves.
+ *   dated       a date written into the selector. Correct this week.
  */
 function selectorQuality(selector) {
   const sel = String(selector || '');
   if (!sel) return { grade: 'none', why: '' };
+  // A date in the selector before anything else, because this one hides inside
+  // what otherwise looks like the sturdiest kind of handle there is. An
+  // aria-label a developer wrote is normally the thing you most want to select
+  // on; an aria-label a developer *generated* from a row's date is a selector
+  // with an expiry, and it reads as the safest one in the flow right up until
+  // the week rolls over.
+  const dated = /\b(20\d\d[-/][01]?\d[-/][0-3]?\d|[0-3]?\d[-/][01]?\d[-/]20\d\d)\b/.exec(sel);
+  if (dated) {
+    return {
+      grade: 'dated',
+      why: `this has the date ${dated[1]} written into it, so it stops matching ` +
+        'once that day has passed. A row that moves with the calendar wants to be ' +
+        'picked by position in its table, or by something on the page that does not ' +
+        'change',
+    };
+  }
   if (/:nth-of-type\(/.test(sel)) {
     return {
       grade: 'positional',
