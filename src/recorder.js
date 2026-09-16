@@ -136,7 +136,7 @@ async function record(flow, theme, audio, options = {}) {
     if (!videoPath || !fs.existsSync(videoPath)) {
       throw new Error('Playwright did not produce a video file for this run');
     }
-    return { videoPath, timeline, totalSec };
+    return trimOpening({ videoPath, timeline, totalSec }, theme, log);
   } finally {
     await browser.close().catch(() => {});
   }
@@ -273,6 +273,76 @@ async function runStep(page, step, flow, theme, options = {}) {
     default:
       throw new Error(`Unhandled action "${step.action}" (config.js should have caught this)`);
   }
+}
+
+/**
+ * Take the waiting off the front of the recording.
+ *
+ * The curtain stops the load being *watched*, but the seconds it covers are
+ * still in the file: a real site takes two or three, and a walkthrough that
+ * opens on that long a hold of flat colour is a walkthrough nobody sits
+ * through. So the head is cut, leaving one short beat for the fade from the
+ * intro card to land on.
+ *
+ * The hard part is not the cut, it is knowing where to make it. Playwright
+ * does not say when capture began, and working it out from the video's
+ * duration minus the time the recorder measured carries about four hundred
+ * milliseconds of slop - which lands on every line of narration, because the
+ * timeline has to shift by exactly as much as the trim.
+ *
+ * So the video is asked instead. Under the curtain the frame is a solid, known
+ * colour; the moment the page shows through is the moment the recorder called
+ * for the curtain to come down, and that is a timestamp both clocks agree on.
+ * Everything else follows from it.
+ *
+ * The same measurement fixes something that was wrong before any of this: the
+ * pipeline placed narration at clock seconds into a file whose zero is not the
+ * clock's zero. Measured on a finished file - when the picture changes against
+ * when the sound starts - the drift was 0.96s. Nothing in the output said so,
+ * because the captions were built from the same timeline and were wrong by
+ * exactly the same amount, so they agreed with the voice and both disagreed
+ * with the page.
+ */
+async function trimOpening(result, theme, log = () => {}) {
+  const { videoPath, timeline, totalSec } = result;
+  const none = { ...result, trimSec: 0 };
+  if (theme.video.curtain === false || !timeline.length) return none;
+
+  const ff = require('./ffmpeg');
+  const leadInSec = LEAD_IN_MS / 1000;
+  // Where the curtain came down, in the recorder's clock. It is lowered at the
+  // end of a goto, which is also where that step's own clock starts.
+  const dropClock = timeline[0].startSec;
+
+  const dropVideo = await ff.firstFrameUnlike(videoPath, theme.video.backgroundColor, {
+    maxSec: Math.min(totalSec + 4, dropClock + 8),
+  }).catch(() => null);
+  if (dropVideo === null) return none;
+
+  // Where the recorder's zero sits on the video's timeline. Positive because
+  // capture normally begins while the page is still being created, before the
+  // clock starts; occasionally Playwright starts late and it comes out
+  // negative, which is just as usable.
+  const head = dropVideo - dropClock;
+  if (Math.abs(head) > 5) return none;          // not a measurement worth trusting
+
+  const trimSec = Math.max(0, dropVideo - leadInSec);
+  // Everything the recorder timed is in clock seconds; the delivered file is in
+  // video seconds starting at the cut. This is the one number between them, and
+  // it is what the narration track and the captions are built against.
+  const shift = trimSec - head;
+
+  if (trimSec >= 0.2) log(`opening: ${trimSec.toFixed(1)}s of waiting for the page, cut`);
+  return {
+    videoPath,
+    trimSec,
+    totalSec: totalSec - shift,
+    timeline: timeline.map((t) => ({
+      ...t,
+      startSec: Math.max(0, t.startSec - shift),
+      endSec: Math.max(0, t.endSec - shift),
+    })),
+  };
 }
 
 /**
@@ -572,5 +642,5 @@ function sessionPath(flow) {
 module.exports = {
   record, runStep, resolveUrl, readingTimeMs, describeStep, showHighlight,
   authenticate, sessionIsFresh, sessionPath, settled, lowerCurtain, settleAfterNavigation,
-  argb, checkStatus,
+  argb, checkStatus, trimOpening,
 };

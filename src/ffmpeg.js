@@ -317,7 +317,8 @@ async function buildNarrationTrack(clips, totalSec, outFile) {
  * Normalise the recorded video to the theme's resolution/fps and attach the
  * narration track. Everything downstream assumes these exact stream settings.
  */
-async function muxAudioVideo(videoFile, audioFile, outFile, video, fade, profile = 'working') {
+async function muxAudioVideo(videoFile, audioFile, outFile, video, fade, profile = 'working',
+  trimSec = 0) {
   const { width, height, fps } = video;
   const p = profileFor(profile);
   const f = fadeFilters(fade);
@@ -331,6 +332,10 @@ async function muxAudioVideo(videoFile, audioFile, outFile, video, fade, profile
     `format=${p.pixFmt}`,
   ];
   const args = [
+    // Before -i, so the decoder seeks rather than decoding and discarding, and
+    // only on the video: the narration track was built against the trimmed
+    // timeline and already starts where it should.
+    ...(trimSec > 0 ? ['-ss', trimSec.toFixed(3)] : []),
     '-i', videoFile,
     '-i', audioFile,
     '-map', '0:v:0', '-map', '1:a:0',
@@ -603,7 +608,81 @@ async function hasSound(file) {
   return !!mean && Number(mean[1]) > -70;
 }
 
+/**
+ * Where a flat colour stops filling the frame.
+ *
+ * Used to find the moment the curtain came down, which is the only reliable
+ * bridge between the recorder's clock and the video's own timeline. Playwright
+ * does not say when capture began, and the arithmetic - video duration minus
+ * the time the recorder measured - carries about four hundred milliseconds of
+ * slop, enough to put every line of narration out of step. The picture does not
+ * have that problem: the stage is a solid known colour, the page under it is
+ * not, and the frame where that changes is the one moment both sides agree on.
+ *
+ * Decoded small and only for the opening, so this costs a fraction of a second.
+ * Returns seconds, or null when the frame is never anything else.
+ */
+async function firstFrameUnlike(file, hex, {
+  maxSec = 30, fps = 10, tolerance = 26, minShare = 0.08,
+} = {}) {
+  const want = hexToRgb(hex);
+  if (!want) return null;
+  const cols = 24;
+  const rows = 14;
+  // Through a file rather than a pipe: run() collects stdout by string
+  // concatenation, which is right for every other caller and ruinous for raw
+  // pixels.
+  const scratch = `${file}.opening.rgb`;
+  try {
+    await ffmpeg([
+      '-t', String(maxSec), '-i', file,
+      '-vf', `fps=${fps},scale=${cols}:${rows}`,
+      '-f', 'rawvideo', '-pix_fmt', 'rgb24', scratch,
+    ]);
+  } catch {
+    return null;
+  }
+  let raw;
+  try {
+    raw = fs.readFileSync(scratch);
+  } catch {
+    return null;
+  } finally {
+    fs.rmSync(scratch, { force: true });
+  }
+  if (!raw.length) return null;
+
+  const frameBytes = cols * rows * 3;
+  const cells = cols * rows;
+  // A share of the frame, not a single cell. One cell over the line is a
+  // compression block on a flat fill, which VP8 produces now and again and
+  // which cost this a second of video the first time it was trusted. A page
+  // showing through changes most of the picture at once.
+  const need = Math.max(2, Math.round(cells * minShare));
+
+  for (let f = 0; (f + 1) * frameBytes <= raw.length; f++) {
+    const at = f * frameBytes;
+    let off = 0;
+    for (let px = 0; px < frameBytes; px += 3) {
+      if (Math.abs(raw[at + px] - want[0]) > tolerance
+        || Math.abs(raw[at + px + 1] - want[1]) > tolerance
+        || Math.abs(raw[at + px + 2] - want[2]) > tolerance) off++;
+    }
+    if (off >= need) return f / fps;
+  }
+  return null;
+}
+
+/** #RGB or #RRGGBB to [r, g, b]. */
+function hexToRgb(hex) {
+  const v = String(hex || '').replace('#', '').trim();
+  const full = v.length === 3 ? v.split('').map((c) => c + c).join('') : v;
+  if (!/^[0-9a-fA-F]{6}$/.test(full)) return null;
+  return [0, 2, 4].map((i) => parseInt(full.slice(i, i + 2), 16));
+}
+
 module.exports = {
+  firstFrameUnlike, hexToRgb,
   ffmpeg,
   binaries,
   resolveBinary,

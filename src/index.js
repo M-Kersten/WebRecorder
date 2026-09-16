@@ -389,7 +389,7 @@ async function main(argv) {
 
     // 2. Record.
     ui.step('recording');
-    const { videoPath, timeline, totalSec } = await record(flow, theme, audio, {
+    const { videoPath, timeline, totalSec, trimSec } = await record(flow, theme, audio, {
       outDir: workDir,
       headless: !args.headed,
       log: ui.detail,
@@ -424,7 +424,8 @@ async function main(argv) {
     ui.step('assembling');
     let main = await ff.muxAudioVideo(
       videoPath, audioTrack, path.join(workDir, 'main.mp4'), theme.video,
-      willBurn ? null : { fadeSec, durationSec: totalSec }
+      willBurn ? null : { fadeSec, durationSec: totalSec },
+      'working', trimSec
     );
 
     // 5. Captions, as a post-process, so restyling never means re-recording.

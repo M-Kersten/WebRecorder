@@ -85,6 +85,27 @@ comes down once the page has settled. A click that navigates is a page load
 like any other: it gets the same curtain, and restarts that step's clock. Every
 other action is visible as it happens, so it still counts from the start.
 
+And the seconds the curtain covers are then cut off the front, leaving one short
+beat for the fade from the intro card to land on. On a real site that is around
+three seconds of flat colour nobody would sit through.
+
+Finding *where* to cut is the interesting part. Playwright does not say when it
+began capturing, and working it out from the video's duration minus the time the
+recorder measured carries about four hundred milliseconds of slop - which lands
+on every line of narration, since the timeline has to shift by exactly as much
+as the trim. So the video is asked instead: under the curtain the frame is a
+solid known colour, and the frame where the page shows through is the moment
+both clocks agree on.
+
+That measurement also fixed something that had always been wrong. Narration was
+placed at clock seconds into a file whose zero is not the clock's zero, and
+measured on a finished render - when the picture changes against when the sound
+starts - the drift was **0.96 seconds**. Nothing in the output said so, because
+the captions were built from the same timeline and were wrong by exactly the
+same amount, so they agreed with the voice and both disagreed with the page.
+`test/sync.test.js` measures the two independently on a delivered file and fails
+above 0.25s.
+
 **Captions are a post-process.** Restyling them regenerates a subtitle file and
 re-burns; it never re-records. That matters when you are iterating on how a font
 looks. They are off unless you ask for them.

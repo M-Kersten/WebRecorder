@@ -186,7 +186,7 @@ function buildOverlayScript(theme, mask = []) {
     root.id = ROOT_ID;
     root.setAttribute('data-tut-overlay', '');
     root.style.cssText = 'position:fixed;inset:0;pointer-events:none;' +
-      'z-index:2147483647;contain:layout style size';
+      'z-index:2147483646;contain:layout style size';
 
     if (CFG.highlight.enabled) {
       ringEl = document.createElement('div');
@@ -386,7 +386,11 @@ function buildOverlayScript(theme, mask = []) {
     if (curtainEl && curtainEl.isConnected) return true;
     curtainEl = document.createElement('div');
     curtainEl.setAttribute('data-tut-curtain', '');
-    curtainEl.style.cssText = 'position:fixed;inset:0;z-index:2147483646;' +
+    // Above the cursor, not below it. A pointer hanging in the middle of a
+    // blank stage while a page loads is the oddest thing in the video, and it
+    // is also the one thing stopping the stage from being a flat, known colour
+    // - which is what lets the recorder find where the curtain came down.
+    curtainEl.style.cssText = 'position:fixed;inset:0;z-index:2147483647;' +
       'pointer-events:none;background:' + CFG.curtain.color + ';opacity:1;' +
       'transition:opacity ' + CFG.curtain.fadeMs + 'ms ease';
     document.documentElement.appendChild(curtainEl);

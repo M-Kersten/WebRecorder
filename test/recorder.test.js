@@ -172,6 +172,12 @@ function slowSite(delayMs) {
 // goto used to be stamped the moment the address changed, so the voice
 // described a page that was still blank and everything after it sat a page
 // load early.
+//
+// The timestamps now come back in the delivered file's own seconds rather than
+// the recorder's, because the waiting is cut off the front and everything
+// shifts with it. So the load shows up as the size of the cut, and the first
+// step lands on the lead-in. That the two agree once the file exists is
+// measured on a finished render in sync.test.js.
 test('a line for a page starts once the page is there', async () => {
   const site = await slowSite(900);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tutvid-timing-'));
@@ -185,14 +191,23 @@ test('a line for a page starts once the page is there', async () => {
       mask: [],
     };
 
-    const { timeline } = await record(flow, theme, [null, null], { outDir: dir, headless: true });
+    const { timeline, totalSec, trimSec } = await record(flow, theme, [null, null],
+      { outDir: dir, headless: true });
 
-    // 0.9s of loading plus the settle beat, before the line would have started.
-    assert.ok(timeline[0].startSec > 1.2,
-      `the page step was stamped at ${timeline[0].startSec.toFixed(2)}s, before it had loaded`);
-    assert.ok(timeline[0].startSec < 3, 'and not left waiting for no reason');
+    // The line starts on the lead-in: 0.9s of loading plus the settle beat is
+    // no longer in front of it.
+    assert.ok(timeline[0].startSec <= 0.45,
+      `the first line is at ${timeline[0].startSec.toFixed(2)}s, behind a hold of nothing`);
     // The step that follows is timed from when it began, as it always was.
     assert.ok(timeline[1].startSec >= timeline[0].startSec);
+    // And what is left is the walkthrough itself, whatever the cut turned out
+    // to be. How much there was to cut varies by more than a second between
+    // runs, because Playwright does not always start capturing at the same
+    // point - which is the whole reason the cut is measured off the picture
+    // rather than worked out from the clock.
+    assert.ok(trimSec >= 0, 'the cut is never negative');
+    assert.ok(totalSec > 1.5 && totalSec < 4,
+      `${totalSec.toFixed(2)}s left after the cut, which is not the walkthrough`);
   } finally {
     await site.close();
     fs.rmSync(dir, { recursive: true, force: true });
