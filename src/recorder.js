@@ -38,14 +38,13 @@ async function record(flow, theme, audio, options = {}) {
   const browser = await launch({
     headless,
     slowMo,
-    args: [
-      '--force-color-profile=srgb', '--font-render-hinting=none', '--disable-lcd-text',
-      // What Chromium paints where no document has painted yet. Its own default
-      // is white, and that white is the first frame of every recording: one
-      // bright flash before the stage colour arrives, on a video that is meant
-      // to open on the brand's background.
-      `--default-background-color=${argb(theme.video.backgroundColor)}`,
-    ],
+    // Nothing here may be a switch chrome-headless-shell treats as a "headless
+    // command". That build refuses to start when one is combined with remote
+    // debugging, which is how Playwright always drives it, and it is the build
+    // a normal `playwright install` gives you - so such a flag works on a
+    // machine with the full Chromium and kills every other one.
+    // --default-background-color was exactly that, and it went.
+    args: ['--force-color-profile=srgb', '--font-render-hinting=none', '--disable-lcd-text'],
   });
 
   const context = await browser.newContext({
@@ -555,13 +554,6 @@ const STATUS_NAMES = {
 };
 const statusName = (code) => STATUS_NAMES[code] || (code >= 500 ? 'Server Error' : 'Client Error');
 
-/** #RGB or #RRGGBB as the AARRGGBB Chromium wants, fully opaque. */
-function argb(hex) {
-  const v = String(hex || '').replace('#', '');
-  const full = v.length === 3 ? v.split('').map((c) => c + c).join('') : v;
-  return `FF${(full.length === 6 ? full : '0F1115').toUpperCase()}`;
-}
-
 function resolveUrl(url, baseUrl) {
   if (/^[a-z][a-z0-9+.-]*:/i.test(url)) return url;
   if (!baseUrl) {
@@ -642,5 +634,5 @@ function sessionPath(flow) {
 module.exports = {
   record, runStep, resolveUrl, readingTimeMs, describeStep, showHighlight,
   authenticate, sessionIsFresh, sessionPath, settled, lowerCurtain, settleAfterNavigation,
-  argb, checkStatus, trimOpening,
+  checkStatus, trimOpening,
 };
