@@ -240,11 +240,41 @@ const SELECTOR_SCRIPT = `
   }
 
   /** A short human label for the step list. */
+  /**
+   * A short human label for the step list.
+   *
+   * A form field is named by what is written *beside* it, never by what is
+   * inside it. Reading el.value back gave the storyboard "types into
+   * merijn.kersten@rebels.io" for an email box and "types into true" for a
+   * checkbox - the contents described, the control not. It also wrote whatever
+   * happened to be in the field into flow.json, which is a way to leak
+   * somebody's data into a file they then share.
+   */
   function describeElement(target) {
     const el = meaningful(target);
-    const text = (el.innerText || el.value || el.getAttribute('aria-label') || '').trim();
-    const short = text.split('\\n')[0].slice(0, 40);
-    return short || el.tagName.toLowerCase();
+    if (el.matches && el.matches('input, textarea, select')) {
+      const named = el.getAttribute('aria-label')
+        || labelFor(el)
+        || el.getAttribute('placeholder')
+        || el.getAttribute('name')
+        || (el.id && !looksGenerated(el.id) ? el.id : '');
+      return trimLabel(named) || ((el.type || 'text') + ' field');
+    }
+    return trimLabel(el.innerText || el.getAttribute('aria-label') || '')
+      || el.tagName.toLowerCase();
+  }
+
+  /** The <label> tied to a field, by for= or by wrapping it. */
+  function labelFor(el) {
+    try {
+      if (el.labels && el.labels.length) return el.labels[0].innerText || '';
+      const wrap = el.closest && el.closest('label');
+      return wrap ? wrap.innerText || '' : '';
+    } catch (e) { return ''; }
+  }
+
+  function trimLabel(text) {
+    return String(text || '').trim().split('\\n')[0].trim().slice(0, 40);
   }
 `;
 

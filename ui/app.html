@@ -192,7 +192,15 @@
   .strip-head .sub { font-size: 13.5px; margin-left: auto; }
   .strip { display: flex; gap: 12px; overflow-x: auto; padding: 3px 4px 14px; scroll-padding: 4px; }
   .frame {
-    flex: 0 0 206px; text-align: left; cursor: pointer;
+    /* min-width: 0 is load-bearing. A flex item defaults to min-width: auto,
+       which floors it at its own min-content width - and .what below is
+       white-space: nowrap, so its min-content is the whole line. A step whose
+       selector reads "div:nth-of-type(2) > div:nth-of-type(1) > ..." then
+       pushed its card to 511px while its neighbours sat at 206, and the
+       flex-basis never got a look in. The ellipsis cannot save it: clipping
+       happens after the size is decided. */
+    flex: 0 0 206px; min-width: 0;
+    text-align: left; cursor: pointer;
     background: var(--card); border: 1.5px solid transparent; border-radius: 16px;
     padding: 10px; box-shadow: var(--shadow); font: inherit; color: inherit;
   }

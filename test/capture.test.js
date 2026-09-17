@@ -477,3 +477,39 @@ test('the capture panel does not mount a second copy inside an iframe', async ()
     assert.strictEqual(inside, 0, 'a panel inside the widget would push its layout around');
   });
 });
+
+test('a field is named by its label, not by whatever is sitting in it', async () => {
+  // The storyboard read el.value back, so a login step came out as
+  // "types into merijn.kersten@rebels.io" and a checkbox as "types into true":
+  // the contents described, the control not. It also wrote whatever happened to
+  // be in the field into flow.json, which is a way to leak somebody's data into
+  // a file they then share.
+  const { flow } = await captureWith(async (page) => {
+    await page.evaluate(() => {
+      document.body.innerHTML =
+        '<form>' +
+        '<label for="u">Username</label><input id="u" name="username">' +
+        '<label><input type="checkbox" id="rem"> Remember</label>' +
+        '<input type="text" id="pl" placeholder="Your work email">' +
+        '</form>';
+    });
+    await page.fill('#u', 'merijn.kersten@rebels.io');
+    await page.locator('#rem').check();
+    await page.fill('#pl', 'someone@example.com');
+    // The panel records on `change`, and the binding call is a round trip; the
+    // last field of a form has nothing after it to force the blur.
+    await page.locator('#u').focus();
+    await page.waitForTimeout(600);
+  });
+
+  const labels = flow.steps.filter((s) => s.label).map((s) => s.label);
+  assert.ok(labels.includes('Username'), JSON.stringify(labels));
+  assert.ok(labels.includes('Remember'), JSON.stringify(labels));
+  assert.ok(labels.includes('Your work email'), JSON.stringify(labels));
+
+  // And nothing typed ended up in a label.
+  const joined = labels.join(' | ');
+  assert.ok(!/merijn\.kersten@rebels\.io/.test(joined), `a value reached a label: ${joined}`);
+  assert.ok(!/someone@example\.com/.test(joined), `a value reached a label: ${joined}`);
+  assert.ok(!/\btrue\b/.test(joined), `a checkbox was named by its state: ${joined}`);
+});
