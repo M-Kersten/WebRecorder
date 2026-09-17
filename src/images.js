@@ -61,6 +61,15 @@ function scan(baseDir) {
 }
 
 /**
+ * The name inside the folder, whichever way it was written.
+ *
+ * A theme stores a logo as the path it reads, "assets/logo.png"; the pickers
+ * and everything downstream of them deal in names inside that folder. One
+ * function, so the two spellings cannot drift apart.
+ */
+const bare = (name) => String(name == null ? '' : name).replace(new RegExp(`^${DIR_NAME}/`), '');
+
+/**
  * Resolve one picture. Returns null for anything that climbs out of the folder,
  * so a theme cannot be talked into reading elsewhere on the machine.
  */
@@ -75,4 +84,4 @@ function fileFor(baseDir, name) {
   return fs.existsSync(file) ? file : null;
 }
 
-module.exports = { scan, fileFor, dirFor, labelFor, IMAGE_FILE, DIR_NAME };
+module.exports = { scan, fileFor, dirFor, labelFor, bare, IMAGE_FILE, DIR_NAME };

@@ -369,8 +369,10 @@ test('a logo is picked from the assets folder and shown before it is saved', asy
     assert.ok(offered.includes('logo.png'), JSON.stringify(offered));
     assert.ok(offered.some((v) => v.startsWith('brand/')), 'a brand subfolder is reachable');
 
-    // The thumbnail follows the choice, before any save.
-    const thumb = page.locator('.imgpick .thumb').first();
+    // The thumbnail follows the choice, before any save. Scoped to this row:
+    // every pane stays rendered, and other panes have pickers of their own.
+    const thumb = page.locator('.imgpick', { has: page.locator('[data-key="theme.intro.logo"]') })
+      .locator('.thumb');
     await picker.selectOption('logo.png');
     await page.waitForTimeout(200);
     assert.strictEqual(await thumb.isVisible(), true);
@@ -450,3 +452,183 @@ test('the player will not open a file outside the output folder', async () => {
     }
   });
 });
+
+/* ---------------------------------------------------------------------- *
+ * Seeing what you are changing, and putting files in from here.
+ * ---------------------------------------------------------------------- */
+
+/** Open the Styles tab on one of its sections. */
+async function openStyleSection(page, section) {
+  await page.click('#tab-btn-styles');
+  await page.waitForSelector('#tab-styles', { state: 'visible' });
+  await page.click(`#styles-rail button[data-section="${section}"]`);
+  await page.waitForTimeout(250);
+}
+
+/** The card preview, as the iframe actually rendered it. */
+function cardFrame(page, which) {
+  return page.frameLocator(`.cardview[data-card="${which}"] iframe`);
+}
+
+test('the opening card shows itself, and follows what you type', async () => {
+  await withWindow(async ({ page, errors }) => {
+    await openStyleSection(page, 'Opening card');
+
+    const view = page.locator('.cardview[data-card="intro"]');
+    assert.strictEqual(await view.isVisible(), true, 'the pane has a preview');
+    await page.waitForFunction(
+      () => document.querySelector('.cardview[data-card="intro"] iframe').srcdoc.length > 0
+    );
+
+    // What the theme already says, drawn by the renderer's own builder.
+    const title = cardFrame(page, 'intro').locator('.title');
+    await title.waitFor();
+    const before = await title.textContent();
+
+    await page.fill('[data-key="theme.intro.title"]', 'Booking a holiday');
+    await page.waitForTimeout(900);
+    assert.strictEqual(await cardFrame(page, 'intro').locator('.title').textContent(),
+      'Booking a holiday');
+    assert.notStrictEqual(before, 'Booking a holiday', 'the title really changed');
+
+    // And the background, so it is the whole card and not just the text. This
+    // style has a gradient, which is what a card paints when it has one; the
+    // flat colour underneath it only shows once the gradient is cleared.
+    const bg = () => cardFrame(page, 'intro').locator('body')
+      .evaluate((el) => getComputedStyle(el).backgroundImage + ' | ' + getComputedStyle(el).backgroundColor);
+    // Scoped: the closing card has a gradient of its own on the same page.
+    const grad = page.locator('.gradpick',
+      { has: page.locator('[data-key="theme.intro.backgroundGradient"]') });
+    await grad.locator('[data-stop="0"]').fill('#123456');
+    await grad.locator('[data-stop="1"]').fill('#654321');
+    await page.waitForTimeout(900);
+    assert.match(await bg(), /rgb\(18, 52, 86\).*rgb\(101, 67, 33\)/);
+
+    await grad.locator('[data-stop="0"]').fill('');
+    await grad.locator('[data-stop="1"]').fill('');
+    await page.fill('[data-key="theme.intro.backgroundColor"]', '#123456');
+    await page.waitForTimeout(900);
+    assert.strictEqual(await bg(), 'none | rgb(18, 52, 86)');
+
+    // Nothing has been saved: the preview is a look, not a commitment.
+    assert.deepStrictEqual(errors, []);
+  });
+}, { timeout: 60000 });
+
+test('a half-typed colour leaves the preview standing', async () => {
+  await withWindow(async ({ page, errors }) => {
+    await openStyleSection(page, 'Closing card');
+    await page.waitForFunction(
+      () => document.querySelector('.cardview[data-card="outro"] iframe').srcdoc.length > 0
+    );
+
+    await page.fill('[data-key="theme.outro.title"]', 'Thanks for watching');
+    await page.fill('[data-key="theme.outro.backgroundColor"]', '#12');
+    await page.waitForTimeout(900);
+
+    // The title landed; the unfinished colour was simply not used yet.
+    assert.strictEqual(await cardFrame(page, 'outro').locator('.title').textContent(),
+      'Thanks for watching');
+    const note = await page.locator('.cardview[data-card="outro"] .note').getAttribute('class');
+    assert.ok(!/bad/.test(note), 'no error is shown for something still being typed');
+    assert.deepStrictEqual(errors, []);
+  });
+}, { timeout: 60000 });
+
+test('a picture can be added from the window and used at once', async () => {
+  await withWindow(async ({ page, dir, errors }) => {
+    await openStyleSection(page, 'Opening card');
+
+    const row = page.locator('.imgpick', { has: page.locator('[data-key="theme.intro.logo"]') });
+    const select = row.locator('select');
+    const before = await select.locator('option').count();
+
+    await row.locator('.upbtn').click();
+    await page.locator('input[type=file]').setInputFiles({
+      name: 'My Mark.png',
+      mimeType: 'image/png',
+      buffer: fs.readFileSync(path.join(REPO, 'assets', 'logo.png')),
+    });
+    await page.waitForTimeout(1200);
+
+    // On disk, under a name rebuilt from the one that was sent.
+    assert.ok(fs.existsSync(path.join(dir, 'assets', 'My Mark.png')), 'the file was written');
+    // In the list, and already chosen, because that is why somebody adds one.
+    assert.strictEqual(await select.locator('option').count(), before + 1);
+    assert.strictEqual(await select.inputValue(), 'My Mark.png');
+    assert.strictEqual(await row.locator('.thumb').isVisible(), true);
+
+    // And the card picks it up without a save.
+    await page.waitForTimeout(900);
+    const logo = cardFrame(page, 'intro').locator('.logo');
+    assert.strictEqual(await logo.count(), 1, 'the preview draws the new logo');
+    assert.deepStrictEqual(errors, []);
+  });
+}, { timeout: 60000 });
+
+test('a file the wrong kind is refused, and says so in the row', async () => {
+  await withWindow(async ({ page, dir }) => {
+    await openStyleSection(page, 'Opening card');
+    const row = page.locator('.soundpick', { has: page.locator('[data-key="theme.intro.audio"]') });
+
+    await row.locator('.upbtn').click();
+    await page.locator('input[type=file]').setInputFiles({
+      name: 'sneaky.exe', mimeType: 'application/octet-stream', buffer: Buffer.from('MZ'),
+    });
+    await page.waitForTimeout(900);
+
+    const note = row.locator('..').locator('.up-note');
+    assert.match(await note.textContent(), /not a clip this can use/);
+    assert.ok(!fs.existsSync(path.join(dir, 'audio', 'sneaky.exe')));
+  });
+}, { timeout: 60000 });
+
+test('a pointer preset fills in the boxes, and is only saved when you save', async () => {
+  await withWindow(async ({ page, dir, errors }) => {
+    await openStyleSection(page, 'Cursor and ring');
+
+    const presets = page.locator('.presets button');
+    assert.ok(await presets.count() >= 3, 'there are presets to start from');
+
+    await page.locator('.presets button', { hasText: 'Touch' }).first().click();
+    assert.strictEqual(await page.inputValue('[data-key="theme.cursor.shape"]'), 'touch');
+    assert.strictEqual(await page.inputValue('[data-key="theme.cursor.hotspot"]'), '0.5,0.5');
+    // The pair is shown as two boxes and travels as one value.
+    const boxes = page.locator('.pointpick [data-point]');
+    assert.strictEqual(await boxes.nth(0).inputValue(), '0.5');
+    assert.strictEqual(await boxes.nth(1).inputValue(), '0.5');
+    // The chosen one is marked, so it is clear which one you are on.
+    assert.ok(await page.locator('.presets button.on').count() >= 1);
+
+    // Nothing is written until Save is pressed.
+    const file = path.join(dir, 'settings.json');
+    assert.ok(!fs.existsSync(file) || !/"shape"/.test(fs.readFileSync(file, 'utf8')));
+
+    await page.click('#styles-save');
+    await page.waitForTimeout(900);
+    const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const layer = saved.styles[Object.keys(saved.styles)[0]];
+    assert.strictEqual(layer.cursor.shape, 'touch');
+    assert.deepStrictEqual(layer.cursor.hotspot, [0.5, 0.5]);
+    assert.strictEqual(layer.cursor.image, null);
+    assert.deepStrictEqual(errors, []);
+  });
+}, { timeout: 60000 });
+
+test('a pointer picture is picked the same way a logo is', async () => {
+  await withWindow(async ({ page, dir, errors }) => {
+    await openStyleSection(page, 'Cursor and ring');
+    const row = page.locator('.imgpick', { has: page.locator('[data-key="theme.cursor.image"]') });
+    assert.strictEqual(await row.count(), 1, 'the pointer has a picture picker');
+
+    await row.locator('select').selectOption('cursor.png');
+    await page.click('#styles-save');
+    await page.waitForTimeout(900);
+
+    const saved = JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8'));
+    const layer = saved.styles[Object.keys(saved.styles)[0]];
+    assert.strictEqual(layer.cursor.image, 'assets/cursor.png',
+      'stored as the path the theme reads');
+    assert.deepStrictEqual(errors, []);
+  });
+}, { timeout: 60000 });

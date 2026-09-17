@@ -235,6 +235,15 @@ test('a cursor image is resolved and checked', () => {
   );
 });
 
+test('the drawn pointer is one of the shapes there is code for', () => {
+  assert.doesNotThrow(() => withTheme({ cursor: { shape: 'arrow' } }));
+  assert.doesNotThrow(() => withTheme({ cursor: { shape: 'touch' } }));
+  assert.throws(() => withTheme({ cursor: { shape: 'finger' } }), /cursor\.shape must be one of/);
+  assert.throws(() => withTheme({ cursor: { shape: null } }), /cursor\.shape must be one of/);
+  // A theme that says nothing gets the arrow, which is what was always drawn.
+  assert.strictEqual(withTheme({}).cursor.shape, 'arrow');
+});
+
 test('a cursor image the browser cannot draw is rejected with a reason', () => {
   const notAnImage = path.join(work, 'pointer.tiff');
   fs.writeFileSync(notAnImage, 'x');

@@ -17,6 +17,8 @@ const shotStore = require('./shots');
 const { loadVoices } = require('./voices');
 const sounds = require('./sounds');
 const images = require('./images');
+const uploads = require('./uploads');
+const { buildCardHtml } = require('./titlecard');
 const { estimateFlow, breakdownStep } = require('./pacing');
 
 /**
@@ -175,6 +177,7 @@ function createApp(options = {}) {
       voices,
       sounds: sounds.scan(projectDir),
       images: images.scan(projectDir),
+      cursorPresets: settingsStore.CURSOR_PRESETS,
       problem,
       secrets: [NARRATION_KEY, ...fromFlow].map((name) => ({
         name,
@@ -328,19 +331,57 @@ function createApp(options = {}) {
     const style = path.basename(styleFile || currentStyle());
     if (values) {
       const base = loadTheme(path.join(projectDir, style));
-      const context = {
-        fontKeys: Object.keys(base.fonts || {}),
-        voiceIds: loadVoices(projectDir).map((voice) => voice.id),
-        sounds: sounds.scan(projectDir).map((clip) => clip.file),
-        images: images.scan(projectDir),
-        styleFile: style,
-      };
+      const context = fieldContext(base, style);
       const layer = settingsStore.toLayer(values, context);
       validateTheme(deepMerge(base, layer.theme), `These settings`);
       settingsStore.saveSettings(settingsFile, values, context);
     }
     if (secrets) settingsStore.saveSecrets(projectDir, secrets);
     return { ...readSettings(style), keyCheck };
+  }
+
+  /**
+   * What a posted value is checked against: the fonts this style declares, and
+   * the clips, pictures and voices sitting beside the project.
+   */
+  function fieldContext(base, style) {
+    return {
+      fontKeys: Object.keys(base.fonts || {}),
+      voiceIds: loadVoices(projectDir).map((voice) => voice.id),
+      sounds: sounds.scan(projectDir).map((clip) => clip.file),
+      images: images.scan(projectDir),
+      styleFile: style,
+    };
+  }
+
+  /**
+   * The opening or closing card as it would be rendered, from values that have
+   * not been saved yet.
+   *
+   * The same builder the renderer uses, so what the panel shows is the card and
+   * not an impression of it. Two things it does differently: values are coerced
+   * leniently, because a colour box is read while somebody is still typing into
+   * it; and the logo is resolved here rather than by validateTheme, which only
+   * resolves it for a card that is switched on - and an off card is exactly the
+   * one somebody is looking at while they decide.
+   */
+  function cardPreview(which, values, styleFile) {
+    const name = which === 'outro' ? 'outro' : 'intro';
+    const style = path.basename(styleFile || currentStyle());
+    const base = loadTheme(path.join(projectDir, style));
+    const layer = settingsStore.toLayer(values || {}, fieldContext(base, style), { lenient: true });
+    const theme = deepMerge(base, layer.theme);
+    const card = { ...theme[name] };
+    // fileFor refuses anything outside the assets folder, so a value that came
+    // from a form cannot point this at the rest of the disk.
+    card.logoPath = card.logo ? images.fileFor(projectDir, images.bare(card.logo)) : null;
+    return {
+      html: buildCardHtml(card, theme),
+      width: theme.video.width,
+      height: theme.video.height,
+      enabled: !!card.enabled,
+      durationSec: card.durationSec,
+    };
   }
 
   /**
@@ -734,6 +775,29 @@ function createApp(options = {}) {
 
       // Which style the next video is made in. Stored, so it survives the
       // window being closed and the CLI can be pointed at the same one.
+      // A file put into the project from the window, so nobody has to leave the
+      // app, find the folder and come back. The bytes go where that kind of
+      // asset already lives, under a name rebuilt rather than trusted.
+      if (url.pathname === '/api/upload' && req.method === 'POST') {
+        const kind = url.searchParams.get('kind') || '';
+        const spec = uploads.KINDS[kind];
+        if (!spec) return send(400, { error: `There is nowhere to put a "${kind}".` });
+        const bytes = await readBody(req, spec.maxBytes);
+        const name = uploads.save(projectDir, kind, url.searchParams.get('name'), bytes);
+        return send(200, {
+          kind,
+          name,
+          sounds: sounds.scan(projectDir),
+          images: images.scan(projectDir),
+        });
+      }
+
+      // What the card would look like, from what is in the form right now.
+      if (url.pathname === '/api/card-preview' && req.method === 'POST') {
+        const body = await readJsonBody(req);
+        return send(200, cardPreview(body.card, body.values, body.style));
+      }
+
       if (url.pathname === '/api/style' && req.method === 'POST') {
         const body = await readJsonBody(req);
         // Present but blank is still a create, so the error names the problem.
@@ -861,6 +925,7 @@ function createApp(options = {}) {
     startRender,
     readStory,
     writeStory,
+    cardPreview,
     createStyle,
     chooseStyle,
     currentStyle,
@@ -875,6 +940,39 @@ async function measure(file) {
   } catch {
     return null;
   }
+}
+
+/**
+ * The whole request body as bytes, holding no more than the cap.
+ *
+ * Something too big stops being kept the moment it passes the limit, and the
+ * rest is read and dropped. Closing the socket instead would be cheaper and
+ * would land on the page as a network error, with nothing to read - and the
+ * answer here, that the file is too big and by how much, is one somebody can
+ * act on. Memory never exceeds the cap either way.
+ */
+function readBody(req, maxBytes) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    let over = false;
+    req.on('data', (chunk) => {
+      size += chunk.length;
+      if (size > maxBytes) { over = true; chunks.length = 0; return; }
+      chunks.push(chunk);
+    });
+    req.on('error', reject);
+    req.on('end', () => {
+      if (over) {
+        reject(new Error(
+          `That file is ${(size / 1048576).toFixed(1)} MB, and the limit is ` +
+          `${Math.round(maxBytes / 1048576)} MB.`
+        ));
+        return;
+      }
+      resolve(Buffer.concat(chunks));
+    });
+  });
 }
 
 function readJsonBody(req) {

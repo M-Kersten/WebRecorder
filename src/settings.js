@@ -104,6 +104,42 @@ const FIELDS = [
     type: 'boolean',
   },
   {
+    key: 'theme.cursor.image',
+    section: 'Cursor and ring',
+    label: 'Pointer picture',
+    help: 'Your own pointer instead of the drawn one, picked from the assets ' +
+      'folder beside this project. A .png with transparency or a .svg.',
+    type: 'image', nullable: true,
+  },
+  {
+    key: 'theme.cursor.shape',
+    section: 'Cursor and ring',
+    label: 'Drawn pointer',
+    help: 'Which pointer gets drawn when there is no picture. Touch is the disc ' +
+      'a finger leaves, for a walkthrough recorded at a phone size.',
+    type: 'select',
+    options: [
+      { value: 'arrow', label: 'Arrow' },
+      { value: 'touch', label: 'Touch' },
+    ],
+  },
+  {
+    key: 'theme.cursor.size',
+    section: 'Cursor and ring',
+    label: 'Pointer size',
+    help: 'How wide the pointer is drawn. A picture keeps its own proportions.',
+    type: 'number', unit: 'px', min: 8, max: 200,
+  },
+  {
+    key: 'theme.cursor.hotspot',
+    section: 'Cursor and ring',
+    label: 'Where it points',
+    help: 'Which part of the pointer sits on the thing being used, across and ' +
+      'down, as a fraction of its box. An arrow points from near its top-left; ' +
+      'a touch disc points from its middle.',
+    type: 'point',
+  },
+  {
     key: 'theme.highlight.fadeMs',
     section: 'Cursor and ring',
     label: 'Highlight fade',
@@ -329,7 +365,16 @@ const FIELDS = [
     key: 'theme.intro.backgroundColor',
     section: 'Opening card',
     label: 'Background',
+    help: 'Used when there is no gradient below.',
     type: 'color',
+  },
+  {
+    key: 'theme.intro.backgroundGradient',
+    section: 'Opening card',
+    label: 'Or a gradient',
+    help: 'Two colours, corner to corner. Clear them both to go back to the flat ' +
+      'background above.',
+    type: 'gradient', nullable: true,
   },
   {
     key: 'theme.intro.logo',
@@ -400,7 +445,16 @@ const FIELDS = [
     key: 'theme.outro.backgroundColor',
     section: 'Closing card',
     label: 'Background',
+    help: 'Used when there is no gradient below.',
     type: 'color',
+  },
+  {
+    key: 'theme.outro.backgroundGradient',
+    section: 'Closing card',
+    label: 'Or a gradient',
+    help: 'Two colours, corner to corner. Clear them both to go back to the flat ' +
+      'background above.',
+    type: 'gradient', nullable: true,
   },
   {
     key: 'theme.outro.logo',
@@ -630,6 +684,68 @@ function inertByModel() {
   return out;
 }
 
+/**
+ * Pointers worth starting from.
+ *
+ * A picture is a fourth thing somebody can pick, and these are not it: each one
+ * is a set of values the form fills in, so it lands in the same boxes as
+ * anything typed by hand and can be changed afterwards. Which is the point -
+ * "mobile" is a starting position, not a mode.
+ */
+const CURSOR_PRESETS = [
+  {
+    id: 'light',
+    label: 'Light arrow',
+    note: 'The default. White with a dark outline, which reads over almost anything.',
+    values: {
+      'theme.cursor.image': '', 'theme.cursor.shape': 'arrow', 'theme.cursor.size': 28,
+      'theme.cursor.hotspot': [0.18, 0.08],
+      'theme.cursor.color': '#FFFFFF', 'theme.cursor.strokeColor': '#000000',
+    },
+  },
+  {
+    id: 'dark',
+    label: 'Dark arrow',
+    note: 'For a site that is mostly white.',
+    values: {
+      'theme.cursor.image': '', 'theme.cursor.shape': 'arrow', 'theme.cursor.size': 28,
+      'theme.cursor.hotspot': [0.18, 0.08],
+      'theme.cursor.color': '#17171C', 'theme.cursor.strokeColor': '#FFFFFF',
+    },
+  },
+  {
+    id: 'large',
+    label: 'Large arrow',
+    note: 'Half again as big, for a 4K frame or a video that gets watched small.',
+    values: {
+      'theme.cursor.image': '', 'theme.cursor.shape': 'arrow', 'theme.cursor.size': 44,
+      'theme.cursor.hotspot': [0.18, 0.08],
+      'theme.cursor.color': '#FFFFFF', 'theme.cursor.strokeColor': '#000000',
+    },
+  },
+  {
+    id: 'touch',
+    label: 'Touch',
+    note: 'The disc a finger leaves, centred on what it taps. Pair it with a phone ' +
+      'viewport under Pacing.',
+    values: {
+      'theme.cursor.image': '', 'theme.cursor.shape': 'touch', 'theme.cursor.size': 58,
+      'theme.cursor.hotspot': [0.5, 0.5],
+      'theme.cursor.color': '#FFFFFF', 'theme.cursor.strokeColor': '#000000',
+    },
+  },
+  {
+    id: 'touch-dark',
+    label: 'Touch, dark',
+    note: 'The same disc over a light page.',
+    values: {
+      'theme.cursor.image': '', 'theme.cursor.shape': 'touch', 'theme.cursor.size': 58,
+      'theme.cursor.hotspot': [0.5, 0.5],
+      'theme.cursor.color': '#17171C', 'theme.cursor.strokeColor': '#FFFFFF',
+    },
+  },
+];
+
 /** Pull the current value of every field out of a loaded theme and flow. */
 function readValues(theme, flow) {
   const values = {};
@@ -638,13 +754,13 @@ function readValues(theme, flow) {
     const source = root === 'theme' ? theme : flow;
     values[field.key] = rest.reduce((o, k) => (o == null ? undefined : o[k]), source);
   }
-  // A card's logo is stored as the path the theme reads, "assets/logo.png"; the
+  // A picture is stored as the path the theme reads, "assets/logo.png"; the
   // picker deals in names inside that folder, so the prefix comes back off.
-  for (const key of ['theme.intro.logo', 'theme.outro.logo']) {
-    const stored = values[key];
-    values[key] = typeof stored === 'string'
-      ? stored.replace(new RegExp(`^${images.DIR_NAME}/`), '')
-      : (stored || '');
+  // Every picture field, rather than a list of keys somebody has to remember
+  // to extend when they add one.
+  for (const field of FIELDS.filter((f) => f.type === 'image')) {
+    const stored = values[field.key];
+    values[field.key] = typeof stored === 'string' ? images.bare(stored) : (stored || '');
   }
   // The form asks for a preset name; the flow holds the size it resolved to.
   // A viewport written as an explicit width and height has no preset, and
@@ -660,12 +776,25 @@ function readValues(theme, flow) {
  * this file is edited by a form, and a form should not be able to put anything
  * it likes into the theme.
  */
-function toLayer(values, context = {}) {
+function toLayer(values, context = {}, { lenient = false } = {}) {
   const layer = { theme: {}, flow: {} };
   for (const [key, raw] of Object.entries(values || {})) {
     const field = BY_KEY.get(key);
-    if (!field) throw new ConfigError(`"${key}" is not a setting this tool has`);
-    const value = coerce(field, raw, context);
+    if (!field) {
+      if (lenient) continue;
+      throw new ConfigError(`"${key}" is not a setting this tool has`);
+    }
+    let value;
+    try {
+      value = coerce(field, raw, context);
+    } catch (err) {
+      // Lenient is for the live preview, where every keystroke arrives: "#1"
+      // on the way to "#1A1D29" is not a mistake to shout about, it is a
+      // colour somebody is halfway through typing. That field keeps the value
+      // it had until the rest of it lands.
+      if (!lenient) throw err;
+      continue;
+    }
     if (value === undefined) continue;
 
     const [root, ...rest] = key.split('.');
@@ -678,7 +807,22 @@ function toLayer(values, context = {}) {
 
 const HEX = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 
+/**
+ * Every type coerce() knows how to read.
+ *
+ * Named rather than implied, because the last branch below is the number one
+ * and a field with a type nobody wired up would fall into it - a colour
+ * quietly becoming NaN, with nothing anywhere saying so.
+ */
+const FIELD_TYPES = [
+  'boolean', 'number', 'text', 'color', 'gradient', 'point',
+  'select', 'font', 'voice', 'sound', 'image',
+];
+
 function coerce(field, raw, context = {}) {
+  if (!FIELD_TYPES.includes(field.type)) {
+    throw new ConfigError(`${field.key} has type "${field.type}", which nothing reads`);
+  }
   if (field.type === 'boolean') return !!raw;
 
   if (field.type === 'text') {
@@ -701,6 +845,43 @@ function coerce(field, raw, context = {}) {
       );
     }
     return text.toUpperCase();
+  }
+
+  if (field.type === 'gradient') {
+    // Two colours or none. Half a gradient is the state somebody is passing
+    // through while they fill in the second box, not one worth storing.
+    const parts = (Array.isArray(raw) ? raw : String(raw == null ? '' : raw).split(','))
+      .map((part) => String(part).trim())
+      .filter(Boolean);
+    if (!parts.length) return null;
+    if (parts.length !== 2) {
+      throw new ConfigError(`${field.label}: a gradient takes two colours, or neither`);
+    }
+    for (const part of parts) {
+      if (!HEX.test(part)) {
+        throw new ConfigError(
+          `${field.label}: "${part}" is not a colour. Use a hex value such as #6C5CE7.`
+        );
+      }
+    }
+    return parts.map((part) => part.toUpperCase());
+  }
+
+  if (field.type === 'point') {
+    // Two fractions, sent as "0.18,0.08". A pair rather than two settings
+    // because the theme holds a pair, and splitting it here would mean
+    // merging an object over an array on the way back.
+    const parts = Array.isArray(raw) ? raw : String(raw == null ? '' : raw).split(',');
+    if (parts.length !== 2) {
+      throw new ConfigError(`${field.label}: expected two numbers, across and down`);
+    }
+    const pair = parts.map((part) => Number(String(part).trim()));
+    if (!pair.every((n) => Number.isFinite(n) && n >= 0 && n <= 1)) {
+      throw new ConfigError(
+        `${field.label}: both numbers run from 0 to 1, as a fraction of the pointer’s box`
+      );
+    }
+    return pair;
   }
 
   if (field.type === 'sound') {
@@ -886,7 +1067,7 @@ module.exports = {
   applyFlowLayer,
   inertFields,
   inertByModel,
-  FIELDS, SETTINGS_FILE, SECRETS_FILE, NARRATION_KEY, DEFAULT_STYLE,
+  FIELDS, FIELD_TYPES, CURSOR_PRESETS, SETTINGS_FILE, SECRETS_FILE, NARRATION_KEY, DEFAULT_STYLE,
   settingsPath, secretsPath,
   loadSettings, saveSettings, saveStyleChoice, readValues, toLayer, mergeDeep,
   loadSecrets, saveSecrets, applySecrets,

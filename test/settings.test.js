@@ -24,7 +24,9 @@ test('every field names a real place in the theme or the flow', () => {
   const values = settings.readValues(theme, flow);
   for (const field of settings.FIELDS) {
     assert.ok(field.key in values, `${field.key} was not read`);
-    assert.ok(['number', 'boolean', 'select', 'color', 'text', 'font', 'voice', 'sound', 'image'].includes(field.type),
+    // Against the list the coercion itself works from, so a field with a type
+    // nobody wired up fails here rather than quietly being read as a number.
+    assert.ok(settings.FIELD_TYPES.includes(field.type),
       `${field.key} has an unknown type "${field.type}"`);
     assert.ok(field.label && field.section, `${field.key} needs a label and a section`);
     if (field.type === 'select') assert.ok(field.options.length, `${field.key} needs options`);
@@ -32,6 +34,22 @@ test('every field names a real place in the theme or the flow', () => {
   // And a couple of the values are the real ones, not undefined.
   assert.strictEqual(values['theme.cursor.easing'], theme.cursor.easing);
   assert.strictEqual(values['flow.minStepMs'], 1);
+});
+
+// The last branch of coerce() is the number one, so a field whose type nobody
+// wired up would be read as a number and come back NaN with nothing saying so.
+test('every type a field uses is one the coercion has a branch for', () => {
+  const used = [...new Set(settings.FIELDS.map((f) => f.type))].sort();
+  assert.deepStrictEqual(
+    used.filter((t) => !settings.FIELD_TYPES.includes(t)), [],
+    'a field type was added without teaching coerce() to read it'
+  );
+  // And the other way round: a type listed but never used is a branch nothing
+  // reaches, which is worth noticing before it rots.
+  assert.deepStrictEqual(
+    settings.FIELD_TYPES.filter((t) => !used.includes(t)), [],
+    'coerce() has a branch no field uses'
+  );
 });
 
 test('a flat form becomes a nested layer', () => {
@@ -50,15 +68,15 @@ test('a flat form becomes a nested layer', () => {
 test('a key that is not a setting is refused', () => {
   // The form can only reach what FIELDS lists. Everything else in the theme,
   // including anything that takes a file path, stays out of its hands.
-  assert.throws(() => settings.toLayer({ 'theme.cursor.image': '/etc/passwd' }), /is not a setting/);
   assert.throws(() => settings.toLayer({ 'theme.fonts.heading.file': 'x.ttf' }), /is not a setting/);
   assert.throws(() => settings.toLayer({ 'theme.fonts.body.file': 'x.ttf' }), /is not a setting/);
   assert.throws(() => settings.toLayer({ '__proto__.x': 1 }), /is not a setting/);
   assert.throws(() => settings.toLayer({ 'flow.steps': [] }), /is not a setting/);
 });
 
-// The card logo IS a setting now, so the guard moved rather than went away: it
-// is picked from the assets folder, and nothing outside that folder resolves.
+// A card logo and the pointer ARE settings now, so the guard moved rather than
+// went away: both are picked from the assets folder, and nothing outside that
+// folder resolves.
 test('a card logo can only be a picture from the assets folder', () => {
   const context = { images: [{ file: 'logo.png' }, { file: 'brand/mark.svg' }] };
 
@@ -80,6 +98,65 @@ test('a card logo can only be a picture from the assets folder', () => {
 
   // Empty clears it, because a card without a logo is an ordinary thing to want.
   assert.strictEqual(settings.toLayer({ 'theme.intro.logo': '' }, context).theme.intro.logo, null);
+});
+
+test('the pointer picture is held to the same folder', () => {
+  const context = { images: [{ file: 'cursor.png' }] };
+  assert.strictEqual(
+    settings.toLayer({ 'theme.cursor.image': 'cursor.png' }, context).theme.cursor.image,
+    'assets/cursor.png'
+  );
+  for (const bad of ['/etc/passwd.png', '../../../secret.png', 'C:\\x.png']) {
+    assert.throws(() => settings.toLayer({ 'theme.cursor.image': bad }, context),
+      /no picture called/, bad);
+  }
+  // Empty means the drawn pointer, which is the default and has to stay reachable.
+  assert.strictEqual(
+    settings.toLayer({ 'theme.cursor.image': '' }, context).theme.cursor.image, null
+  );
+});
+
+test('the hotspot travels as the pair the theme holds', () => {
+  assert.deepStrictEqual(
+    settings.toLayer({ 'theme.cursor.hotspot': '0.5,0.5' }).theme.cursor.hotspot, [0.5, 0.5]
+  );
+  // An array arrives intact too, which is how a preset sends it.
+  assert.deepStrictEqual(
+    settings.toLayer({ 'theme.cursor.hotspot': [0.18, 0.08] }).theme.cursor.hotspot, [0.18, 0.08]
+  );
+  assert.throws(() => settings.toLayer({ 'theme.cursor.hotspot': '0.5' }), /two numbers/);
+  assert.throws(() => settings.toLayer({ 'theme.cursor.hotspot': '0.5,2' }), /0 to 1/);
+  assert.throws(() => settings.toLayer({ 'theme.cursor.hotspot': 'left,top' }), /0 to 1/);
+});
+
+// Every preset has to land in boxes that exist and survive the coercion, or a
+// click on one writes a theme that will not load.
+test('every cursor preset is made of real settings', () => {
+  const context = { images: [] };
+  for (const preset of settings.CURSOR_PRESETS) {
+    assert.ok(preset.id && preset.label && preset.note, `${preset.id} needs a label and a note`);
+    const layer = settings.toLayer(preset.values, context);
+    assert.ok(layer.theme.cursor, `${preset.id} sets nothing`);
+    assert.strictEqual(layer.theme.cursor.image, null, `${preset.id} should not name a file`);
+    assert.strictEqual(layer.theme.cursor.hotspot.length, 2);
+  }
+  const ids = settings.CURSOR_PRESETS.map((p) => p.id);
+  assert.strictEqual(new Set(ids).size, ids.length, 'preset ids are unique');
+});
+
+// A preview reads a form as somebody types into it, so a value that is not
+// finished yet is not a failure - it is just not ready.
+test('lenient coercion keeps the rest of a half-typed form', () => {
+  const layer = settings.toLayer({
+    'theme.intro.title': 'Qapture',
+    'theme.intro.backgroundColor': '#1',
+    'not.a.setting': 'anything',
+  }, {}, { lenient: true });
+  assert.strictEqual(layer.theme.intro.title, 'Qapture');
+  assert.ok(!('backgroundColor' in layer.theme.intro), 'the half-typed colour is left behind');
+  assert.ok(!('not' in layer));
+  // Strict is still strict.
+  assert.throws(() => settings.toLayer({ 'theme.intro.backgroundColor': '#1' }), /is not a colour/);
 });
 
 test('numbers are range-checked with the reason spelled out', () => {

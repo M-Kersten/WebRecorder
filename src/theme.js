@@ -32,7 +32,10 @@ const DEFAULTS = {
     color: '#FFFFFF',
     strokeColor: '#000000',
     size: 28,
-    // Point at a .png/.svg to use your own pointer instead of the drawn arrow.
+    // Which pointer is drawn when there is no image: "arrow" or "touch", the
+    // soft disc a finger leaves on a phone.
+    shape: 'arrow',
+    // Point at a .png/.svg to use your own pointer instead of the drawn one.
     image: null,
     // Which point of the pointer sits on the target, as a fraction of its box.
     // The default suits a tip-at-top-left arrow.
@@ -366,9 +369,15 @@ function validateColors(theme, abs) {
 }
 
 const EASINGS = ['linear', 'easeOut', 'easeInOut'];
+const CURSOR_SHAPES = ['arrow', 'touch'];
 
 function validateCursor(theme, baseDir, abs) {
   const c = theme.cursor;
+  if (!CURSOR_SHAPES.includes(c.shape)) {
+    throw new ThemeError(
+      `${abs}: cursor.shape must be one of ${CURSOR_SHAPES.join(', ')} (got ${JSON.stringify(c.shape)})`
+    );
+  }
   if (c.image) {
     if (typeof c.image !== 'string') {
       throw new ThemeError(`${abs}: cursor.image must be a path to a .png/.svg, or null`);
@@ -585,7 +594,7 @@ function describeTheme(theme) {
     `${theme.captions.fontSize}px ${theme.captions.color} at ${theme.captions.position}`);
   const cur = theme.cursor;
   lines.push(`  cursor: ${cur.enabled
-    ? `on, ${cur.imagePath ? path.basename(cur.imagePath) : cur.color} ${cur.size}px, ` +
+    ? `on, ${cur.imagePath ? path.basename(cur.imagePath) : `${cur.shape} ${cur.color}`} ${cur.size}px, ` +
       `${cur.easing}${cur.ripple ? ', ripple' : ''}`
     : 'off'}`);
   lines.push(`  highlight: ${theme.highlight.enabled

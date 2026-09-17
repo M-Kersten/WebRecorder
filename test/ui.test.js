@@ -55,6 +55,7 @@ test('every action refuses to run without the token', async () => {
     for (const [p, body] of [
       ['/api/setup', null], ['/api/capture', { url: 'https://x.test' }],
       ['/api/render', {}], ['/api/reveal', {}], ['/api/video', null],
+      ['/api/upload?kind=image&name=x.png', {}], ['/api/card-preview', { card: 'intro' }],
     ]) {
       const res = await fetch(`${base}${p}`, {
         method: body ? 'POST' : 'GET',
@@ -918,5 +919,132 @@ test('hints can be turned off, and are on until they are', async () => {
     await call('/api/settings', { values: { 'theme.hints.enabled': false } });
     const off = await call('/api/settings').then((r) => r.json());
     assert.strictEqual(off.values['theme.hints.enabled'], false);
+  });
+});
+
+/* ---------------------------------------------------------------------- *
+ * The card, previewed. The same builder the renderer uses, from values that
+ * have not been saved.
+ * ---------------------------------------------------------------------- */
+
+test('the card preview is the renderer\u2019s own card, not an impression of one', async () => {
+  await withApp(async ({ call }) => {
+    const data = await call('/api/card-preview', {
+      card: 'intro',
+      values: { 'theme.intro.title': 'Booking a holiday', 'theme.intro.logo': 'logo.svg' },
+    }).then((r) => r.json());
+
+    assert.strictEqual(data.width, 1920);
+    assert.strictEqual(data.height, 1080);
+    assert.ok(data.html.includes('Booking a holiday'));
+    // Inlined the way the renderer inlines them, so the preview cannot show a
+    // font or a logo the video will not have.
+    assert.ok(/@font-face/.test(data.html), 'the face is embedded');
+    assert.ok(/src="data:image\/svg\+xml;base64,/.test(data.html), 'the logo is embedded');
+    assert.ok(!/file:\/\//.test(data.html), 'nothing is left pointing at the disk');
+  });
+});
+
+test('a value still being typed does not take the preview down with it', async () => {
+  await withApp(async ({ call }) => {
+    const res = await call('/api/card-preview', {
+      card: 'outro',
+      values: {
+        'theme.outro.title': 'Thanks for watching',
+        'theme.outro.backgroundColor': '#12',
+        'theme.outro.durationSec': '',
+      },
+    });
+    assert.strictEqual(res.status, 200);
+    const data = await res.json();
+    assert.ok(data.html.includes('Thanks for watching'));
+    assert.ok(!data.html.includes('#12;'), 'the unfinished colour was left out');
+  });
+});
+
+// The form is a form. It must not be able to point the preview at a file.
+test('the preview will not read a picture from outside the assets folder', async () => {
+  await withApp(async ({ call, dir }) => {
+    fs.writeFileSync(path.join(dir, 'secret.png'), 'not yours');
+    for (const bad of ['../secret.png', '/etc/passwd.png', 'assets/../secret.png']) {
+      const data = await call('/api/card-preview', {
+        card: 'intro',
+        values: { 'theme.intro.title': 'x', 'theme.intro.logo': bad },
+      }).then((r) => r.json());
+      assert.ok(!/<img class="logo"/.test(data.html), `${bad} was drawn`);
+      assert.ok(!/not yours/.test(data.html), `${bad} was read`);
+    }
+  });
+});
+
+/* ---------------------------------------------------------------------- *
+ * Putting a file into the project from the window.
+ * ---------------------------------------------------------------------- */
+
+async function upload(base, token, kind, name, body) {
+  const res = await fetch(
+    `${base}/api/upload?kind=${kind}&name=${encodeURIComponent(name)}`,
+    { method: 'POST', headers: { 'x-tutvid-token': token }, body }
+  );
+  return { status: res.status, data: await res.json() };
+}
+
+test('an uploaded picture is on disk and in the list that comes back', async () => {
+  await withApp(async ({ base, app, dir }) => {
+    const bytes = fs.readFileSync(path.join(REPO, 'assets', 'logo.png'));
+    const { status, data } = await upload(base, app.token, 'image', 'My Mark.png', bytes);
+
+    assert.strictEqual(status, 200);
+    assert.strictEqual(data.name, 'My Mark.png');
+    assert.ok(fs.existsSync(path.join(dir, 'assets', 'My Mark.png')));
+    assert.ok(data.images.some((im) => im.file === 'My Mark.png'),
+      'the refreshed listing carries it, so no reload is needed');
+    // And the picker can now be set to it, which is the whole point.
+    const saved = await app.writeSettings({ 'theme.intro.logo': 'My Mark.png' }, null);
+    assert.strictEqual(saved.values['theme.intro.logo'], 'My Mark.png');
+  });
+});
+
+test('an upload cannot write outside the folder for its kind', async () => {
+  await withApp(async ({ base, app, dir }) => {
+    for (const sent of ['../../escaped.png', 'C:\\escaped.png', '../fonts/escaped.png']) {
+      const { status, data } = await upload(base, app.token, 'image', sent, Buffer.from('x'));
+      assert.strictEqual(status, 200, sent);
+      // All three are the same name once the path is stripped, so the second
+      // and third step aside rather than overwriting the first.
+      assert.match(data.name, /^escaped(-\d)?\.png$/, sent);
+      assert.ok(fs.existsSync(path.join(dir, 'assets', data.name)), sent);
+    }
+    assert.ok(!fs.existsSync(path.join(dir, 'escaped.png')));
+    assert.ok(!fs.existsSync(path.join(dir, 'fonts', 'escaped.png')));
+  });
+});
+
+// Closing the socket would be cheaper and would land on the page as a network
+// error, with nothing to read. This answer is one somebody can act on.
+test('a file over the limit is refused with the size in the message', async () => {
+  await withApp(async ({ base, app, dir }) => {
+    const { status, data } = await upload(
+      base, app.token, 'image', 'huge.png', Buffer.alloc(9 * 1024 * 1024)
+    );
+    assert.strictEqual(status, 400);
+    assert.match(data.error, /9\.0 MB, and the limit is 8 MB/);
+    assert.ok(!fs.existsSync(path.join(dir, 'assets', 'huge.png')));
+
+    // And the server is still there afterwards.
+    const after = await upload(base, app.token, 'image', 'small.png', Buffer.from('x'));
+    assert.strictEqual(after.status, 200);
+  });
+});
+
+test('there is nowhere to put a kind the window does not have', async () => {
+  await withApp(async ({ base, app, dir }) => {
+    for (const kind of ['font', 'video', '', '__proto__']) {
+      const { status } = await upload(base, app.token, kind, 'x.png', Buffer.from('x'));
+      assert.strictEqual(status, 400, kind);
+    }
+    assert.deepStrictEqual(
+      fs.readdirSync(dir).filter((f) => !/^(theme|fonts|assets)/.test(f)), []
+    );
   });
 });

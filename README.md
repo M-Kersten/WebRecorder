@@ -750,6 +750,7 @@ A `.srt` sidecar is written next to the output video.
   "enabled": true,
   "color": "#FFFFFF", "strokeColor": "#000000", "size": 28,
 
+  "shape": "arrow",               // arrow | touch, when there is no image
   "image": "assets/cursor.png",   // optional: your own pointer
   "hotspot": [0.19, 0.08],        // which point of it lands on the target
 
@@ -772,6 +773,16 @@ back to the middle of the screen every time the site navigates.
 page, so nothing has to load at record time. `hotspot` is the point that sits on
 the target, as a fraction of the image: `[0, 0]` is its top-left corner, `[0.5,
 0.5]` its centre. A tip-at-top-left arrow wants roughly `[0.19, 0.08]`.
+
+With no `image`, `shape` decides what gets drawn. `arrow` is the pointer this
+has always drawn. `touch` is the disc a finger leaves, for a walkthrough
+recorded at a phone size: give it a bigger `size` and a `hotspot` of `[0.5,
+0.5]`, because a disc points from its middle. Both are drawn rather than
+loaded, so there is no asset to go missing mid-navigation.
+
+The Styles tab has these as presets, under Cursor and ring. A preset fills in
+the boxes below it rather than replacing them, so it is a starting position you
+can then change, and the pointer picture is picked the same way a card logo is.
 
 The ring never travels. It is placed on its target while invisible and faded in
 once the cursor has finished moving; showing it first tells the viewer where to
@@ -836,10 +847,19 @@ of fading to black and straight back.
 ### Pictures
 
 Anything in an `assets` folder beside the project, one level of subfolders
-included, turns up in the logo pickers on the Styles tab. A folder rather than a
-path typed into a form, for the same reason the fonts and the audio work that
-way: the settings screen is a form, and a form has no business pointing the
-renderer at an arbitrary file on the machine.
+included, turns up in the picture pickers on the Styles tab, which are the card
+logos and the pointer. A folder rather than a path typed into a form, for the
+same reason the fonts and the audio work that way: the settings screen is a
+form, and a form has no business pointing the renderer at an arbitrary file on
+the machine.
+
+Every picker has an upload button beside it, so a logo, a sting or a music track
+can go in without leaving the window. The bytes are written into the folder that
+kind is read from, under a name rebuilt rather than trusted: basename only, a
+known extension, and anything else replaced. An upload never overwrites what is
+already there - a second `logo.png` lands as `logo-2.png` - because a picker
+pointing at a file whose contents changed under it is a confusing way to lose
+work. Pictures are capped at 8 MB and clips at 48 MB.
 
 ### `intro` and `outro`
 
@@ -859,6 +879,14 @@ renderer at an arbitrary file on the machine.
 Cards are rendered as HTML in the browser and screenshotted, not drawn with
 ffmpeg's `drawtext`, which cannot do `@font-face`, gradients or logo layout.
 Type scales off `video.height`, so one card design works at any resolution.
+
+The Opening card and Closing card panes each show the card as it would be
+rendered, redrawn a moment after you stop typing. It is the same builder the
+renderer uses, served into an iframe, so what is on screen there is what lands
+in the video rather than an impression of it. A card that is switched off is
+previewed anyway, because that is exactly when somebody is deciding. And a
+half-typed colour is left out for the moment rather than taking the preview
+down.
 
 ### `video`
 
@@ -1030,6 +1058,8 @@ src/
   pacing.js     how long a step is on screen; read by the recorder and the board
   voices.js     the voices.json list, and the stock voice to fall back on
   sounds.js     the audio folder: stings and music, by name
+  images.js     the assets folder: logos and pointers, by name
+  uploads.js    writing a file into one of those folders from the window
   fontcatalog.js  reads a fonts folder into theme-shaped declarations
   shots.js      the per-step screenshots the storyboard is built from
   settings.js   the fields the Style tab shows, and where they are saved
@@ -1041,7 +1071,7 @@ fonts/          bundled .ttf/.otf, see fonts/README.md
 audio/          stings and music for the cards and the bed, see audio/README.md
 theme-rebels.json    a real-world theme: brand colour, Overused Grotesk
 voices.json     the ElevenLabs voices this project can narrate in
-assets/         logos and other card artwork
+assets/         logos, pointers and other card artwork
 demo/           demo site and flow, used by every test
   portal/       a login plus a dashboard, for the auth and masking examples
 ```

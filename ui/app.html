@@ -374,14 +374,16 @@
   .pane > h3 { margin: 0; padding: 18px 0 4px; font-size: 17px; font-weight: 700; }
   .pane > .lede { margin: 0 0 6px; color: var(--muted); font-size: 13.5px; max-width: 58ch; }
 
-  /* label | control | unit, one track each, so nothing wanders. */
+  /* label | control | unit, one track each, so nothing wanders. Wide enough
+     for a picker with both its buttons: a dropdown clipped to "Cursoi" is not
+     a dropdown anybody can read a file name out of. */
   .row {
-    display: grid; grid-template-columns: minmax(0, 1fr) 176px 46px;
+    display: grid; grid-template-columns: minmax(0, 1fr) 220px 46px;
     gap: 16px; align-items: center; padding: 14px 0; border-top: 1px solid var(--rule);
   }
   .row .k { font-size: 14px; }
   .row .d { font-size: 12.5px; color: var(--muted); line-height: 1.5; margin-top: 2px; max-width: 52ch; }
-  .row .ctl { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
+  .row .ctl { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px; }
   .row .ctl input[type=number], .row .ctl input[type=text], .row .ctl select { width: 100%; }
   .row .ctl input[type=number] { text-align: right; }
   /* A logo is picked by name and confirmed by eye: the file itself sits beside
@@ -446,6 +448,70 @@
   .soundpick .play:disabled { opacity: .35; cursor: not-allowed; }
   .soundpick .play svg { width: 9px; height: 9px; margin-left: 1px; }
   .soundpick .play.on { background: var(--pink); border-color: var(--pink); color: #fff; }
+
+  /* Putting a file in from here, rather than sending somebody to a folder in a
+     file manager and back. Same round shape as the play button, so the two read
+     as the row's two small actions. */
+  .upbtn {
+    width: 34px; height: 34px; flex: none; border-radius: 50%; cursor: pointer;
+    border: 1px solid var(--edge); background: var(--card);
+    display: grid; place-items: center; color: var(--ink-2);
+  }
+  .upbtn:hover:not(:disabled) { background: var(--sunken); color: var(--ink); }
+  .upbtn:disabled { opacity: .5; cursor: progress; }
+  .upbtn svg { width: 13px; height: 13px; }
+  /* Its own line under the control, not a flex item squeezed in beside it. */
+  .up-note { flex: 0 0 100%; font-size: 12.5px; text-align: right; color: var(--muted); }
+  .up-note.bad { color: var(--warn-ink); }
+
+  /* Two colours stacked rather than side by side: a hex box is the thing
+     people paste into, and two of those do not fit across the control track. */
+  .gradpick { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+
+  /* Two fractions that belong together, kept together. */
+  .pointpick { display: flex; align-items: center; gap: 6px; width: 100%; }
+  .pointpick input { width: 100%; min-width: 0; text-align: right; }
+  .pointpick span { font-size: 12px; color: var(--muted); flex: none; }
+
+  /* Pointers worth starting from. They fill in the boxes below rather than
+     replacing them, so nothing here is a mode you have to leave. */
+  .presets { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 0 4px; }
+  .presets button {
+    display: flex; align-items: center; gap: 8px; cursor: pointer;
+    border: 1px solid var(--edge); background: var(--card); border-radius: var(--pill);
+    padding: 7px 14px 7px 9px; font-size: 13.5px; font-weight: 700; color: var(--ink-2);
+  }
+  .presets button:hover { border-color: var(--ink-2); color: var(--ink); }
+  .presets button.on { border-color: var(--ink); background: var(--ink); color: #fff; }
+  .presets .swatch-dot {
+    width: 20px; height: 20px; flex: none; border-radius: 50%;
+    display: grid; place-items: center;
+    background-color: var(--sunken);
+    background-image:
+      linear-gradient(45deg, rgba(0,0,0,.07) 25%, transparent 25%, transparent 75%, rgba(0,0,0,.07) 75%),
+      linear-gradient(45deg, rgba(0,0,0,.07) 25%, transparent 25%, transparent 75%, rgba(0,0,0,.07) 75%);
+    background-size: 8px 8px; background-position: 0 0, 4px 4px;
+  }
+  .presets .swatch-dot svg { width: 13px; height: 13px; display: block; }
+  /* Sibling of .presets, not a child of it. */
+  .pane > .why { font-size: 12.5px; color: var(--muted); line-height: 1.5; max-width: 56ch; padding-bottom: 4px; }
+
+  /* The card itself, at whatever size the pane leaves for it. An iframe rather
+     than a redrawing of the card in this page: it is the renderer's own HTML,
+     so what is on screen here is what lands in the video. */
+  .cardview { padding: 14px 0 6px; }
+  .cardview .stage {
+    position: relative; width: 100%; max-width: 460px; overflow: hidden;
+    border-radius: 14px; border: 1px solid var(--edge); background: var(--sunken);
+  }
+  .cardview .stage iframe {
+    position: absolute; top: 0; left: 0; border: 0; transform-origin: 0 0;
+    /* It is a preview of a still card: nothing in it is for clicking. */
+    pointer-events: none;
+  }
+  .cardview .stage.pending { opacity: .55; }
+  .cardview .note { font-size: 12.5px; color: var(--muted); margin-top: 8px; max-width: 52ch; }
+  .cardview .note.bad { color: var(--warn-ink); }
 
   .fontpick { position: relative; width: 100%; }
   .fp-btn {
@@ -1269,30 +1335,44 @@
       return '<select' + attrs + '>' + voices.join('') + '</select>';
     }
     if (field.type === 'image') {
-      var pics = (settings.images || []).map(function (im) {
-        return '<option value="' + esc(im.file) + '"' + (im.file === value ? ' selected' : '') +
-          '>' + esc(im.label) + '</option>';
-      });
-      pics.unshift('<option value=""' + (value ? '' : ' selected') + '>' +
-        (pics.length ? 'None' : 'Nothing in the assets folder') + '</option>');
       return '<span class="imgpick">' +
         '<span class="thumb"' + (value ? '' : ' hidden') + '>' +
         (value ? '<img src="/api/image?name=' + encodeURIComponent(value) + '&token=' + TOKEN + '" alt="">' : '') +
         '</span>' +
-        '<select' + attrs + '>' + pics.join('') + '</select></span>';
+        '<select' + attrs + '>' + imageOptions(value) + '</select>' +
+        uploadButton('image') + '</span>';
     }
     if (field.type === 'sound') {
-      var clips = (settings.sounds || []).map(function (c) {
-        return '<option value="' + esc(c.file) + '"' + (c.file === value ? ' selected' : '') +
-          '>' + esc(c.label) + '</option>';
-      });
-      clips.unshift('<option value=""' + (value ? '' : ' selected') + '>' +
-        (clips.length ? 'None' : 'Nothing in the audio folder') + '</option>');
       return '<span class="soundpick">' +
-        '<select' + attrs + '>' + clips.join('') + '</select>' +
+        '<select' + attrs + '>' + soundOptions(value) + '</select>' +
         '<button type="button" class="play" title="Play"' + (value ? '' : ' disabled') + '>' +
         '<svg viewBox="0 0 10 12" fill="currentColor" aria-hidden="true"><path d="M0 0l10 6-10 6z"/></svg>' +
-        '</button></span>';
+        '</button>' + uploadButton('sound') + '</span>';
+    }
+    if (field.type === 'gradient') {
+      var stops = Array.isArray(value) && value.length === 2 ? value : ['', ''];
+      var stop = function (at) {
+        return '<span class="colour">' +
+          '<input type="color" class="swatch" data-stop-swatch="' + at + '" value="' +
+          esc(stops[at] || '#000000') + '"' + (inert ? ' disabled' : '') + '>' +
+          '<input type="text" data-stop="' + at + '" value="' + esc(stops[at]) +
+          '" spellcheck="false" autocomplete="off" placeholder="none"' +
+          (inert ? ' disabled' : '') + '></span>';
+      };
+      return '<span class="gradpick">' + stop(0) + stop(1) +
+        '<input type="hidden"' + attrs + ' value="' + esc(stops.join(',')) + '"></span>';
+    }
+    if (field.type === 'point') {
+      // Two boxes, one value. What gets saved is the hidden input; the boxes
+      // write into it, so the pair travels as the pair the theme holds.
+      var pair = Array.isArray(value) ? value : [0, 0];
+      var box = function (which, at) {
+        return '<input type="number" data-point="' + which + '" min="0" max="1" step="0.01"' +
+          ' aria-label="' + esc(field.label) + ', ' + which + '"' +
+          (inert ? ' disabled' : '') + ' value="' + esc(pair[at]) + '">';
+      };
+      return '<span class="pointpick">' + box('across', 0) + '<span>\u00d7</span>' + box('down', 1) +
+        '<input type="hidden"' + attrs + ' value="' + esc(pair.join(',')) + '"></span>';
     }
     if (field.type === 'text') {
       return '<input type="text"' + attrs + ' value="' + esc(value) + '"' +
@@ -1312,6 +1392,33 @@
       (field.min !== undefined ? ' min="' + field.min + '"' : '') +
       (field.max !== undefined ? ' max="' + field.max + '"' : '') +
       (field.step !== undefined ? ' step="' + field.step + '"' : '') + '>';
+  }
+
+  function imageOptions(value) {
+    var pics = (settings.images || []).map(function (im) {
+      return '<option value="' + esc(im.file) + '"' + (im.file === value ? ' selected' : '') +
+        '>' + esc(im.label) + '</option>';
+    });
+    pics.unshift('<option value=""' + (value ? '' : ' selected') + '>' +
+      (pics.length ? 'None' : 'Nothing in the assets folder') + '</option>');
+    return pics.join('');
+  }
+
+  function soundOptions(value) {
+    var clips = (settings.sounds || []).map(function (c) {
+      return '<option value="' + esc(c.file) + '"' + (c.file === value ? ' selected' : '') +
+        '>' + esc(c.label) + '</option>';
+    });
+    clips.unshift('<option value=""' + (value ? '' : ' selected') + '>' +
+      (clips.length ? 'None' : 'Nothing in the audio folder') + '</option>');
+    return clips.join('');
+  }
+
+  function uploadButton(kind) {
+    return '<button type="button" class="upbtn" data-upload="' + kind + '" title="Add a file">' +
+      '<svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.9" ' +
+      'stroke-linecap="round" aria-hidden="true"><path d="M7 2.2v9.6M2.2 7h9.6"/></svg>' +
+      '</button>';
   }
 
   /** A quoted family name with a fallback, safe to drop into a style attribute. */
@@ -1392,6 +1499,324 @@
         audio.addEventListener('ended', stopPreview);
         audio.play().catch(function () { stopPreview(); });
       });
+    });
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Putting a file into the project without leaving the window.
+   * ------------------------------------------------------------------ */
+  var ACCEPT = {
+    image: '.png,.jpg,.jpeg,.svg,.webp,.gif',
+    sound: '.mp3,.m4a,.aac,.wav,.ogg,.opus,.flac'
+  };
+  var MAX_MB = { image: 8, sound: 48 };
+
+  function wireUploads(root) {
+    Array.prototype.forEach.call(root.querySelectorAll('[data-upload]'), function (button) {
+      var kind = button.dataset.upload;
+      var picker = button.closest('.imgpick, .soundpick');
+      var select = picker.querySelector('select');
+      button.addEventListener('click', function () {
+        // Built and thrown away per click. A file input that stays around
+        // remembers its last file, and picking that same file again fires no
+        // change event, so the second upload of a corrected logo does nothing.
+        var input = document.createElement('input');
+        input.type = 'file';
+        input.accept = ACCEPT[kind] || '';
+        input.style.display = 'none';
+        input.addEventListener('change', function () {
+          var file = input.files && input.files[0];
+          input.remove();
+          if (file) sendUpload(button, select, kind, file);
+        });
+        document.body.appendChild(input);
+        input.click();
+      });
+    });
+  }
+
+  function sendUpload(button, select, kind, file) {
+    var cap = MAX_MB[kind];
+    // Said here as well as by the server, so a 200 MB track is refused in the
+    // moment rather than after it has been copied across a loopback socket.
+    if (file.size > cap * 1048576) {
+      return uploadNote(button, (file.size / 1048576).toFixed(1) + ' MB is over the ' +
+        cap + ' MB limit.', true);
+    }
+    button.disabled = true;
+    uploadNote(button, '');
+    fetch('/api/upload?kind=' + encodeURIComponent(kind) +
+      '&name=' + encodeURIComponent(file.name), {
+      method: 'POST',
+      headers: { 'x-tutvid-token': TOKEN, 'Content-Type': 'application/octet-stream' },
+      body: file
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (data) {
+        if (!r.ok) throw new Error(data.error || 'That file could not be saved.');
+        return data;
+      });
+    }).then(function (data) {
+      settings.images = data.images;
+      settings.sounds = data.sounds;
+      // Every picker of that kind, not only this one: the file is in the folder
+      // now, and a list that does not show it is a list that is wrong.
+      refreshAssetPickers(button.closest('.pane-wrap') || document, kind);
+      select.value = data.name;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      uploadNote(button, data.name === file.name ? '' :
+        'Saved as ' + data.name + '.', false);
+    }).catch(function (err) {
+      uploadNote(button, err.message, true);
+    }).then(function () {
+      button.disabled = false;
+    });
+  }
+
+  /** Say what happened under the row that did it, and clear it after a while. */
+  function uploadNote(button, text, bad) {
+    var row = button.closest('.row');
+    if (!row) return;
+    var note = row.querySelector('.up-note');
+    if (!text) { if (note) note.remove(); return; }
+    if (!note) {
+      note = document.createElement('div');
+      note.className = 'up-note';
+      row.querySelector('.ctl').appendChild(note);
+    }
+    note.className = 'up-note' + (bad ? ' bad' : '');
+    note.textContent = text;
+    clearTimeout(note.timer);
+    note.timer = setTimeout(function () { note.remove(); }, bad ? 9000 : 4000);
+  }
+
+  /**
+   * Rebuild the options of every picker of one kind, keeping what each was
+   * pointing at. Rows carry unsaved edits, so the whole pane cannot be redrawn.
+   */
+  function refreshAssetPickers(root, kind) {
+    var selector = kind === 'image' ? '.imgpick select' : '.soundpick select';
+    Array.prototype.forEach.call(root.querySelectorAll(selector), function (select) {
+      var held = select.value;
+      select.innerHTML = kind === 'image' ? imageOptions(held) : soundOptions(held);
+      select.value = held;
+    });
+  }
+
+  /** Two colours, or neither. The hidden input is what gets saved. */
+  function wireGradientPickers(root) {
+    Array.prototype.forEach.call(root.querySelectorAll('.gradpick'), function (pick) {
+      var boxes = pick.querySelectorAll('[data-stop]');
+      var swatches = pick.querySelectorAll('[data-stop-swatch]');
+      var held = pick.querySelector('input[type=hidden]');
+      var sync = function () {
+        var pair = [boxes[0].value.trim(), boxes[1].value.trim()];
+        held.value = pair[0] || pair[1] ? pair.join(',') : '';
+        held.dispatchEvent(new Event('change', { bubbles: true }));
+      };
+      Array.prototype.forEach.call(boxes, function (box, at) {
+        box.addEventListener('input', function () {
+          if (/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(box.value.trim())) {
+            swatches[at].value = box.value.trim();
+          }
+          sync();
+        });
+      });
+      Array.prototype.forEach.call(swatches, function (swatch, at) {
+        swatch.addEventListener('input', function () {
+          boxes[at].value = swatch.value.toUpperCase();
+          sync();
+        });
+      });
+    });
+  }
+
+  /** The two boxes write the pair the hidden input carries. */
+  function wirePointPickers(root) {
+    Array.prototype.forEach.call(root.querySelectorAll('.pointpick'), function (pick) {
+      var boxes = pick.querySelectorAll('[data-point]');
+      var held = pick.querySelector('input[type=hidden]');
+      Array.prototype.forEach.call(boxes, function (box) {
+        box.addEventListener('input', function () {
+          held.value = boxes[0].value + ',' + boxes[1].value;
+          held.dispatchEvent(new Event('change', { bubbles: true }));
+        });
+      });
+    });
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Pointers worth starting from.
+   * ------------------------------------------------------------------ */
+  function presetRow() {
+    var list = settings.cursorPresets || [];
+    if (!list.length) return '';
+    return '<div class="presets">' + list.map(function (p, i) {
+      return '<button type="button" data-preset="' + i + '" title="' + esc(p.note) + '">' +
+        '<span class="swatch-dot">' + presetMark(p.values) + '</span>' + esc(p.label) + '</button>';
+    }).join('') + '</div>' +
+      '<div class="why">Each one fills in the boxes below, which you can then change. ' +
+      'A picture of your own overrides whichever pointer is drawn.</div>';
+  }
+
+  /** The preset's own pointer, at chip size, so the list is chosen by eye. */
+  function presetMark(v) {
+    var fill = esc(v['theme.cursor.color']);
+    var line = esc(v['theme.cursor.strokeColor']);
+    var open = '<svg viewBox="0 0 24 24" aria-hidden="true">';
+    if (v['theme.cursor.shape'] === 'touch') {
+      // The same tenth of a fill the overlay draws, so the chip does not
+      // promise a solider disc than the video gets. The chequer behind it is
+      // what makes a light one legible at this size.
+      return open + '<circle cx="12" cy="12" r="9" fill="' + fill + '" fill-opacity="0.1"/>' +
+        '<circle cx="12" cy="12" r="9" fill="none" stroke="' + fill + '" stroke-width="2.4"/>' +
+        '<circle cx="12" cy="12" r="10.4" fill="none" stroke="' + line +
+        '" stroke-width="1.2" stroke-opacity="0.45"/></svg>';
+    }
+    return open + '<path d="M5 2 L5 20 L10 15.5 L13 22 L16.5 20.3 L13.5 14 L20 14 Z" fill="' +
+      fill + '" stroke="' + line + '" stroke-width="1.5" stroke-linejoin="round"/></svg>';
+  }
+
+  function wirePresets(root, bodyId) {
+    Array.prototype.forEach.call(root.querySelectorAll('[data-preset]'), function (button) {
+      button.addEventListener('click', function () {
+        var preset = (settings.cursorPresets || [])[Number(button.dataset.preset)];
+        if (!preset) return;
+        Object.keys(preset.values).forEach(function (key) { putValue(bodyId, key, preset.values[key]); });
+        markPresets(root, bodyId);
+      });
+    });
+    markPresets(root, bodyId);
+  }
+
+  /**
+   * Write one value into the form the way a person would have.
+   *
+   * Straight into the control, so the preset is an edit like any other: it is
+   * not saved until Save is, and it can be changed first.
+   */
+  function putValue(bodyId, key, value) {
+    var el = $(bodyId).querySelector('[data-key="' + key + '"]');
+    if (!el) return;
+    if (el.type === 'checkbox') { el.checked = !!value; }
+    else { el.value = Array.isArray(value) ? value.join(',') : (value == null ? '' : value); }
+
+    // The controls that are more than one element have to be brought along.
+    var pick = el.closest('.pointpick');
+    if (pick) {
+      var boxes = pick.querySelectorAll('[data-point]');
+      boxes[0].value = value[0];
+      boxes[1].value = value[1];
+    }
+    var swatch = $(bodyId).querySelector('[data-fills="' + el.id + '"]');
+    if (swatch && /^#[0-9a-fA-F]{6}$/.test(String(value))) swatch.value = value;
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  /** Light the preset the form is currently sitting on, if it is on one. */
+  function markPresets(root, bodyId) {
+    Array.prototype.forEach.call(root.querySelectorAll('[data-preset]'), function (button) {
+      var preset = (settings.cursorPresets || [])[Number(button.dataset.preset)];
+      var same = preset && Object.keys(preset.values).every(function (key) {
+        var el = $(bodyId).querySelector('[data-key="' + key + '"]');
+        if (!el) return false;
+        var want = preset.values[key];
+        return String(el.value) === String(Array.isArray(want) ? want.join(',') : want);
+      });
+      button.classList.toggle('on', !!same);
+    });
+  }
+
+  /* ------------------------------------------------------------------ *
+   * The card, as it would be rendered, from what is in the form now.
+   * ------------------------------------------------------------------ */
+  var cardTimers = {};
+
+  function cardviewHtml(which) {
+    return '<div class="cardview" data-card="' + which + '">' +
+      '<div class="stage"><iframe title="' + (which === 'intro' ? 'Opening' : 'Closing') +
+      ' card" sandbox=""></iframe></div>' +
+      '<div class="note"></div></div>';
+  }
+
+  /**
+   * Ask the server what the card looks like and show it.
+   *
+   * The renderer's own HTML in an iframe, rather than this page's idea of a
+   * card: the fonts, the gradient and the logo are laid out by the code that
+   * makes the video, so the two cannot drift apart.
+   */
+  function paintCardview(bodyId, which) {
+    var view = $(bodyId).querySelector('.cardview[data-card="' + which + '"]');
+    if (!view) return;
+    var stage = view.querySelector('.stage');
+    var frame = view.querySelector('iframe');
+    var note = view.querySelector('.note');
+    stage.classList.add('pending');
+
+    api('/api/card-preview', { card: which, values: formValues(bodyId), style: settings.style })
+      .then(function (data) {
+        stage.style.aspectRatio = data.width + ' / ' + data.height;
+        frame.style.width = data.width + 'px';
+        frame.style.height = data.height + 'px';
+        frame.srcdoc = data.html;
+        fitCardview(view, data.width);
+        note.className = 'note';
+        note.textContent = data.enabled
+          ? data.width + ' by ' + data.height + ', on screen for ' + data.durationSec + ' seconds.'
+          : 'The card is switched off, so this is what it would show.';
+      })
+      .catch(function (err) {
+        note.className = 'note bad';
+        note.textContent = err.message;
+      })
+      .then(function () { stage.classList.remove('pending'); });
+  }
+
+  /** The card is rendered at video size and scaled down to whatever fits. */
+  function fitCardview(view, width) {
+    var stage = view.querySelector('.stage');
+    var frame = view.querySelector('iframe');
+    if (!stage.clientWidth || !width) return;
+    frame.style.transform = 'scale(' + (stage.clientWidth / width) + ')';
+  }
+
+  function refitCardviews() {
+    Array.prototype.forEach.call(document.querySelectorAll('.cardview'), function (view) {
+      var frame = view.querySelector('iframe');
+      fitCardview(view, parseFloat(frame.style.width));
+    });
+  }
+  window.addEventListener('resize', refitCardviews);
+
+  /** Every field on this tab, in the shape the server reads. */
+  function formValues(bodyId) {
+    var values = {};
+    Array.prototype.forEach.call($(bodyId).querySelectorAll('[data-key]'), function (el) {
+      values[el.dataset.key] = el.type === 'checkbox' ? el.checked : el.value;
+    });
+    return values;
+  }
+
+  /** Redraw the card a moment after somebody stops typing, not on every key. */
+  function wireCardviews(bodyId) {
+    Array.prototype.forEach.call($(bodyId).querySelectorAll('.cardview'), function (view) {
+      paintCardview(bodyId, view.dataset.card);
+    });
+    // The body element survives a repaint - only its contents are replaced - so
+    // this goes on once. Wiring it each time would leave one more listener
+    // behind on every visit to the tab, and one more request per keystroke.
+    var body = $(bodyId);
+    if (body.dataset.cardsWired) return;
+    body.dataset.cardsWired = '1';
+    body.addEventListener('input', function () { nudgeCardviews(bodyId); });
+    body.addEventListener('change', function () { nudgeCardviews(bodyId); });
+  }
+
+  function nudgeCardviews(bodyId) {
+    Array.prototype.forEach.call($(bodyId).querySelectorAll('.cardview'), function (view) {
+      var which = view.dataset.card;
+      clearTimeout(cardTimers[which]);
+      cardTimers[which] = setTimeout(function () { paintCardview(bodyId, which); }, 320);
     });
   }
 
@@ -1513,6 +1938,14 @@
     'Passwords': 'What the walkthrough needs to sign in with.'
   };
 
+  /** What a pane shows above its rows, where rows alone are not the whole story. */
+  function paneHead(name) {
+    if (name === 'Cursor and ring') return presetRow();
+    if (name === 'Opening card') return cardviewHtml('intro');
+    if (name === 'Closing card') return cardviewHtml('outro');
+    return '';
+  }
+
   /** Draw one of the two settings pages. `which` is 'style' or 'settings'. */
   function paintPrefs(which) {
     var groups = [];
@@ -1539,7 +1972,7 @@
       (settings.problem ? '<div class="notice bad" style="margin:16px 0">' + esc(settings.problem) + '</div>' : '') +
       groups.map(function (g) {
         var body = g.name === 'Passwords' ? passwordSection()
-          : (g.name === 'Narration' ? keyBlock() : '') + rows(g.fields);
+          : (g.name === 'Narration' ? keyBlock() : '') + paneHead(g.name) + rows(g.fields);
         return '<div class="pane" data-section="' + esc(g.name) + '"' +
           (g.name === openSection[which] ? '' : ' hidden') + '>' +
           '<h3>' + esc(g.name) + '</h3>' +
@@ -1550,6 +1983,11 @@
     loadFontFaces();
     wireFontPickers($(bodyId));
     wireSoundPickers($(bodyId));
+    wireUploads($(bodyId));
+    wireGradientPickers($(bodyId));
+    wirePointPickers($(bodyId));
+    wirePresets($(bodyId), bodyId);
+    wireCardviews(bodyId);
 
     // Which settings are live depends on the model, so the answer changes as
     // soon as somebody picks a different one - not after the next save.
@@ -1613,10 +2051,7 @@
 
   function savePrefs(which) {
     var bodyId = which === 'style' ? 'styles-body' : 'settings-body';
-    var values = {};
-    Array.prototype.forEach.call($(bodyId).querySelectorAll('[data-key]'), function (el) {
-      values[el.dataset.key] = el.type === 'checkbox' ? el.checked : el.value;
-    });
+    var values = formValues(bodyId);
     var secrets = {};
     Array.prototype.forEach.call($(bodyId).querySelectorAll('[data-secret]'), function (el) {
       if (el.value) secrets[el.dataset.secret] = el.value;
@@ -1767,6 +2202,9 @@
         Array.prototype.forEach.call($(trio[1]).querySelectorAll('.pane'), function (pane) {
           pane.hidden = pane.dataset.section !== btn.dataset.section;
         });
+        // A hidden pane has no width, so a card inside it could not be scaled
+        // to fit until now.
+        refitCardviews();
       });
     });
 

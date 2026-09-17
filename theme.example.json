@@ -20,7 +20,12 @@
     "strokeColor": "#000000",
     "size": 28,
 
-    // Drop in your own pointer instead of the drawn arrow. Use a .png with
+    // Which pointer gets drawn when there is no image: "arrow", or "touch" for
+    // the disc a finger leaves. Pair "touch" with a phone viewport and a
+    // hotspot of [0.5, 0.5], which is the middle of the disc.
+    "shape": "arrow",
+
+    // Drop in your own pointer instead of the drawn one. Use a .png with
     // transparency, or a .svg. "hotspot" is the point that lands on the target,
     // as a fraction of the image: [0, 0] is its top-left corner.
     // "image": "assets/cursor.png",

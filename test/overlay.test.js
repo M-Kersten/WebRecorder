@@ -94,6 +94,37 @@ test('without an image the arrow is drawn in the theme colour', async () => {
   } finally { await close(); }
 });
 
+// A walkthrough recorded at a phone size wants the mark a finger leaves, not a
+// mouse arrow. Drawn rather than a file, for the same reason the arrow is.
+test('the touch pointer is a disc in the theme colour, with no file to load', async () => {
+  const { page, close } = await withOverlay({ cursor: { shape: 'touch', color: '#FFE066' } });
+  try {
+    const drawn = await page.evaluate(() => {
+      const svg = document.querySelector('[data-tut-cursor] svg');
+      return {
+        circles: svg.querySelectorAll('circle').length,
+        paths: svg.querySelectorAll('path').length,
+        fill: svg.querySelector('circle').getAttribute('fill'),
+        img: !!document.querySelector('[data-tut-cursor] img'),
+      };
+    });
+    assert.deepStrictEqual(drawn, { circles: 3, paths: 0, fill: '#FFE066', img: false });
+  } finally { await close(); }
+});
+
+// A picture is a picture, whichever shape would otherwise have been drawn.
+test('a picture wins over the drawn shape', async () => {
+  const { page, close } = await withOverlay({
+    cursor: { shape: 'touch', image: 'assets/cursor.png' },
+  });
+  try {
+    assert.strictEqual(await page.evaluate(
+      () => !!document.querySelector('[data-tut-cursor] img')), true);
+    assert.strictEqual(await page.evaluate(
+      () => !!document.querySelector('[data-tut-cursor] svg')), false);
+  } finally { await close(); }
+});
+
 test('the hotspot decides which part of the pointer lands on the target', async () => {
   const at = async (hotspot) => {
     const { page, close } = await withOverlay({ cursor: { size: 100, hotspot } });

@@ -62,6 +62,7 @@ function buildOverlayScript(theme, mask = []) {
       color: cursor.color,
       strokeColor: cursor.strokeColor,
       size: cursor.size,
+      shape: cursor.shape,
       image: cursor.imagePath ? dataUri(cursor.imagePath) : null,
       hotspotX: cursor.hotspot[0],
       hotspotY: cursor.hotspot[1],
@@ -161,10 +162,28 @@ function buildOverlayScript(theme, mask = []) {
         '" alt="" style="display:block;width:' + CFG.cursor.size +
         'px;height:auto;user-select:none">';
     }
-    // A plain arrow, drawn rather than imported so there is no asset to load
-    // and nothing to go missing mid-navigation.
-    return '<svg width="' + CFG.cursor.size + '" height="' + CFG.cursor.size +
-      '" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="display:block">' +
+    // Drawn rather than imported, so there is no asset to load and nothing to
+    // go missing mid-navigation.
+    const head = '<svg width="' + CFG.cursor.size + '" height="' + CFG.cursor.size +
+      '" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="display:block">';
+    if (CFG.cursor.shape === 'touch') {
+      // What a finger leaves on a phone: a disc the size of a contact patch
+      // rather than a pointer tip. Its hotspot is the middle, which is why the
+      // presets move it there.
+      //
+      // The fill is kept at a tenth. A disc this size covers the label of
+      // whatever it taps, and the point of the video is that somebody can read
+      // that label: at 0.35 the text underneath washes out, at 0.1 it does not
+      // and the disc still reads as a disc rather than an empty ring.
+      return head +
+        '<circle cx="12" cy="12" r="10.2" fill="' + CFG.cursor.color +
+        '" fill-opacity="0.1"/>' +
+        '<circle cx="12" cy="12" r="10.2" fill="none" stroke="' + CFG.cursor.color +
+        '" stroke-width="2"/>' +
+        '<circle cx="12" cy="12" r="11.4" fill="none" stroke="' + CFG.cursor.strokeColor +
+        '" stroke-width="1" stroke-opacity="0.45"/></svg>';
+    }
+    return head +
       '<path d="M5 2 L5 20 L10 15.5 L13 22 L16.5 20.3 L13.5 14 L20 14 Z" fill="' +
       CFG.cursor.color + '" stroke="' + CFG.cursor.strokeColor +
       '" stroke-width="1.5" stroke-linejoin="round"/></svg>';
