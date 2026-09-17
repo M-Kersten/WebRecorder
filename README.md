@@ -1,9 +1,13 @@
-# site-tutorial-video
+# Qapture
 
-Turns a `flow.json` into a narrated, branded walkthrough video of a live
-website. Playwright drives a real browser through the steps, ElevenLabs reads
-the narration, and ffmpeg assembles the result with captions and intro/outro
-cards. Everything about how it looks lives in one `theme.json`.
+<img src="assets/brand/qapture-mark.svg" alt="" width="72" height="72">
+
+Walk your site once; Qapture performs that walkthrough for as long as the site
+lives, and renders it as a narrated, branded video.
+
+Playwright drives a real browser through the steps, ElevenLabs reads the
+narration, and ffmpeg assembles the result with captions and intro/outro cards.
+Everything about how it looks lives in one `theme.json`.
 
 **Not a developer?** Double-click **Start Recorder** (`.command` on macOS,
 `.bat` on Windows; on Linux run it from a file manager or `./"Start Recorder.command"`). A window opens: paste a web address, press one
@@ -25,10 +29,10 @@ card, a drawn cursor, highlight rings, on-screen hints and fades.
 For your own site:
 
 ```bash
-npx site-tutorial-video init                              # theme.json, flow.json, fonts
-npx site-tutorial-video capture --url https://app.example.com
-npx site-tutorial-video --no-tts                          # free preview, no API key
-npx site-tutorial-video --out out/walkthrough.mp4         # the real thing
+npx qapture init                              # theme.json, flow.json, fonts
+npx qapture capture --url https://app.example.com
+npx qapture --no-tts                          # free preview, no API key
+npx qapture --out out/walkthrough.mp4         # the real thing
 ```
 
 `capture` opens the site in a browser. Use it the way you would show it to
@@ -123,7 +127,7 @@ with **libass** and **libx264**, so neither has to be installed on the machine.
 `FFMPEG_PATH` and `FFPROBE_PATH` override them if you would rather use your own;
 the stripped-down ffmpeg that ships inside Playwright will not work.
 
-Chromium is fetched on first run. `site-tutorial-video setup` does that and
+Chromium is fetched on first run. `qapture setup` does that and
 reports what the machine can do:
 
 ```
@@ -138,7 +142,7 @@ one somewhere the tool cannot guess.
 ## The app window
 
 ```bash
-site-tutorial-video ui
+qapture ui
 ```
 
 One window, three tabs. **Storyboard** is where the work happens, **Styles** is
@@ -379,7 +383,7 @@ that away, so nothing does. The CLI reads the same layer, for the style it was
 given:
 
 ```bash
-site-tutorial-video --theme theme-rebels.json --settings settings.json
+qapture --theme theme-rebels.json --settings settings.json
 ```
 
 Some combinations only break later: switching the opening card on without
@@ -406,7 +410,7 @@ says the check did not happen. Once a key is set the narration switch on the
 storyboard unlocks, without reopening the window.
 
 `ELEVENLABS_API_KEY` in the environment still works and still wins. Only the
-window counts a saved key; `site-tutorial-video setup` reports on the
+window counts a saved key; `qapture setup` reports on the
 environment, because the CLI has no window to have typed one into.
 
 ### Voices
@@ -439,7 +443,7 @@ keyed on the voice, so switching back to one you used before costs nothing.
 ## Recording a flow
 
 ```bash
-site-tutorial-video capture --url https://app.example.com
+qapture capture --url https://app.example.com
 ```
 
 The browser opens with a panel down the right-hand side, wearing the same
@@ -472,7 +476,7 @@ real rows to arrive.
 Look over what came out before recording:
 
 ```bash
-site-tutorial-video --check
+qapture --check
 ```
 
 ## flow.json
@@ -618,10 +622,10 @@ Every step may carry two optional pieces of text:
 
 `//` and `/* */` comments are allowed in both `flow.json` and `theme.json`.
 
-Run `site-tutorial-video --check` to validate a flow and see what each step
+Run `qapture --check` to validate a flow and see what each step
 carries, without recording anything.
 
-Run `site-tutorial-video --rehearse` to walk it through a real browser without
+Run `qapture --rehearse` to walk it through a real browser without
 recording. It reports which step broke and why: whether the selector matches
 nothing, matches something a panel has not opened yet, or matches something that
 only exists in the site's phone layout - it narrows the window and looks, rather
@@ -882,11 +886,11 @@ source rate is measured and the theme capped to it.
 ## CLI
 
 ```
-site-tutorial-video ui                       open the app window
-site-tutorial-video setup                    fetch what is missing, then report
-site-tutorial-video init                     scaffold theme.json and flow.json here
-site-tutorial-video capture --url <url>      record a flow by walking the site
-site-tutorial-video [options]
+qapture ui                       open the app window
+qapture setup                    fetch what is missing, then report
+qapture init                     scaffold theme.json and flow.json here
+qapture capture --url <url>      record a flow by walking the site
+qapture [options]
 ```
 
 | Flag | Default | |

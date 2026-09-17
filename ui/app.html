@@ -3,7 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Walkthrough Recorder</title>
+<title>Qapture</title>
+<!-- The mark, inline rather than a file, so the window needs nothing on disk
+     to draw its own icon. Same geometry as assets/brand/qapture-mark.svg. -->
+<link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><g fill="none" stroke="%23EC1364" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 36 V7 H36"/><path d="M64 7 H93 V36"/><path d="M93 64 V93 H64"/><path d="M36 93 H7 V64"/></g><path d="M5 2 L5 20 L10 15.5 L13 22 L16.5 20.3 L13.5 14 L20 14 Z" transform="translate(27.25,26.1) scale(1.95)" fill="%2317171C"/></svg>'>
 <style>
   /* The face the videos are set in, served from the bundle so the window and
      the thing it makes look like they came from the same place. */
@@ -111,13 +114,12 @@
     background: var(--card); border-radius: 22px; box-shadow: var(--shadow);
     padding: 13px 18px; margin-bottom: 22px;
   }
-  .brand { display: flex; align-items: center; gap: 11px; flex: none; }
-  .brand .mark {
-    width: 32px; height: 32px; border-radius: 10px; background: var(--ink);
-    display: grid; place-items: center;
-  }
-  .brand .mark svg { width: 13px; height: 13px; }
-  .brand b { font-size: 15px; letter-spacing: .14em; font-weight: 700; }
+  .brand { display: flex; align-items: center; gap: 9px; flex: none; }
+  /* No tile behind it. The brackets are the frame already, and putting them in
+     a rounded square gives the eye two frames fighting for the same job. */
+  .brand .mark { width: 26px; height: 26px; display: grid; place-items: center; color: var(--ink); }
+  .brand .mark svg { width: 26px; height: 26px; display: block; }
+  .brand b { font-size: 17px; letter-spacing: -.01em; font-weight: 700; }
   .tabs { display: flex; gap: 4px; margin: 0 auto; }
   .tab {
     border: 0; background: none; cursor: pointer; border-radius: var(--pill);
@@ -445,8 +447,19 @@
 
   <header class="bar">
     <div class="brand">
-      <span class="mark"><svg viewBox="0 0 10 12" fill="#fff" aria-hidden="true"><path d="M0 0l10 6-10 6z"/></svg></span>
-      <b>WALKTHROUGH</b>
+      <span class="mark">
+        <!-- The pointer takes currentColor so one mark serves the light bar and
+             the dark one; the pink never changes, on either. -->
+        <svg viewBox="0 0 100 100" aria-hidden="true">
+          <g fill="none" stroke="#EC1364" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M7 36 V7 H36"/><path d="M64 7 H93 V36"/>
+            <path d="M93 64 V93 H64"/><path d="M36 93 H7 V64"/>
+          </g>
+          <path d="M5 2 L5 20 L10 15.5 L13 22 L16.5 20.3 L13.5 14 L20 14 Z"
+                transform="translate(27.25,26.1) scale(1.95)" fill="currentColor"/>
+        </svg>
+      </span>
+      <b>Qapture</b>
     </div>
     <nav class="tabs">
       <button class="tab on" id="tab-btn-board" type="button">Storyboard</button>

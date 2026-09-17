@@ -20,13 +20,13 @@ const { capture } = require('./capture');
 const { rehearse, describeRehearsal } = require('./rehearse');
 
 const USAGE = `
-site-tutorial-video - turn a flow.json into a narrated, themed tutorial video
+qapture - walk your site once, and let it perform the walkthrough
 
-  site-tutorial-video [options]
-  site-tutorial-video init                    scaffold theme.json and flow.json here
-  site-tutorial-video ui                      open the app window (no terminal)
-  site-tutorial-video setup                   fetch what is missing, then report
-  site-tutorial-video capture --url <url>     record a flow by walking the site
+  qapture [options]
+  qapture init                    scaffold theme.json and flow.json here
+  qapture ui                      open the app window (no terminal)
+  qapture setup                   fetch what is missing, then report
+  qapture capture --url <url>     record a flow by walking the site
 
 Options
   --flow <path>       Flow file describing the steps      (default: flow.json)
@@ -63,11 +63,11 @@ Environment
   CHROMIUM_EXECUTABLE_PATH  optional, if Chromium is somewhere unusual
 
 Examples
-  site-tutorial-video ui
-  site-tutorial-video init
-  site-tutorial-video capture --url https://app.example.com
-  site-tutorial-video --no-tts                     # fast, free preview
-  site-tutorial-video --captions --out out/v1.mp4  # the real thing
+  qapture ui
+  qapture init
+  qapture capture --url https://app.example.com
+  qapture --no-tts                     # fast, free preview
+  qapture --captions --out out/v1.mp4  # the real thing
 `;
 
 function parseArgs(argv) {
@@ -245,10 +245,10 @@ function initProject(cwd) {
   write('  1. point flow.json at your site and describe the steps');
   write('  2. edit theme.json - fonts, colours, intro/outro text');
   write('  3. put your ElevenLabs voice ids in voices.json, or skip it for the stock voice');
-  write('  4. site-tutorial-video --no-tts     free preview, no API key needed');
+  write('  4. qapture --no-tts     free preview, no API key needed');
   write('');
-  write('  site-tutorial-video --check         validate without recording');
-  write('  site-tutorial-video --help          every option');
+  write('  qapture --check         validate without recording');
+  write('  qapture --help          every option');
   write('');
   return 0;
 }
@@ -601,7 +601,7 @@ async function captureFlow(args) {
   if (!url) {
     throw new ConfigError(
       'capture needs a starting page:\n' +
-      '  site-tutorial-video capture --url https://app.example.com'
+      '  qapture capture --url https://app.example.com'
     );
   }
   if (!/^https?:\/\//i.test(url)) {
@@ -627,8 +627,8 @@ async function captureFlow(args) {
   write(`wrote ${path.resolve(outFile)}  (${flow.steps.length} steps)`);
   write('');
   write('Next:');
-  write(`  site-tutorial-video --flow ${outFile} --check     look it over`);
-  write(`  site-tutorial-video --flow ${outFile} --no-tts    a free preview`);
+  write(`  qapture --flow ${outFile} --check     look it over`);
+  write(`  qapture --flow ${outFile} --no-tts    a free preview`);
   write('');
   return 0;
 }

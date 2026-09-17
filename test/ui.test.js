@@ -44,7 +44,7 @@ test('the window is served with its token filled in', async () => {
     const html = await fetch(`${base}/`).then((r) => r.text());
     assert.ok(html.includes(app.token), 'the page carries the token it needs');
     assert.ok(!html.includes('__TOKEN__'), 'the placeholder was replaced');
-    assert.ok(html.includes('Walkthrough Recorder'));
+    assert.ok(html.includes('<title>Qapture</title>'), 'the window is the app, not a blank page');
   });
 });
 

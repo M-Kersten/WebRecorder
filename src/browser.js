@@ -74,7 +74,7 @@ async function launch(options = {}) {
     if (/Executable doesn't exist/i.test(err.message)) {
       throw new Error(
         `${err.message.split('\n')[0]}\n\n` +
-        'No usable Chromium was found. Run "site-tutorial-video setup" to fetch it, ' +
+        'No usable Chromium was found. Run "qapture setup" to fetch it, ' +
         'or point CHROMIUM_EXECUTABLE_PATH at an existing Chromium binary.'
       );
     }

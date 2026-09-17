@@ -1,10 +1,10 @@
 {
-  "name": "site-tutorial-video",
+  "name": "qapture",
   "version": "1.0.0",
-  "description": "Turn a flow.json into a narrated, themed tutorial video of a live website.",
+  "description": "Walk your site once. Qapture performs the walkthrough and renders it as a narrated, branded video.",
   "type": "commonjs",
   "bin": {
-    "site-tutorial-video": "src/index.js"
+    "qapture": "src/index.js"
   },
   "scripts": {
     "test": "node --test test/*.test.js",
