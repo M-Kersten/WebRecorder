@@ -56,9 +56,9 @@ function tone(seconds, out) {
   return out;
 }
 
-/** The first second at which the frame is no longer the theme's stage colour. */
-async function pictureAt(file, theme) {
-  return ff.firstFrameUnlike(file, theme.video.backgroundColor, { maxSec: 20, fps: 25 });
+/** The first second at which there is anything in the picture. */
+async function pictureAt(file) {
+  return ff.firstFrameWithDetail(file, { maxSec: 20, fps: 25 });
 }
 
 /** The first second at which there is sound, sampled in 40ms slices. */
@@ -108,7 +108,7 @@ test('the narration lands where the picture does', async () => {
       videoPath, track, path.join(dir, 'out.mp4'), theme.video, null, 'working', trimSec
     );
 
-    const picture = await pictureAt(outFile, theme);
+    const picture = await pictureAt(outFile);
     const sound = soundAt(outFile);
     assert.ok(picture !== null, 'the page never appeared in the delivered file');
     assert.ok(sound !== null, 'no narration in the delivered file');
@@ -144,3 +144,61 @@ test('turning the curtain off turns the trim off with it', async () => {
   assert.strictEqual(r.trimSec, 0);
   assert.strictEqual(r.timeline[0].startSec, 3);
 });
+
+test('a light page on a light stage is trimmed too', async () => {
+  // The case that shipped broken. Detection used to ask whether the frame
+  // differed from the stage colour, which works on a dark theme over a dark
+  // site and fails completely the other way: a #F4F5F7 stage over a white
+  // login page differs by eleven per channel. The page never "showed through",
+  // nothing was cut, and the video opened on seconds of flat grey.
+  const light = http.createServer(async (req, res) => {
+    await new Promise((r) => setTimeout(r, 800));
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    res.end('<!doctype html><body style="margin:0;background:#fff;font:14px system-ui;' +
+      'display:grid;place-items:center;height:100vh">' +
+      '<div style="background:#FAFAFB;border:1px solid #EEE;border-radius:12px;padding:40px;width:320px">' +
+      '<div style="font-weight:700;font-size:20px;text-align:center">Employee portal</div>' +
+      '<input id="u" style="width:100%;margin-top:20px;padding:10px;border:1px solid #DDD">' +
+      '<button style="width:100%;margin-top:18px;padding:11px;background:#E6007E;color:#fff;border:0">Log in</button>' +
+      '</div></body>');
+  });
+  await new Promise((r) => light.listen(0, '127.0.0.1', r));
+  const url = `http://127.0.0.1:${light.address().port}/`;
+
+  const theme = validateTheme(deepMerge(loadTheme(path.join(REPO, 'theme.json')), {
+    // The Rebels stage: near-white, like the site it records.
+    video: { backgroundColor: '#F4F5F7' },
+    intro: { enabled: false }, outro: { enabled: false },
+    captions: { enabled: false }, transitions: { enabled: false },
+  }), 'theme.json');
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tutvid-light-'));
+  try {
+    const flow = {
+      baseUrl: null, minStepMs: 1400, stepPaddingMs: 400, typeDelayMs: 10, settleMs: 500,
+      timeoutMs: 15000, dismiss: { builtins: false, selectors: [], frames: [] }, viewport: null,
+      steps: [{ action: 'goto', url }],
+    };
+    const { videoPath, timeline, totalSec, trimSec } = await record(flow, theme, [null], {
+      outDir: dir, headless: true,
+    });
+
+    // Not how much was cut. How much there is to cut varies by more than a
+    // second between runs, because Playwright does not always start capturing
+    // at the same point - so the invariant worth holding is the one the viewer
+    // sees: the file opens on the page, not on a hold of flat grey.
+    assert.ok(trimSec >= 0, 'the cut is never negative');
+
+    const track = await ff.buildNarrationTrack([], totalSec, path.join(dir, 'silence.m4a'));
+    const outFile = await ff.muxAudioVideo(
+      videoPath, track, path.join(dir, 'out.mp4'), theme.video, null, 'working', trimSec
+    );
+    const picture = await pictureAt(outFile);
+    assert.ok(picture !== null && picture < 0.9,
+      `the file opens on ${picture === null ? 'nothing at all' : picture.toFixed(2) + 's'} of flat grey`);
+    assert.ok(timeline[0].startSec <= 0.45);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+    await new Promise((r) => light.close(r));
+  }
+}, { timeout: 180000 });

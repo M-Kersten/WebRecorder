@@ -289,10 +289,10 @@ async function runStep(page, step, flow, theme, options = {}) {
  * milliseconds of slop - which lands on every line of narration, because the
  * timeline has to shift by exactly as much as the trim.
  *
- * So the video is asked instead. Under the curtain the frame is a solid, known
- * colour; the moment the page shows through is the moment the recorder called
- * for the curtain to come down, and that is a timestamp both clocks agree on.
- * Everything else follows from it.
+ * So the video is asked instead. Under the curtain the frame is flat - one
+ * colour, edge to edge - and the moment it gains any contrast is the moment the
+ * recorder called for the curtain to come down. That is a timestamp both clocks
+ * agree on, and everything else follows from it.
  *
  * The same measurement fixes something that was wrong before any of this: the
  * pipeline placed narration at clock seconds into a file whose zero is not the
@@ -313,7 +313,7 @@ async function trimOpening(result, theme, log = () => {}) {
   // end of a goto, which is also where that step's own clock starts.
   const dropClock = timeline[0].startSec;
 
-  const dropVideo = await ff.firstFrameUnlike(videoPath, theme.video.backgroundColor, {
+  const dropVideo = await ff.firstFrameWithDetail(videoPath, {
     maxSec: Math.min(totalSec + 4, dropClock + 8),
   }).catch(() => null);
   if (dropVideo === null) return none;

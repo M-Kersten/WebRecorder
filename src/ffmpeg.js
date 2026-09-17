@@ -609,24 +609,34 @@ async function hasSound(file) {
 }
 
 /**
- * Where a flat colour stops filling the frame.
+ * The first frame that has anything in it.
  *
  * Used to find the moment the curtain came down, which is the only reliable
  * bridge between the recorder's clock and the video's own timeline. Playwright
  * does not say when capture began, and the arithmetic - video duration minus
  * the time the recorder measured - carries about four hundred milliseconds of
  * slop, enough to put every line of narration out of step. The picture does not
- * have that problem: the stage is a solid known colour, the page under it is
- * not, and the frame where that changes is the one moment both sides agree on.
+ * have that problem.
+ *
+ * It asks whether the frame is *flat*, not whether it matches the stage colour.
+ * That distinction is the whole function. Matching the colour worked on a dark
+ * theme over a dark site and failed completely on a light one: a #F4F5F7 stage
+ * over a white login page differs by eleven per channel, under any tolerance
+ * worth having, so the page never "showed through" and the opening stayed in
+ * the video. Measured on that exact case, cells-off-the-stage peaked at 2% and
+ * never tripped, while the luma spread went 0 -> 48 on the frame the page
+ * arrived. A curtain is one colour edge to edge; a page has text in it.
+ *
+ * Six is where the gap actually is, measured rather than picked: a curtain reads
+ * 0.1 to 1.0 across three recordings, and the sparsest page tried - one flat
+ * colour with a single small button on it - reads 9.1. A real page with text on
+ * it reads 48. A page that genuinely never gains any contrast returns null and
+ * nothing is trimmed, which is the safe way round.
  *
  * Decoded small and only for the opening, so this costs a fraction of a second.
- * Returns seconds, or null when the frame is never anything else.
+ * Returns seconds, or null if the picture never gains any contrast.
  */
-async function firstFrameUnlike(file, hex, {
-  maxSec = 30, fps = 10, tolerance = 26, minShare = 0.08,
-} = {}) {
-  const want = hexToRgb(hex);
-  if (!want) return null;
+async function firstFrameWithDetail(file, { maxSec = 30, fps = 10, minSpread = 6 } = {}) {
   const cols = 24;
   const rows = 14;
   // Through a file rather than a pipe: run() collects stdout by string
@@ -653,36 +663,31 @@ async function firstFrameUnlike(file, hex, {
   if (!raw.length) return null;
 
   const frameBytes = cols * rows * 3;
-  const cells = cols * rows;
-  // A share of the frame, not a single cell. One cell over the line is a
-  // compression block on a flat fill, which VP8 produces now and again and
-  // which cost this a second of video the first time it was trusted. A page
-  // showing through changes most of the picture at once.
-  const need = Math.max(2, Math.round(cells * minShare));
-
-  for (let f = 0; (f + 1) * frameBytes <= raw.length; f++) {
+  const frames = Math.floor(raw.length / frameBytes);
+  const spread = (f) => {
     const at = f * frameBytes;
-    let off = 0;
+    let lo = 255;
+    let hi = 0;
     for (let px = 0; px < frameBytes; px += 3) {
-      if (Math.abs(raw[at + px] - want[0]) > tolerance
-        || Math.abs(raw[at + px + 1] - want[1]) > tolerance
-        || Math.abs(raw[at + px + 2] - want[2]) > tolerance) off++;
+      const luma = 0.299 * raw[at + px] + 0.587 * raw[at + px + 1] + 0.114 * raw[at + px + 2];
+      if (luma < lo) lo = luma;
+      if (luma > hi) hi = luma;
     }
-    if (off >= need) return f / fps;
+    return hi - lo;
+  };
+
+  // Two frames running, not one. A single frame can carry a codec artifact or a
+  // half-painted swap that reads as content and is gone again next frame, and
+  // acting on one of those cuts in the wrong place. A page that has arrived is
+  // still there 100ms later, so the cost of asking twice is nothing.
+  for (let f = 0; f + 1 < frames; f++) {
+    if (spread(f) >= minSpread && spread(f + 1) >= minSpread) return f / fps;
   }
   return null;
 }
 
-/** #RGB or #RRGGBB to [r, g, b]. */
-function hexToRgb(hex) {
-  const v = String(hex || '').replace('#', '').trim();
-  const full = v.length === 3 ? v.split('').map((c) => c + c).join('') : v;
-  if (!/^[0-9a-fA-F]{6}$/.test(full)) return null;
-  return [0, 2, 4].map((i) => parseInt(full.slice(i, i + 2), 16));
-}
-
 module.exports = {
-  firstFrameUnlike, hexToRgb,
+  firstFrameWithDetail,
   ffmpeg,
   binaries,
   resolveBinary,
