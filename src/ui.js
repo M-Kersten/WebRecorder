@@ -16,6 +16,7 @@ const { launch } = require('./browser');
 const shotStore = require('./shots');
 const { loadVoices } = require('./voices');
 const sounds = require('./sounds');
+const images = require('./images');
 const { estimateFlow, breakdownStep } = require('./pacing');
 
 /**
@@ -32,6 +33,8 @@ const STATES = ['idle', 'capturing', 'captured', 'checking', 'rendering', 'done'
 const TYPE_FOR = {
   '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.aac': 'audio/aac',
   '.wav': 'audio/wav', '.ogg': 'audio/ogg', '.opus': 'audio/ogg', '.flac': 'audio/flac',
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+  '.svg': 'image/svg+xml', '.webp': 'image/webp', '.gif': 'image/gif',
 };
 
 function createApp(options = {}) {
@@ -171,6 +174,7 @@ function createApp(options = {}) {
       fonts,
       voices,
       sounds: sounds.scan(projectDir),
+      images: images.scan(projectDir),
       problem,
       secrets: [NARRATION_KEY, ...fromFlow].map((name) => ({
         name,
@@ -328,6 +332,7 @@ function createApp(options = {}) {
         fontKeys: Object.keys(base.fonts || {}),
         voiceIds: loadVoices(projectDir).map((voice) => voice.id),
         sounds: sounds.scan(projectDir).map((clip) => clip.file),
+        images: images.scan(projectDir),
         styleFile: style,
       };
       const layer = settingsStore.toLayer(values, context);
@@ -565,6 +570,46 @@ function createApp(options = {}) {
   }
 
   /**
+   * Every video made so far, newest first.
+   *
+   * Kept as a listing rather than a log the window writes, so a file dropped in
+   * or deleted by hand is simply there or not. Duration is probed once and
+   * cached against the file's size and modified time: ffprobe on a dozen files
+   * every time somebody opens a tab is a wait nobody asked for, and a file that
+   * has not changed cannot have a different length.
+   */
+  const durations = new Map();
+  async function listRenders() {
+    let names;
+    try {
+      names = fs.readdirSync(outDir);
+    } catch {
+      return [];                            // no renders yet is not a problem
+    }
+    const rows = [];
+    for (const name of names) {
+      if (!/\.mp4$/i.test(name)) continue;
+      const file = path.join(outDir, name);
+      let stat;
+      try { stat = fs.statSync(file); } catch { continue; }
+      if (!stat.isFile() || stat.size === 0) continue;
+      const key = `${name}:${stat.size}:${stat.mtimeMs}`;
+      if (!durations.has(key)) durations.set(key, await measure(file));
+      rows.push({
+        name,
+        // The master is a companion to the file beside it, not a video in its
+        // own right, so it is marked rather than listed as a separate result.
+        master: /\.master\.mp4$/i.test(name),
+        bytes: stat.size,
+        modified: stat.mtimeMs,
+        durationSec: durations.get(key),
+        current: state.videoPath === file,
+      });
+    }
+    return rows.sort((a, b) => b.modified - a.modified);
+  }
+
+  /**
    * Show the work in the file manager: the finished video if there is one, and
    * the folder everything lives in if there is not.
    */
@@ -642,6 +687,17 @@ function createApp(options = {}) {
           'Content-Type': TYPE_FOR[path.extname(file).toLowerCase()] || 'application/octet-stream',
           'Content-Length': stat.size,
           'Accept-Ranges': 'none',
+        });
+        return fs.createReadStream(file).pipe(res);
+      }
+
+      if (url.pathname === '/api/image') {
+        const file = images.fileFor(projectDir, url.searchParams.get('name') || '');
+        if (!file) return send(404, { error: 'No such picture' });
+        const stat = fs.statSync(file);
+        res.writeHead(200, {
+          'Content-Type': TYPE_FOR[path.extname(file).toLowerCase()] || 'application/octet-stream',
+          'Content-Length': stat.size,
         });
         return fs.createReadStream(file).pipe(res);
       }
@@ -726,11 +782,45 @@ function createApp(options = {}) {
         return send(200, { ok: true });
       }
 
+      if (url.pathname === '/api/renders') {
+        return send(200, { renders: await listRenders(), outDir });
+      }
+
       if (url.pathname === '/api/video') {
-        if (!state.videoPath || !fs.existsSync(state.videoPath)) return send(404, { error: 'No video' });
-        const stat = fs.statSync(state.videoPath);
-        res.writeHead(200, { 'Content-Type': 'video/mp4', 'Content-Length': stat.size });
-        return fs.createReadStream(state.videoPath).pipe(res);
+        // Either the render just made, or any earlier one by name. A name is
+        // only ever a plain .mp4 inside the output folder, so the player cannot
+        // be pointed at the rest of the disk.
+        const wanted = url.searchParams.get('name');
+        let file = state.videoPath;
+        if (wanted) {
+          if (wanted !== path.basename(wanted) || !/\.mp4$/i.test(wanted)) {
+            return send(404, { error: 'No such video' });
+          }
+          file = path.join(outDir, wanted);
+        }
+        if (!file || !fs.existsSync(file)) return send(404, { error: 'No video' });
+        const stat = fs.statSync(file);
+        // Range requests, so scrubbing a twenty-second clip does not refetch it.
+        const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range || '');
+        if (range) {
+          const start = range[1] ? Number(range[1]) : 0;
+          const end = range[2] ? Number(range[2]) : stat.size - 1;
+          if (start >= stat.size || end >= stat.size || start > end) {
+            res.writeHead(416, { 'Content-Range': `bytes */${stat.size}` });
+            return res.end();
+          }
+          res.writeHead(206, {
+            'Content-Type': 'video/mp4',
+            'Content-Length': end - start + 1,
+            'Content-Range': `bytes ${start}-${end}/${stat.size}`,
+            'Accept-Ranges': 'bytes',
+          });
+          return fs.createReadStream(file, { start, end }).pipe(res);
+        }
+        res.writeHead(200, {
+          'Content-Type': 'video/mp4', 'Content-Length': stat.size, 'Accept-Ranges': 'bytes',
+        });
+        return fs.createReadStream(file).pipe(res);
       }
 
       return send(404, { error: 'Not found' });

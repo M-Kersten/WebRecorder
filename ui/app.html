@@ -209,6 +209,34 @@
   .frame.broke { border-color: var(--warn-ink); }
   .frame.untried { opacity: .5; }
 
+  /* ---------- earlier videos ---------- */
+  .render-list { display: grid; }
+  .render-item {
+    display: grid; grid-template-columns: 26px 1fr auto auto; gap: 14px; align-items: center;
+    padding: 12px 26px; border-top: 1px solid var(--rule); background: none; border-left: 0;
+    border-right: 0; border-bottom: 0; width: 100%; text-align: left; font: inherit;
+    color: inherit; cursor: pointer;
+  }
+  .render-item:hover { background: var(--sunken); }
+  .render-item.on { background: var(--sunken); }
+  .render-item .play {
+    width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center;
+    background: var(--ink); color: var(--card);
+  }
+  .render-item.on .play { background: var(--accent, var(--ink)); }
+  .render-item .play svg { width: 9px; height: 9px; margin-left: 1px; }
+  .render-item .nm { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .render-item .nm small { display: block; color: var(--muted); font-size: 12px; }
+  .render-item .meta { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .render-item .tag {
+    font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted);
+    border: 1px solid var(--edge); border-radius: 999px; padding: 2px 8px;
+  }
+  @media (max-width: 620px) {
+    .render-item { grid-template-columns: 26px 1fr; row-gap: 4px; }
+    .render-item .meta, .render-item .tag { grid-column: 2; justify-self: start; }
+  }
+
   /* ---------- the check ---------- */
   .check-rows { display: grid; gap: 1px; background: var(--edge); border-radius: 12px; overflow: hidden; }
   .check-row {
@@ -356,6 +384,20 @@
   .row .ctl { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
   .row .ctl input[type=number], .row .ctl input[type=text], .row .ctl select { width: 100%; }
   .row .ctl input[type=number] { text-align: right; }
+  /* A logo is picked by name and confirmed by eye: the file itself sits beside
+     the dropdown, on a chequer so a transparent PNG reads as transparent. */
+  .imgpick { display: flex; align-items: center; gap: 9px; width: 100%; }
+  .imgpick select { flex: 1; min-width: 0; }
+  .imgpick .thumb {
+    width: 34px; height: 34px; flex: none; border-radius: 7px; border: 1px solid var(--edge);
+    display: grid; place-items: center; overflow: hidden;
+    background-color: var(--sunken);
+    background-image:
+      linear-gradient(45deg, rgba(0,0,0,.06) 25%, transparent 25%, transparent 75%, rgba(0,0,0,.06) 75%),
+      linear-gradient(45deg, rgba(0,0,0,.06) 25%, transparent 25%, transparent 75%, rgba(0,0,0,.06) 75%);
+    background-size: 10px 10px; background-position: 0 0, 5px 5px;
+  }
+  .imgpick .thumb img { max-width: 100%; max-height: 100%; display: block; }
   /* A setting the chosen voice model will not act on. Visible, because the
      value is real and comes back when the model changes; not touchable, because
      moving it would change nothing. */
@@ -695,6 +737,15 @@
           <div class="sub mono" id="out-dir"></div>
         </div>
       </section>
+
+      <section class="card" id="renders-card" hidden>
+        <div class="panel-head">
+          <h3>Earlier videos</h3>
+          <span class="where">Everything in the output folder. Click one to play it here.</span>
+          <div class="end"><span class="pill" id="renders-count"></span></div>
+        </div>
+        <div id="renders"></div>
+      </section>
     </div>
   </main>
 
@@ -892,7 +943,72 @@
       if (!player.getAttribute('src')) player.src = '/api/video?token=' + TOKEN;
     }
     $('out-dir').textContent = setup.projectDir ? setup.projectDir + '/out' : '';
+    paintRenders();
   }
+
+  /* ------------------------------------------------------------------ *
+   * Earlier videos.
+   *
+   * A listing of the output folder rather than a log the window keeps, so a
+   * file dropped in or deleted by hand is simply there or not. Clicking one
+   * plays it in the same player the fresh render uses, which is the whole
+   * point: two takes of the same walkthrough are only comparable if you can
+   * put them side by side without leaving the app.
+   * ------------------------------------------------------------------ */
+  var renders = [];
+  var playing = null;
+
+  function loadRenders() {
+    return api('/api/renders').then(function (data) {
+      renders = data.renders || [];
+      paintRenders();
+    }).catch(function () { /* no output folder yet is not an error */ });
+  }
+
+  function bytes(n) {
+    if (!n) return '';
+    return n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.round(n / 1024) + ' kB';
+  }
+
+  function when(ms) {
+    var d = new Date(ms);
+    var today = new Date();
+    var sameDay = d.toDateString() === today.toDateString();
+    var time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return sameDay ? time : d.toLocaleDateString([], { day: 'numeric', month: 'short' }) + ' ' + time;
+  }
+
+  function paintRenders() {
+    var card = $('renders-card');
+    if (!renders.length) { card.hidden = true; return; }
+    card.hidden = false;
+    $('renders-count').textContent = renders.length + (renders.length === 1 ? ' file' : ' files');
+
+    $('renders').innerHTML = '<div class="render-list">' + renders.map(function (r) {
+      var on = (playing === r.name) || (playing === null && r.current);
+      return '<button type="button" class="render-item' + (on ? ' on' : '') + '" data-name="' + esc(r.name) + '">' +
+        '<span class="play"><svg viewBox="0 0 10 12" fill="currentColor" aria-hidden="true">' +
+        '<path d="M0 0l10 6-10 6z"/></svg></span>' +
+        '<span class="nm">' + esc(r.name) +
+        (r.current ? '<small>the one you just made</small>' : '') + '</span>' +
+        '<span class="meta">' + (r.durationSec ? clock(r.durationSec * 1000) + '  ·  ' : '') +
+        bytes(r.bytes) + '  ·  ' + when(r.modified) + '</span>' +
+        (r.master ? '<span class="tag">master</span>' : '<span></span>') +
+        '</button>';
+    }).join('') + '</div>';
+  }
+
+  $('renders').addEventListener('click', function (e) {
+    var item = e.target.closest('.render-item');
+    if (!item) return;
+    playing = item.dataset.name;
+    var player = $('player');
+    $('player-row').hidden = false;
+    player.src = '/api/video?name=' + encodeURIComponent(playing) + '&token=' + TOKEN;
+    player.play().catch(function () { /* the browser may want a gesture; the click was one */ });
+    paintRenders();
+    player.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  });
 
   /* The pacing track: one segment per step, as wide as the step is long. */
   function paintTrack() {
@@ -1151,6 +1267,19 @@
       });
       voices.unshift('<option value=""' + (value ? '' : ' selected') + '>The stock voice</option>');
       return '<select' + attrs + '>' + voices.join('') + '</select>';
+    }
+    if (field.type === 'image') {
+      var pics = (settings.images || []).map(function (im) {
+        return '<option value="' + esc(im.file) + '"' + (im.file === value ? ' selected' : '') +
+          '>' + esc(im.label) + '</option>';
+      });
+      pics.unshift('<option value=""' + (value ? '' : ' selected') + '>' +
+        (pics.length ? 'None' : 'Nothing in the assets folder') + '</option>');
+      return '<span class="imgpick">' +
+        '<span class="thumb"' + (value ? '' : ' hidden') + '>' +
+        (value ? '<img src="/api/image?name=' + encodeURIComponent(value) + '&token=' + TOKEN + '" alt="">' : '') +
+        '</span>' +
+        '<select' + attrs + '>' + pics.join('') + '</select></span>';
     }
     if (field.type === 'sound') {
       var clips = (settings.sounds || []).map(function (c) {
@@ -1426,6 +1555,16 @@
     // soon as somebody picks a different one - not after the next save.
     var model = $(bodyId).querySelector('[data-key="flow.voiceModel"]');
     if (model) model.addEventListener('change', function () { applyInert(bodyId); });
+
+    Array.prototype.forEach.call($(bodyId).querySelectorAll('.imgpick select'), function (sel) {
+      sel.addEventListener('change', function () {
+        var thumb = sel.closest('.imgpick').querySelector('.thumb');
+        thumb.hidden = !sel.value;
+        thumb.innerHTML = sel.value
+          ? '<img src="/api/image?name=' + encodeURIComponent(sel.value) + '&token=' + TOKEN + '" alt="">'
+          : '';
+      });
+    });
 
     // Keep each swatch and its hex box showing the same thing.
     Array.prototype.forEach.call($(bodyId).querySelectorAll('[data-fills]'), function (sw) {
@@ -1769,6 +1908,11 @@
     var was = live.phase;
     live = state;
     // A finished recording brings new steps and new pictures with it.
+    if (was !== state.phase && state.phase === 'done') {
+      // A fresh file, and it is the one to show.
+      playing = null;
+      loadRenders();
+    }
     if (was !== state.phase && (state.phase === 'captured' || state.phase === 'done')) {
       shotVersion = Date.now();
       api('/api/story').then(function (next) {
@@ -1798,6 +1942,7 @@
       var stream = new EventSource('/api/events?token=' + TOKEN);
       stream.onmessage = function (e) { apply(JSON.parse(e.data)); };
       apply(setup.state);
+      loadRenders();
     });
   }
 

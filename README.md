@@ -833,6 +833,14 @@ rides along with an encode that was happening anyway, so it costs nothing extra.
 A segment too short for the full fade gets a proportionally shorter one instead
 of fading to black and straight back.
 
+### Pictures
+
+Anything in an `assets` folder beside the project, one level of subfolders
+included, turns up in the logo pickers on the Styles tab. A folder rather than a
+path typed into a form, for the same reason the fonts and the audio work that
+way: the settings screen is a form, and a form has no business pointing the
+renderer at an arbitrary file on the machine.
+
 ### `intro` and `outro`
 
 ```jsonc

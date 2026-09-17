@@ -24,7 +24,7 @@ test('every field names a real place in the theme or the flow', () => {
   const values = settings.readValues(theme, flow);
   for (const field of settings.FIELDS) {
     assert.ok(field.key in values, `${field.key} was not read`);
-    assert.ok(['number', 'boolean', 'select', 'color', 'text', 'font', 'voice', 'sound'].includes(field.type),
+    assert.ok(['number', 'boolean', 'select', 'color', 'text', 'font', 'voice', 'sound', 'image'].includes(field.type),
       `${field.key} has an unknown type "${field.type}"`);
     assert.ok(field.label && field.section, `${field.key} needs a label and a section`);
     if (field.type === 'select') assert.ok(field.options.length, `${field.key} needs options`);
@@ -51,10 +51,35 @@ test('a key that is not a setting is refused', () => {
   // The form can only reach what FIELDS lists. Everything else in the theme,
   // including anything that takes a file path, stays out of its hands.
   assert.throws(() => settings.toLayer({ 'theme.cursor.image': '/etc/passwd' }), /is not a setting/);
-  assert.throws(() => settings.toLayer({ 'theme.intro.logo': 'x.png' }), /is not a setting/);
+  assert.throws(() => settings.toLayer({ 'theme.fonts.heading.file': 'x.ttf' }), /is not a setting/);
   assert.throws(() => settings.toLayer({ 'theme.fonts.body.file': 'x.ttf' }), /is not a setting/);
   assert.throws(() => settings.toLayer({ '__proto__.x': 1 }), /is not a setting/);
   assert.throws(() => settings.toLayer({ 'flow.steps': [] }), /is not a setting/);
+});
+
+// The card logo IS a setting now, so the guard moved rather than went away: it
+// is picked from the assets folder, and nothing outside that folder resolves.
+test('a card logo can only be a picture from the assets folder', () => {
+  const context = { images: [{ file: 'logo.png' }, { file: 'brand/mark.svg' }] };
+
+  // What the picker offers, stored as the path the theme reads.
+  assert.deepStrictEqual(
+    settings.toLayer({ 'theme.intro.logo': 'logo.png' }, context).theme.intro,
+    { logo: 'assets/logo.png' }
+  );
+  assert.deepStrictEqual(
+    settings.toLayer({ 'theme.outro.logo': 'brand/mark.svg' }, context).theme.outro,
+    { logo: 'assets/brand/mark.svg' }
+  );
+
+  // And nothing else, however it is spelled.
+  for (const bad of ['/etc/passwd.png', '../../../secret.png', 'nope.png', 'C:\\x.png']) {
+    assert.throws(() => settings.toLayer({ 'theme.intro.logo': bad }, context),
+      /no picture called/, bad);
+  }
+
+  // Empty clears it, because a card without a logo is an ordinary thing to want.
+  assert.strictEqual(settings.toLayer({ 'theme.intro.logo': '' }, context).theme.intro.logo, null);
 });
 
 test('numbers are range-checked with the reason spelled out', () => {

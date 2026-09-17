@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { readJson, ConfigError, validateViewport, validateDismiss } = require('./config');
+const images = require('./images');
 
 /**
  * The settings a person can change from the app window.
@@ -331,6 +332,14 @@ const FIELDS = [
     type: 'color',
   },
   {
+    key: 'theme.intro.logo',
+    section: 'Opening card',
+    label: 'Logo',
+    help: 'Drawn above the title. Picked from the assets folder beside this ' +
+      'project - drop a file in and it turns up here.',
+    type: 'image', nullable: true,
+  },
+  {
     key: 'theme.intro.audio',
     section: 'Opening card',
     label: 'Sound',
@@ -392,6 +401,13 @@ const FIELDS = [
     section: 'Closing card',
     label: 'Background',
     type: 'color',
+  },
+  {
+    key: 'theme.outro.logo',
+    section: 'Closing card',
+    label: 'Logo',
+    help: 'Drawn above the closing title.',
+    type: 'image', nullable: true,
   },
   {
     key: 'theme.outro.audio',
@@ -622,6 +638,14 @@ function readValues(theme, flow) {
     const source = root === 'theme' ? theme : flow;
     values[field.key] = rest.reduce((o, k) => (o == null ? undefined : o[k]), source);
   }
+  // A card's logo is stored as the path the theme reads, "assets/logo.png"; the
+  // picker deals in names inside that folder, so the prefix comes back off.
+  for (const key of ['theme.intro.logo', 'theme.outro.logo']) {
+    const stored = values[key];
+    values[key] = typeof stored === 'string'
+      ? stored.replace(new RegExp(`^${images.DIR_NAME}/`), '')
+      : (stored || '');
+  }
   // The form asks for a preset name; the flow holds the size it resolved to.
   // A viewport written as an explicit width and height has no preset, and
   // reading back as "the same size as the video" would quietly discard it on
@@ -690,6 +714,21 @@ function coerce(field, raw, context = {}) {
       );
     }
     return name;
+  }
+
+  if (field.type === 'image') {
+    const name = String(raw === null || raw === undefined ? '' : raw).trim();
+    if (!name) return field.nullable ? null : undefined;
+    const known = (context.images || []).map((i) => i.file);
+    if (!known.includes(name)) {
+      throw new ConfigError(
+        `${field.label}: there is no picture called "${name}" in the assets folder` +
+        (known.length ? `. It holds: ${known.join(', ')}.` : ', which is empty or missing.')
+      );
+    }
+    // The theme resolves a card's logo against its own folder, and the picker
+    // deals in names inside `assets`. Store the path the theme will read.
+    return `${images.DIR_NAME}/${name}`;
   }
 
   if (field.type === 'voice') {

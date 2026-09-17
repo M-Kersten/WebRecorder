@@ -353,3 +353,100 @@ test('a check that passes says so, and leaves nothing marked', async () => {
     fs.rmSync(site, { recursive: true, force: true });
   }
 });
+
+test('a logo is picked from the assets folder and shown before it is saved', async () => {
+  await withWindow(async ({ page, dir, errors }) => {
+    await page.click('#tab-btn-styles');
+    await page.waitForSelector('#tab-styles', { state: 'visible' });
+    await page.click('#styles-rail button[data-section="Opening card"]');
+    await page.waitForTimeout(250);
+
+    const picker = page.locator('.imgpick select[data-key="theme.intro.logo"]');
+    assert.strictEqual(await picker.count(), 1, 'the opening card has a logo picker');
+
+    // Everything in assets/, including one folder deep.
+    const offered = await picker.locator('option').evaluateAll((os) => os.map((o) => o.value));
+    assert.ok(offered.includes('logo.png'), JSON.stringify(offered));
+    assert.ok(offered.some((v) => v.startsWith('brand/')), 'a brand subfolder is reachable');
+
+    // The thumbnail follows the choice, before any save.
+    const thumb = page.locator('.imgpick .thumb').first();
+    await picker.selectOption('logo.png');
+    await page.waitForTimeout(200);
+    assert.strictEqual(await thumb.isVisible(), true);
+    const src = await thumb.locator('img').getAttribute('src');
+    assert.match(src, /\/api\/image\?name=logo\.png/);
+    // And it is the real file, not a placeholder.
+    const ok = await page.evaluate((u) => fetch(u).then((r) => r.ok), src);
+    assert.strictEqual(ok, true, 'the picture the picker shows is served');
+
+    await page.click('#styles-save');
+    await page.waitForTimeout(800);
+
+    const saved = JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8'));
+    const layer = saved.styles[Object.keys(saved.styles)[0]];
+    assert.strictEqual(layer.intro.logo, 'assets/logo.png',
+      'stored as the path the theme reads, not as the name the picker shows');
+    assert.deepStrictEqual(errors, []);
+  });
+});
+
+test('earlier videos are listed, newest first, and any of them plays', async () => {
+  await withWindow(async ({ page, dir, errors }) => {
+    // Three files in the output folder, made at different times.
+    const out = path.join(dir, 'out');
+    fs.mkdirSync(out, { recursive: true });
+    const { execFileSync } = require('child_process');
+    const { binaries } = require('../src/ffmpeg');
+    for (const [name, seconds, ago] of [['first.mp4', 1, 3000], ['second.mp4', 2, 2000], ['second.master.mp4', 2, 1000]]) {
+      const file = path.join(out, name);
+      execFileSync(binaries().ffmpeg, [
+        '-hide_banner', '-loglevel', 'error', '-y',
+        '-f', 'lavfi', '-i', `color=c=0x203040:s=160x90:r=10:d=${seconds}`,
+        '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', file,
+      ]);
+      const when = new Date(Date.now() - ago);
+      fs.utimesSync(file, when, when);
+    }
+
+    await page.reload({ waitUntil: 'networkidle' });
+    await settled(page);
+    await page.waitForSelector('#renders-card', { state: 'visible' });
+
+    const names = await page.$$eval('.render-item', (els) => els.map((e) => e.dataset.name));
+    assert.deepStrictEqual(names, ['second.master.mp4', 'second.mp4', 'first.mp4'],
+      'newest first');
+    assert.strictEqual(await page.textContent('#renders-count'), '3 files');
+
+    // A master is marked rather than passed off as a separate result.
+    const tagged = await page.$$eval('.render-item',
+      (els) => els.filter((e) => e.querySelector('.tag')).map((e) => e.dataset.name));
+    assert.deepStrictEqual(tagged, ['second.master.mp4']);
+
+    // Durations were probed, not guessed: a two-second file says two seconds.
+    const meta = await page.textContent('.render-item[data-name="second.mp4"] .meta');
+    assert.match(meta, /\b2 s\b/, meta);
+    assert.match(meta, /kB|MB/, meta);
+
+    // Clicking one plays that one.
+    await page.click('.render-item[data-name="first.mp4"]');
+    await page.waitForTimeout(400);
+    const src = await page.getAttribute('#player', 'src');
+    assert.match(src, /name=first\.mp4/);
+    assert.strictEqual(await page.locator('#player-row').isVisible(), true);
+    assert.deepStrictEqual(errors, []);
+  });
+}, { timeout: 120000 });
+
+test('the player will not open a file outside the output folder', async () => {
+  await withWindow(async ({ page, app }) => {
+    for (const bad of ['../flow.json', '/etc/passwd', '..%2Fflow.json', 'theme.json']) {
+      const status = await page.evaluate(
+        ([name, token]) => fetch('/api/video?name=' + encodeURIComponent(name) + '&token=' + token)
+          .then((r) => r.status),
+        [bad, app.token]
+      );
+      assert.strictEqual(status, 404, `${bad} was served`);
+    }
+  });
+});
