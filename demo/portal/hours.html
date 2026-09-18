@@ -1,0 +1,62 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Hour registration</title>
+<!--
+  A form that already has something in it, which is what a timesheet is: you
+  open it on last week's numbers and change them. Every shape a "type" step has
+  to survive is here - a filled text box, an empty one, a number, a dropdown
+  whose options carry values, one whose options do not, a note, and a tickbox.
+-->
+<style>
+ :root{--pink:#E6007E}
+ body{margin:0;background:#F4F5F7;font:16px system-ui,sans-serif;color:#111}
+ header{display:flex;align-items:center;gap:24px;padding:16px 40px;background:#fff;
+        border-radius:0 0 24px 24px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+ .brand{font-weight:800;letter-spacing:-.5px}
+ h1{margin:34px 40px 26px;font-weight:400;font-size:34px}
+ form{background:#fff;border-radius:22px;padding:26px 30px;margin:0 40px;max-width:560px}
+ label{display:block;font-size:13px;color:#6B7280;margin:16px 0 6px}
+ label:first-of-type{margin-top:0}
+ input,select,textarea{width:100%;box-sizing:border-box;font:inherit;padding:10px 12px;
+        border:1px solid #DDE0E6;border-radius:10px;background:#fff}
+ textarea{min-height:64px;resize:vertical}
+ .tick{display:flex;align-items:center;gap:10px;margin-top:18px}
+ .tick input{width:auto}
+ .tick span{font-size:14px}
+ button{margin-top:22px;padding:12px 26px;border:0;border-radius:999px;
+        background:var(--pink);color:#fff;font:inherit;font-weight:700;cursor:pointer}
+ #saved{margin:18px 40px;color:#147048;font-weight:700}
+</style></head><body>
+<header><div class="brand">PORTAL</div></header>
+<h1>Hour registration</h1>
+<form id="entry" onsubmit="return false">
+  <label for="day">Day</label>
+  <select id="day"><option>Monday</option><option>Tuesday</option><option>Wednesday</option></select>
+
+  <label for="project">Project</label>
+  <select id="project">
+    <option value="p1">Alpha rebuild</option>
+    <option value="p2">Beta migration</option>
+  </select>
+
+  <label for="hours">Hours</label>
+  <input id="hours" value="8">
+
+  <label for="rate">Rate</label>
+  <input id="rate" type="number" value="95">
+
+  <label for="ref">Reference</label>
+  <input id="ref" value="">
+
+  <label for="note">Note</label>
+  <textarea id="note">Carried over from last week</textarea>
+
+  <div class="tick"><input id="billable" type="checkbox"><span>Billable</span></div>
+
+  <button id="save">Save entry</button>
+</form>
+<div id="saved" hidden>Entry saved.</div>
+<script>
+  document.getElementById('save').addEventListener('click', function () {
+    document.getElementById('saved').hidden = false;
+  });
+</script>
+</body></html>

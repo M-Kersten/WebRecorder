@@ -513,3 +513,72 @@ test('a field is named by its label, not by whatever is sitting in it', async ()
   assert.ok(!/someone@example\.com/.test(joined), `a value reached a label: ${joined}`);
   assert.ok(!/\btrue\b/.test(joined), `a checkbox was named by its state: ${joined}`);
 });
+
+/* ---------------------------------------------------------------------- *
+ * The round trip: walk a form that already has something in it, then play
+ * the recording back and see whether the form ends up the way it was left.
+ *
+ * Which is the only question that matters about a recorder, and the one the
+ * pieces on either side kept answering differently: capture writes down the
+ * value a field ended up with, so replay has to produce that value rather
+ * than add to what is in the box.
+ * ---------------------------------------------------------------------- */
+
+test('a form filled in over what was already there replays to the same form', async () => {
+  const { flow, outFile } = await captureWith(async (page) => {
+    // What a person does with a timesheet: change the numbers that are in it.
+    await page.selectOption('#day', 'Wednesday');
+    await page.selectOption('#project', 'p2');
+    await page.fill('#hours', '7.5');          // was "8"
+    await page.fill('#rate', '110');           // was "95"
+    await page.fill('#ref', 'INV-204');        // was empty
+    await page.fill('#note', '');              // cleared on purpose
+    await page.check('#billable');
+    await page.locator('#day').focus();        // blur the last field
+    await page.waitForTimeout(400);
+  }, '/hours.html');
+
+  const typed = flow.steps.filter((s) => s.action === 'type');
+  assert.strictEqual(typed.length, 7, JSON.stringify(typed, null, 1));
+
+  // It loads. An emptied field is a step, not a step with a field missing.
+  const loaded = loadFlow(outFile);
+  const cleared = loaded.steps.find((s) => s.selector === '#note');
+  assert.strictEqual(cleared.text, '');
+
+  // And now play it back against a fresh copy of the same page.
+  const { launch } = require('../src/browser');
+  const { runStep } = require('../src/recorder');
+  const { deepMerge, DEFAULTS } = require('../src/theme');
+  const theme = deepMerge(DEFAULTS, { cursor: { moveMs: 0 }, highlight: { fadeMs: 0 } });
+
+  const browser = await launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    await page.goto(`${server.url}/hours.html`, { waitUntil: 'load' });
+    for (const step of loaded.steps) {
+      if (step.action === 'goto') continue;
+      await runStep(page, step, loaded, theme, { overlay: false });
+    }
+    const after = await page.evaluate(() => ({
+      day: document.getElementById('day').value,
+      project: document.getElementById('project').value,
+      hours: document.getElementById('hours').value,
+      rate: document.getElementById('rate').value,
+      ref: document.getElementById('ref').value,
+      note: document.getElementById('note').value,
+      billable: document.getElementById('billable').checked,
+    }));
+    assert.deepStrictEqual(after, {
+      day: 'Wednesday',
+      project: 'p2',
+      hours: '7.5',
+      rate: '110',
+      ref: 'INV-204',
+      note: '',
+      billable: true,
+    });
+  } finally {
+    await browser.close();
+  }
+});

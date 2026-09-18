@@ -219,7 +219,9 @@ ${SELECTOR_SCRIPT}
            ACTIONS.map((a) => '<option' + (a === s.action ? ' selected' : '') + '>' + a + '</option>').join('') +
          '</select>',
       s.action === 'type'
-        ? '    <input data-field="text" value="' + esc(s.text) + '" placeholder="text to type">'
+        ? '    <input data-field="text" value="' + esc(s.text) +
+          '" placeholder="what the field should say" ' +
+          'title="What the field ends up saying. Whatever is in it gets replaced; leave this empty to clear it.">'
         : '',
       '    <button class="x" data-remove="' + i + '" title="Remove">&times;</button>',
       '  </div>',
@@ -275,6 +277,16 @@ ${SELECTOR_SCRIPT}
       steps = await window.__tutCaptureAdd({
         action: 'type', selector: bestSelector(el),
         text: '\${PASSWORD}', label: describeElement(el), secret: true,
+      });
+    } else if (el.type === 'checkbox' || el.type === 'radio') {
+      // A tickbox's value is "on" whether it is ticked or not, so writing that
+      // down loses the only thing that happened. The state goes down instead,
+      // and the recorder sets it rather than clicking - a click is a toggle,
+      // and a toggle replays as the opposite of itself on a box that starts
+      // the other way round.
+      steps = await window.__tutCaptureAdd({
+        action: 'type', selector: bestSelector(el),
+        text: el.checked ? 'checked' : 'unchecked', label: describeElement(el),
       });
     } else {
       steps = await window.__tutCaptureAdd({

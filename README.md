@@ -199,6 +199,29 @@ The server binds to `127.0.0.1` and every action needs a token that only the
 window it opened was given. Anything on localhost is otherwise reachable from
 any page the browser has open, and this one launches browsers and writes files.
 
+### The name on the window
+
+The window is a Chromium app window, and on macOS the name beside the Apple
+menu and under the Dock icon comes from the `.app` bundle owning the process,
+not from the page. So it opened as "Chrome for Testing" however the page was
+titled, and no command-line switch changes that.
+
+What does change it is owning a bundle, so `macapp.js` makes one: the browser's
+own bundle, cloned, with `CFBundleName` rewritten and `assets/brand/Qapture.icns`
+dropped in. On APFS the clone is copy-on-write, so a few hundred megabytes of
+Chromium costs a few kilobytes and about a second, once - it is kept in
+`~/Library/Caches/qapture` and rebuilt only when the browser underneath it
+moves. Rewriting the plist breaks the bundle's seal, so it is re-signed ad-hoc.
+
+Every step of that is allowed to fail. If the clone, the rewrite or the
+signature does not work, if the window opens and then does not paint, or if the
+machine is not a Mac at all, the browser is launched exactly as it was found and
+the only difference is the name. Windows and Linux take their taskbar icon from
+the page's favicon, which is already the Qapture mark.
+
+Run `node tools/build-icon.js` after changing the icon SVG; it rebuilds the
+`.icns` from it, because `iconutil` only exists on a Mac.
+
 ## Styles and settings
 
 Two pages, split by what a thing actually changes.
@@ -509,7 +532,7 @@ qapture --check
 | --- | --- | --- |
 | `goto` | `url` | — |
 | `click` | `selector` | — |
-| `type` | `selector`, `text` | `delayMs` (per keystroke, default 55) |
+| `type` | `selector`, `text` | `delayMs` (per keystroke, default 55), `clear` |
 | `hover` | `selector` | — |
 | `scroll` | — | `selector` to scroll to, or `to` in px |
 | `wait` | — | `durationMs` (default 1000) |
@@ -517,6 +540,33 @@ qapture --check
 
 Every step also accepts `timeoutMs`, which overrides the flow's own
 `timeoutMs` for that one step, and `frame`, described below.
+
+### Filling something in
+
+`text` is what the field should say afterwards, not the keys that get it there.
+Capture writes down the value a field ended up with, so replaying has to produce
+that value: whatever is already in the box is cleared first. A timesheet that
+opens on last week's `8`, typed into with `7.5`, has to come out `7.5` and not
+`87.5`.
+
+```jsonc
+{ "action": "type", "selector": "#hours", "text": "7.5" }                  // replaces
+{ "action": "type", "selector": "#note",  "text": "" }                     // empties it
+{ "action": "type", "selector": "#note",  "text": " PS", "clear": false }  // adds to it
+```
+
+An empty `text` is a step, not a step with a field missing: emptying a box
+before filling it in is half of using any form somebody has used before.
+`clear: false` is for the other case, a field you are adding to.
+
+The same action drives the rest of a form, because `change` is the event the
+browser fires for all of it and that is what capture listens to:
+
+- a **dropdown** is picked rather than typed into. `text` matches an option's
+  `value` or, failing that, what the option says.
+- a **tickbox** is set rather than clicked, from a `text` of `checked` or
+  `unchecked`. Clicking one is a toggle, which replays as the opposite of
+  itself on a box that starts the other way round.
 
 ### Waiting for the page
 
@@ -1057,6 +1107,7 @@ src/
   ui.js         the local app: state machine, small HTTP API, window
   pacing.js     how long a step is on screen; read by the recorder and the board
   voices.js     the voices.json list, and the stock voice to fall back on
+  macapp.js     the macOS bundle that puts this app's name on the window
   sounds.js     the audio folder: stings and music, by name
   images.js     the assets folder: logos and pointers, by name
   uploads.js    writing a file into one of those folders from the window
@@ -1072,6 +1123,9 @@ audio/          stings and music for the cards and the bed, see audio/README.md
 theme-rebels.json    a real-world theme: brand colour, Overused Grotesk
 voices.json     the ElevenLabs voices this project can narrate in
 assets/         logos, pointers and other card artwork
+  brand/        the mark, the app icon, and the .icns built from it
+tools/build-icon.js   rebuilds Qapture.icns after the icon SVG changes
 demo/           demo site and flow, used by every test
   portal/       a login plus a dashboard, for the auth and masking examples
+                and hours.html, a form that already has answers in it
 ```

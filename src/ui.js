@@ -1024,20 +1024,46 @@ async function openWindow(url, log = () => {}) {
     const { chromium } = require('playwright');
     const { resolveExecutablePath } = require('./browser');
     const executablePath = resolveExecutablePath();
-    const context = await chromium.launchPersistentContext(userDataDir, {
-      headless: false,
-      viewport: null,
-      ...(executablePath ? { executablePath } : {}),
-      args: [`--app=${url}`, '--window-size=1240,900'],
-    });
-    return {
-      kind: 'app',
-      context,
-      close: async () => {
-        await context.close().catch(() => {});
-        removeWorkDir(userDataDir, log);
-      },
+
+    const open = async (exe) => {
+      const context = await chromium.launchPersistentContext(userDataDir, {
+        headless: false,
+        viewport: null,
+        ...(exe ? { executablePath: exe } : {}),
+        args: [`--app=${url}`, '--window-size=1240,900'],
+      });
+      return {
+        kind: 'app',
+        context,
+        close: async () => {
+          await context.close().catch(() => {});
+          removeWorkDir(userDataDir, log);
+        },
+      };
     };
+
+    // On macOS the name beside the Apple menu and under the Dock icon comes
+    // from the app bundle, not from the page, so the window opens as whatever
+    // Playwright's Chromium calls itself. This launches the same browser
+    // through a bundle carrying our own name and icon.
+    const branded = brandedWindow(executablePath, log);
+    if (branded) {
+      try {
+        const window = await open(branded);
+        // Launching is not the same as working. A bundle that starts and then
+        // cannot paint is worse than one that never started, so the page has
+        // to actually arrive before this counts.
+        if (await windowIsLive(window)) return window;
+        log('the renamed window did not load, using the browser as it comes');
+        await window.context.close().catch(() => {});
+      } catch (err) {
+        log(`the renamed window would not open (${firstLine(err.message)}), using the browser as it comes`);
+      }
+      // Whatever went wrong, it is not worth hitting again next time.
+      require('./macapp').forget();
+    }
+
+    return await open(executablePath);
   } catch (err) {
     removeWorkDir(userDataDir);
     log(`could not open an app window (${firstLine(err.message)}), using the default browser`);
@@ -1045,6 +1071,37 @@ async function openWindow(url, log = () => {}) {
       : process.platform === 'win32' ? 'start' : 'xdg-open';
     spawn(opener, [url], { detached: true, stdio: 'ignore', shell: process.platform === 'win32' }).unref();
     return { kind: 'browser', close: () => {} };
+  }
+}
+
+/**
+ * The same browser, reached through a bundle with this app's name on it.
+ *
+ * Only ever does anything on macOS, and returns null rather than throwing on
+ * every other path, so the window opens either way.
+ */
+function brandedWindow(executablePath, log) {
+  try {
+    const { chromium } = require('playwright');
+    const macapp = require('./macapp');
+    // resolveExecutablePath returns null when Playwright should find the
+    // browser itself, and the bundle can only be found from a real path.
+    const real = executablePath || chromium.executablePath();
+    return macapp.brandedExecutable(real, { log });
+  } catch {
+    return null;
+  }
+}
+
+/** Did the window actually get as far as showing the page? */
+async function windowIsLive(window, timeoutMs = 20000) {
+  try {
+    const page = window.context.pages()[0]
+      || await window.context.waitForEvent('page', { timeout: 5000 });
+    await page.waitForLoadState('domcontentloaded', { timeout: timeoutMs });
+    return (await page.title()) !== '';
+  } catch {
+    return false;
   }
 }
 

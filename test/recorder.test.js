@@ -213,3 +213,145 @@ test('a line for a page starts once the page is there', async () => {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+/* ---------------------------------------------------------------------- *
+ * Typing into a field that already says something.
+ *
+ * `text` is what the field should read afterwards, because that is what the
+ * capture panel writes down: it listens for `change` and records the value the
+ * field ended up with, never the keys that got it there. So replaying has to
+ * produce that value, not add to whatever is in the box.
+ * ---------------------------------------------------------------------- */
+
+const FORM = '<!doctype html><body style="margin:0;font:15px system-ui">' +
+  '<input id="hours" value="8">' +
+  '<input id="blank" value="">' +
+  '<input id="num" type="number" value="8">' +
+  '<textarea id="note">old note</textarea>' +
+  '<div id="rich" contenteditable>8</div>' +
+  '<select id="day"><option>Monday</option><option>Tuesday</option></select>' +
+  '<select id="project"><option value="1">Alpha</option><option value="2">Beta</option></select>' +
+  '<input id="agree" type="checkbox">' +
+  '</body>';
+
+async function withForm() {
+  const ctx = await browser.newContext({ viewport: { width: 900, height: 600 } });
+  const page = await ctx.newPage();
+  await page.goto(`data:text/html;charset=utf-8,${encodeURIComponent(FORM)}`, { waitUntil: 'load' });
+  const theme = deepMerge(DEFAULTS, { cursor: { moveMs: 0 }, highlight: { fadeMs: 0 } });
+  const type = (step) => runStep(page, { action: 'type', ...step }, FLOW, theme, { overlay: false });
+  const value = (id) => page.locator(`#${id}`).evaluate(
+    (el) => (el.isContentEditable ? el.innerText : (el.type === 'checkbox' ? String(el.checked) : el.value))
+  );
+  return { page, type, value, close: () => ctx.close() };
+}
+
+// The bug this exists for: a timesheet box reading "8", typed into with "7.5",
+// came out "87.5". Which is the wrong number, and not what the person recording
+// it did.
+test('typing replaces what is in the field rather than adding to it', async () => {
+  const { type, value, close } = await withForm();
+  try {
+    await type({ selector: '#hours', text: '7.5' });
+    assert.strictEqual(await value('hours'), '7.5');
+
+    // And every other shape of text field, because a form has all of them.
+    await type({ selector: '#num', text: '7.5' });
+    assert.strictEqual(await value('num'), '7.5');
+    await type({ selector: '#note', text: 'new note' });
+    assert.strictEqual(await value('note'), 'new note');
+    await type({ selector: '#rich', text: '7.5' });
+    assert.strictEqual(await value('rich'), '7.5');
+
+    // An empty field has nothing to clear, and still ends up right.
+    await type({ selector: '#blank', text: '7.5' });
+    assert.strictEqual(await value('blank'), '7.5');
+  } finally { await close(); }
+});
+
+test('an empty text empties the field, which is a step and not a mistake', async () => {
+  const { type, value, close } = await withForm();
+  try {
+    await type({ selector: '#hours', text: '' });
+    assert.strictEqual(await value('hours'), '');
+    await type({ selector: '#note', text: '' });
+    assert.strictEqual(await value('note'), '');
+  } finally { await close(); }
+});
+
+test('clear: false adds to what is there, for a box you are adding to', async () => {
+  const { type, value, close } = await withForm();
+  try {
+    await type({ selector: '#note', text: ' and more', clear: false });
+    assert.strictEqual(await value('note'), 'old note and more');
+  } finally { await close(); }
+});
+
+// A dropdown is recorded as a "type" step, because change is the event the
+// browser fires. Clicking one opens a popup Chromium draws outside the page:
+// the keystrokes went into that instead of the page, and picked whatever
+// option the first letter happened to land on.
+test('a dropdown is picked rather than typed into', async () => {
+  const { type, value, close } = await withForm();
+  try {
+    await type({ selector: '#day', text: 'Tuesday' });
+    assert.strictEqual(await value('day'), 'Tuesday');
+
+    // Capture writes down el.value, which is the option's value when it has
+    // one and its text when it does not. Both spellings are in flows already.
+    await type({ selector: '#project', text: '2' });
+    assert.strictEqual(await value('project'), '2');
+    await type({ selector: '#project', text: 'Alpha' });
+    assert.strictEqual(await value('project'), '1');
+  } finally { await close(); }
+});
+
+// A click on a tickbox is a toggle, so replaying one onto a box that already
+// starts the way the recording left it produces the opposite of the recording.
+test('a tickbox is set to the state that was recorded, not toggled', async () => {
+  const { page, type, value, close } = await withForm();
+  try {
+    await type({ selector: '#agree', text: 'checked' });
+    assert.strictEqual(await value('agree'), 'true');
+    // Again. A toggle would turn it back off; setting it leaves it alone.
+    await type({ selector: '#agree', text: 'checked' });
+    assert.strictEqual(await value('agree'), 'true');
+
+    await type({ selector: '#agree', text: 'unchecked' });
+    assert.strictEqual(await value('agree'), 'false');
+
+    // A flow recorded before the state was written down has only a click to
+    // go on, and still works the way it always did.
+    await page.locator('#agree').evaluate((el) => { el.checked = false; });
+    await type({ selector: '#agree', text: 'on' });
+    assert.strictEqual(await value('agree'), 'true');
+  } finally { await close(); }
+});
+
+test('a step says what it is about to do, including when that is clearing', () => {
+  const { describeStep } = require('../src/recorder');
+  assert.strictEqual(
+    describeStep({ action: 'type', selector: '#hours', text: '7.5' }),
+    'type "7.5" into #hours'
+  );
+  assert.strictEqual(
+    describeStep({ action: 'type', selector: '#hours', text: '' }),
+    'clear #hours'
+  );
+  assert.strictEqual(
+    describeStep({ action: 'type', selector: '#agree', text: 'checked' }),
+    'tick #agree'
+  );
+  assert.strictEqual(
+    describeStep({ action: 'type', selector: '#agree', text: 'unchecked' }),
+    'untick #agree'
+  );
+  assert.match(
+    describeStep({ action: 'type', selector: '#note', text: 'x', clear: false }),
+    /keeping what is there/
+  );
+  // A password is still dots, whatever else changed.
+  assert.ok(!/hunter2/.test(
+    describeStep({ action: 'type', selector: '#p', text: 'hunter2', secret: true })
+  ));
+});

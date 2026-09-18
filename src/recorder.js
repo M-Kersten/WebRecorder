@@ -209,12 +209,49 @@ async function runStep(page, step, flow, theme, options = {}) {
       const field = locate(page, step);
       await moveCursor(page, target, theme);
       await showHighlight(page, target, theme);
+      const shape = await fieldShape(field);
+
+      // A dropdown is picked, not typed into. Capture writes one down as a
+      // "type" step because that is the event the browser fires, and clicking
+      // it opens a popup Chromium draws outside the page - so it never
+      // appeared in the video, and the keystrokes went into the popup instead
+      // of the page and picked the wrong option about as often as the right
+      // one.
+      if (shape.kind === 'select') {
+        await chooseOption(field, step.text, timeout);
+        return target && target.rect;
+      }
+
+      // A tickbox is set, not clicked. Clicking is a toggle, so a box that
+      // already starts the way the recording left it comes out the opposite.
+      // "checked"/"unchecked" is what capture writes; anything else is a flow
+      // recorded before that, where a click is all there is to go on.
+      if (shape.kind === 'tick') {
+        if (step.text === 'checked' || step.text === 'unchecked') {
+          await field.setChecked(step.text === 'checked', { timeout });
+        } else {
+          await field.click({ timeout });
+        }
+        return target && target.rect;
+      }
+
       await field.click({ timeout });
+      // `text` is what the field should say afterwards - capture writes down
+      // the value it ended up with, not the keys that got it there - so
+      // whatever is already in the box goes first. Clicking into a field that
+      // reads "8" and typing "7.5" leaves "87.5", which is the wrong number in
+      // somebody's timesheet and is not what anybody watching the recording
+      // did. `clear: false` appends instead, for a box you are adding to.
+      if (step.clear !== false && shape.kind === 'text' && !shape.empty) {
+        await field.fill('', { timeout });
+      }
       // A visible per-character delay; instant fills do not read as typing.
-      await field.pressSequentially(step.text, {
-        delay: step.delayMs ?? flow.typeDelayMs ?? 55,
-        timeout,
-      });
+      if (step.text) {
+        await field.pressSequentially(step.text, {
+          delay: step.delayMs ?? flow.typeDelayMs ?? 55,
+          timeout,
+        });
+      }
       return target && target.rect;
     }
     case 'scroll': {
@@ -554,6 +591,46 @@ const STATUS_NAMES = {
 };
 const statusName = (code) => STATUS_NAMES[code] || (code >= 500 ? 'Server Error' : 'Client Error');
 
+/**
+ * What kind of field a "type" step is pointing at, and whether it already has
+ * something in it.
+ *
+ * Three answers. `select` is driven by picking. `text` is typed into, and can
+ * be emptied first. `other` is a checkbox, a file input, a range - things whose
+ * value is a state rather than text, which fill() refuses and which are left
+ * alone rather than failed.
+ */
+async function fieldShape(field) {
+  return field.evaluate((el) => {
+    const NOT_TEXT = ['button', 'color', 'file', 'hidden',
+      'image', 'range', 'reset', 'submit'];
+    const tag = el.tagName.toLowerCase();
+    if (tag === 'select') return { kind: 'select' };
+    if (el.isContentEditable) return { kind: 'text', empty: !el.textContent.trim() };
+    if (tag === 'textarea') return { kind: 'text', empty: !el.value };
+    if (tag !== 'input') return { kind: 'other' };
+    const type = (el.type || 'text').toLowerCase();
+    if (type === 'checkbox' || type === 'radio') return { kind: 'tick' };
+    return { kind: NOT_TEXT.includes(type) ? 'other' : 'text', empty: !el.value };
+  }).catch(() => ({ kind: 'other' }));
+}
+
+/**
+ * Pick an option in a dropdown.
+ *
+ * Capture writes down `el.value`, which for `<option value="1">Monday</option>`
+ * is "1" and for a bare `<option>Monday</option>` is "Monday". Both spellings
+ * are in flows already on disk, so both are tried.
+ */
+async function chooseOption(field, text, timeout) {
+  try {
+    await field.selectOption({ value: String(text) }, { timeout });
+  } catch {
+    // Not one of the options' values. It may be what one of them says.
+    await field.selectOption({ label: String(text) }, { timeout });
+  }
+}
+
 function resolveUrl(url, baseUrl) {
   if (/^[a-z][a-z0-9+.-]*:/i.test(url)) return url;
   if (!baseUrl) {
@@ -568,7 +645,14 @@ function describeStep(step) {
     case 'goto': return `goto ${step.url}`;
     // A step whose text came from the environment is a password field in all
     // but name, so the console gets dots.
-    case 'type': return `type "${step.secret ? REDACTED : step.text}" into ${describeTarget(step)}`;
+    case 'type': {
+      const where = describeTarget(step);
+      if (step.text === 'checked') return `tick ${where}`;
+      if (step.text === 'unchecked') return `untick ${where}`;
+      if (!step.text) return `clear ${where}`;
+      const what = step.secret ? REDACTED : step.text;
+      return `type "${what}" into ${where}${step.clear === false ? ' (keeping what is there)' : ''}`;
+    }
     case 'wait': return `wait ${step.durationMs ?? 1000}ms`;
     case 'scroll': return `scroll to ${step.selector || (step.to ?? 'one screen down')}`;
     case 'waitFor': return `wait for ${describeTarget(step)} to be ${step.state || 'visible'}`;
@@ -634,5 +718,5 @@ function sessionPath(flow) {
 module.exports = {
   record, runStep, resolveUrl, readingTimeMs, describeStep, showHighlight,
   authenticate, sessionIsFresh, sessionPath, settled, lowerCurtain, settleAfterNavigation,
-  checkStatus, trimOpening,
+  checkStatus, trimOpening, fieldShape, chooseOption,
 };

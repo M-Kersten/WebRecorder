@@ -12,7 +12,10 @@ const { DEFAULT_TIMEOUT_MS, framePath } = require('./target');
 const ACTIONS = {
   goto:    { required: ['url'] },
   click:   { required: ['selector'] },
-  type:    { required: ['selector', 'text'] },
+  // `text` has to be there, but "" is a real instruction: empty the field.
+  // Clearing what is already in a box before filling it in is half of using
+  // any form somebody has used before.
+  type:    { required: ['selector', 'text'], mayBeEmpty: ['text'] },
   hover:   { required: ['selector'] },
   scroll:  { required: [] },   // `to` (px) or `selector`; defaults to one viewport down
   wait:    { required: [] },   // `durationMs`, default 1000
@@ -100,10 +103,9 @@ function loadFlow(flowPath) {
         `${where} has unknown action "${step.action}". Known actions: ${known}`
       );
     }
-    for (const field of spec.required) {
-      if (step[field] === undefined || step[field] === null || step[field] === '') {
-        throw new ConfigError(`${where} (action "${step.action}") is missing required field "${field}"`);
-      }
+    requireFields(step, spec, where);
+    if (step.clear !== undefined && typeof step.clear !== 'boolean') {
+      throw new ConfigError(`${where}: "clear" must be true or false`);
     }
     if (step.narration !== undefined && typeof step.narration !== 'string') {
       throw new ConfigError(`${where}: "narration" must be a string`);
@@ -237,11 +239,7 @@ function validateAuth(auth, abs, knownActions) {
         `${where} has unknown action "${step && step.action}". Known actions: ${knownActions}`
       );
     }
-    for (const field of spec.required) {
-      if (step[field] === undefined || step[field] === null || step[field] === '') {
-        throw new ConfigError(`${where} (action "${step.action}") is missing required field "${field}"`);
-      }
-    }
+    requireFields(step, spec, where);
   });
   if (auth.stateFile !== undefined && typeof auth.stateFile !== 'string') {
     throw new ConfigError(`${abs}: auth.stateFile must be a path to write the saved session to`);
@@ -252,6 +250,25 @@ function validateAuth(auth, abs, knownActions) {
     // How long a saved session is trusted before logging in again.
     maxAgeHours: Number.isFinite(auth.maxAgeHours) ? auth.maxAgeHours : 12,
   };
+}
+
+/**
+ * Every field an action needs, present and filled in.
+ *
+ * Empty is missing for nearly everything: a selector of "" finds the whole
+ * document, and a url of "" goes nowhere. The exceptions are listed per action
+ * in `mayBeEmpty`, where "" is the instruction rather than the absence of one.
+ */
+function requireFields(step, spec, where) {
+  for (const field of spec.required) {
+    const value = step[field];
+    const blank = value === ''
+      ? !(spec.mayBeEmpty || []).includes(field)
+      : (value === undefined || value === null);
+    if (blank) {
+      throw new ConfigError(`${where} (action "${step.action}") is missing required field "${field}"`);
+    }
+  }
 }
 
 /** A per-step wait budget, and the shorthand `waitFor` on any other action. */
