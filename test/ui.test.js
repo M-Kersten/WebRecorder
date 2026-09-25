@@ -1048,3 +1048,96 @@ test('there is nowhere to put a kind the window does not have', async () => {
     );
   });
 });
+
+/* ---------------------------------------------------------------------- *
+ * Hearing a voice before choosing it.
+ * ---------------------------------------------------------------------- */
+
+const VOICES = [
+  { id: 'v3voice', name: 'Roland', model: 'eleven_v3' },
+  { id: 'v2voice', name: 'Remko', model: 'eleven_multilingual_v2' },
+  { id: 'anyvoice', name: 'Rachel' },
+];
+
+async function withVoices(fn, options = {}) {
+  const dir = makeProject();
+  fs.writeFileSync(path.join(dir, 'voices.json'), JSON.stringify(VOICES));
+  fs.writeFileSync(path.join(dir, 'flow.json'), JSON.stringify({
+    name: 'x', baseUrl: 'https://x.test',
+    steps: [{ action: 'goto', url: '/', narration: 'Welcome to the portal. Here you fill in your hours for the week.' }],
+  }));
+  const calls = [];
+  const app = createApp({
+    projectDir: dir,
+    synthesizeFn: async (steps, opts) => {
+      calls.push({ text: steps[0].narration, ...opts });
+      const file = path.join(dir, 'sample.mp3');
+      fs.writeFileSync(file, Buffer.from('ID3fake'));
+      return [{ file, durationSec: 1 }];
+    },
+    ...options,
+  });
+  const url = await app.listen();
+  const base = new URL(url).origin;
+  const call = (p, body) => fetch(`${base}${p}`, {
+    method: 'POST',
+    headers: { 'x-tutvid-token': app.token, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const saved = process.env.ELEVENLABS_API_KEY;
+  try {
+    return await fn({ app, call, calls, dir });
+  } finally {
+    if (saved === undefined) delete process.env.ELEVENLABS_API_KEY;
+    else process.env.ELEVENLABS_API_KEY = saved;
+    await app.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test('a voice that names its model is read by that model, whatever the setting says', async () => {
+  await withVoices(async ({ call, calls }) => {
+    process.env.ELEVENLABS_API_KEY = 'test-key';
+    let res = await call('/api/voice-preview', {
+      values: { 'flow.voiceId': 'v3voice', 'flow.voiceModel': 'eleven_multilingual_v2' },
+    });
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.headers.get('x-voice-model'), 'eleven_v3');
+    assert.strictEqual(calls[0].modelId, 'eleven_v3');
+    assert.strictEqual(calls[0].voiceId, 'v3voice');
+
+    // A voice without a model of its own follows the setting.
+    res = await call('/api/voice-preview', {
+      values: { 'flow.voiceId': 'anyvoice', 'flow.voiceModel': 'eleven_turbo_v2_5' },
+    });
+    assert.strictEqual(calls[1].modelId, 'eleven_turbo_v2_5');
+  });
+});
+
+test('the sample is the walkthrough’s own first line, cut to a sentence', async () => {
+  await withVoices(async ({ call, calls }) => {
+    process.env.ELEVENLABS_API_KEY = 'test-key';
+    await call('/api/voice-preview', { values: { 'flow.voiceId': 'anyvoice' } });
+    assert.strictEqual(calls[0].text, 'Welcome to the portal. Here you fill in your hours for the week.');
+    // Through the project's own cache, so the render finds it already paid for.
+    assert.match(calls[0].cacheDir, /\.tts-cache$/);
+  });
+});
+
+test('without a key the sample says what is missing rather than failing somewhere', async () => {
+  await withVoices(async ({ call, calls }) => {
+    delete process.env.ELEVENLABS_API_KEY;
+    const res = await call('/api/voice-preview', { values: { 'flow.voiceId': 'anyvoice' } });
+    assert.strictEqual(res.status, 400);
+    assert.match((await res.json()).error, /needs an ElevenLabs key/);
+    assert.strictEqual(calls.length, 0, 'nothing was synthesised');
+  });
+});
+
+test('a voices.json naming a model that does not exist says so', () => {
+  const { loadVoices } = require('../src/voices');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tutvid-voices-'));
+  fs.writeFileSync(path.join(dir, 'voices.json'), JSON.stringify([{ id: 'a', name: 'A', model: 'eleven_v9' }]));
+  assert.throws(() => loadVoices(dir), /"model" is "eleven_v9". Use one of/);
+  fs.rmSync(dir, { recursive: true, force: true });
+});

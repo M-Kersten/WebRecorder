@@ -437,17 +437,22 @@
   .switch:checked::after { transform: translateX(18px); }
   /* A font is chosen by looking at it, so every option is set in its own
      face. A native select cannot promise that across platforms. */
-  .soundpick { display: flex; align-items: center; gap: 8px; width: 100%; }
-  .soundpick select { flex: 1; min-width: 0; }
-  .soundpick .play {
+  .soundpick, .voicepick { display: flex; align-items: center; gap: 8px; width: 100%; }
+  .soundpick select, .voicepick select { flex: 1; min-width: 0; }
+  .voicepick .play.busy:disabled { opacity: 1; cursor: progress; animation: breathe 1s ease-in-out infinite; }
+  @keyframes breathe { 50% { background: var(--sunken); } }
+  @media (prefers-reduced-motion: reduce) { .voicepick .play.busy:disabled { animation: none; } }
+  .row.follows select[data-locked] { opacity: .7; }
+  .row .d.follows { color: var(--ink-2); }
+  .soundpick .play, .voicepick .play {
     width: 34px; height: 34px; flex: none; border-radius: 50%; cursor: pointer;
     border: 1px solid var(--edge); background: var(--card);
     display: grid; place-items: center; color: var(--ink);
   }
-  .soundpick .play:hover:not(:disabled) { background: var(--sunken); }
-  .soundpick .play:disabled { opacity: .35; cursor: not-allowed; }
-  .soundpick .play svg { width: 9px; height: 9px; margin-left: 1px; }
-  .soundpick .play.on { background: var(--pink); border-color: var(--pink); color: #fff; }
+  .soundpick .play:hover:not(:disabled), .voicepick .play:hover:not(:disabled) { background: var(--sunken); }
+  .soundpick .play:disabled, .voicepick .play:disabled { opacity: .35; cursor: not-allowed; }
+  .soundpick .play svg, .voicepick .play svg { width: 9px; height: 9px; margin-left: 1px; }
+  .soundpick .play.on, .voicepick .play.on { background: var(--pink); border-color: var(--pink); color: #fff; }
 
   /* Putting a file in from here, rather than sending somebody to a folder in a
      file manager and back. Same round shape as the play button, so the two read
@@ -1327,12 +1332,13 @@
         '</span>';
     }
     if (field.type === 'voice') {
-      var voices = (settings.voices || []).map(function (v) {
-        return '<option value="' + esc(v.id) + '"' + (v.id === value ? ' selected' : '') +
-          '>' + esc(v.name) + '</option>';
-      });
-      voices.unshift('<option value=""' + (value ? '' : ' selected') + '>The stock voice</option>');
-      return '<select' + attrs + '>' + voices.join('') + '</select>';
+      return '<span class="voicepick">' +
+        '<select' + attrs + '>' + voiceOptions(value) + '</select>' +
+        '<button type="button" class="play" data-voice-play title="Hear this voice read the ' +
+        'first line of the walkthrough. The first play of a voice costs that one line; ' +
+        'after that it comes from the cache.">' +
+        '<svg viewBox="0 0 10 12" fill="currentColor" aria-hidden="true"><path d="M0 0l10 6-10 6z"/></svg>' +
+        '</button></span>';
     }
     if (field.type === 'image') {
       return '<span class="imgpick">' +
@@ -1392,6 +1398,129 @@
       (field.min !== undefined ? ' min="' + field.min + '"' : '') +
       (field.max !== undefined ? ' max="' + field.max + '"' : '') +
       (field.step !== undefined ? ' step="' + field.step + '"' : '') + '>';
+  }
+
+  /** A model's name as the Model dropdown shows it. */
+  function modelLabel(id) {
+    var field = (settings.fields || []).filter(function (f) { return f.key === 'flow.voiceModel'; })[0];
+    var hit = field && field.options.filter(function (o) { return o.value === id; })[0];
+    return hit ? hit.label : id;
+  }
+
+  /**
+   * Voices grouped by the model they were made for.
+   *
+   * A list where some voices are v2 and some v3, with nothing to say which,
+   * leaves the Model setting looking like it applies to all of them. The groups
+   * say which voice brings its own model; the rest follow the setting.
+   */
+  function voiceOptions(value) {
+    var option = function (v) {
+      return '<option value="' + esc(v.id) + '"' + (v.id === value ? ' selected' : '') +
+        '>' + esc(v.name) + '</option>';
+    };
+    var list = settings.voices || [];
+    var out = ['<option value=""' + (value ? '' : ' selected') + '>The stock voice</option>'];
+    var models = [];
+    list.forEach(function (v) { if (v.model && models.indexOf(v.model) < 0) models.push(v.model); });
+    if (!models.length) return out.concat(list.map(option)).join('');
+    models.forEach(function (m) {
+      out.push('<optgroup label="Made for ' + esc(modelLabel(m)) + '">' +
+        list.filter(function (v) { return v.model === m; }).map(option).join('') + '</optgroup>');
+    });
+    var free = list.filter(function (v) { return !v.model; });
+    if (free.length) {
+      out.push('<optgroup label="Read by the model below">' + free.map(option).join('') + '</optgroup>');
+    }
+    return out.join('');
+  }
+
+  /**
+   * A voice that names its model takes the Model setting with it.
+   *
+   * The dropdown shows that model and cannot be moved while that voice is
+   * chosen, with the reason under it. What was picked by hand is kept aside and
+   * comes back when a voice without a model of its own is chosen again, and
+   * the locked value is never saved over it.
+   */
+  function followVoice(bodyId) {
+    var voiceSel = $(bodyId).querySelector('[data-key="flow.voiceId"]');
+    var modelSel = $(bodyId).querySelector('[data-key="flow.voiceModel"]');
+    if (!voiceSel || !modelSel) return;
+    var voice = (settings.voices || []).filter(function (v) { return v.id === voiceSel.value; })[0];
+    var row = modelSel.closest('.row');
+    var note = row.querySelector('.d.follows');
+    if (voice && voice.model) {
+      if (!modelSel.hasAttribute('data-locked')) modelSel.dataset.free = modelSel.value;
+      modelSel.value = voice.model;
+      modelSel.setAttribute('data-locked', '');
+      if (!note) {
+        note = document.createElement('div');
+        note.className = 'd follows';
+        row.querySelector('div').appendChild(note);
+      }
+      note.textContent = voice.name + ' was made for ' + modelLabel(voice.model) +
+        ', so that is what reads it.';
+      note.hidden = false;
+    } else {
+      if (modelSel.hasAttribute('data-locked')) {
+        modelSel.removeAttribute('data-locked');
+        if (modelSel.dataset.free) modelSel.value = modelSel.dataset.free;
+      }
+      if (note) note.hidden = true;
+    }
+    row.classList.toggle('follows', !!(voice && voice.model));
+    applyInert(bodyId);
+  }
+
+  var voiceTimer = null;
+
+  /** Play the chosen voice reading a line, and wire the voice to the model. */
+  function wireVoicePicker(bodyId) {
+    var voiceSel = $(bodyId).querySelector('[data-key="flow.voiceId"]');
+    if (!voiceSel) return;
+    var button = voiceSel.closest('.voicepick').querySelector('[data-voice-play]');
+    followVoice(bodyId);
+    voiceSel.addEventListener('change', function () {
+      followVoice(bodyId);
+      // Hearing it is the point of choosing it, so a new choice plays. After a
+      // pause, so running the keyboard down the list does not buy a sample
+      // of every voice on the way past.
+      clearTimeout(voiceTimer);
+      voiceTimer = setTimeout(function () { playVoice(bodyId, button); }, 450);
+    });
+    button.addEventListener('click', function () {
+      if (preview && preview.button === button) { stopPreview(); return; }
+      playVoice(bodyId, button);
+    });
+  }
+
+  function playVoice(bodyId, button) {
+    stopPreview();
+    button.disabled = true;
+    button.classList.add('busy');
+    uploadNote(button, '');
+    fetch('/api/voice-preview', {
+      method: 'POST',
+      headers: { 'x-tutvid-token': TOKEN, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ values: formValues(bodyId) })
+    }).then(function (r) {
+      if (r.ok) return r.blob();
+      return r.json().catch(function () { return {}; }).then(function (data) {
+        throw new Error(data.error || 'The sample could not be made.');
+      });
+    }).then(function (blob) {
+      var audio = new Audio(URL.createObjectURL(blob));
+      preview = { audio: audio, name: 'voice', button: button };
+      button.classList.add('on');
+      audio.addEventListener('ended', stopPreview);
+      return audio.play().catch(function () { stopPreview(); });
+    }).catch(function (err) {
+      uploadNote(button, err.message, true);
+    }).then(function () {
+      button.disabled = false;
+      button.classList.remove('busy');
+    });
   }
 
   function imageOptions(value) {
@@ -1792,6 +1921,12 @@
   function formValues(bodyId) {
     var values = {};
     Array.prototype.forEach.call($(bodyId).querySelectorAll('[data-key]'), function (el) {
+      // Showing a voice's own model is not choosing it. The setting keeps what
+      // was picked by hand, for the voices that do not bring one.
+      if (el.hasAttribute('data-locked')) {
+        if (el.dataset.free) values[el.dataset.key] = el.dataset.free;
+        return;
+      }
       values[el.dataset.key] = el.type === 'checkbox' ? el.checked : el.value;
     });
     return values;
@@ -1860,7 +1995,7 @@
       if (!row) return;
       var why = inert[el.dataset.key];
       row.classList.toggle('inert', !!why);
-      el.disabled = !!why;
+      el.disabled = !!why || el.hasAttribute('data-locked');
       var note = row.querySelector('.d.ignored');
       if (why && !note) {
         note = document.createElement('div');
@@ -1993,6 +2128,7 @@
     // soon as somebody picks a different one - not after the next save.
     var model = $(bodyId).querySelector('[data-key="flow.voiceModel"]');
     if (model) model.addEventListener('change', function () { applyInert(bodyId); });
+    wireVoicePicker(bodyId);
 
     Array.prototype.forEach.call($(bodyId).querySelectorAll('.imgpick select'), function (sel) {
       sel.addEventListener('change', function () {

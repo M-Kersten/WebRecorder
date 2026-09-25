@@ -8,6 +8,7 @@ const os = require('os');
 const { loadFlow, ConfigError } = require('./config');
 const { loadTheme, validateTheme, describeTheme, deepMerge } = require('./theme');
 const { synthesizeAll, voiceSettingsFrom } = require('./tts');
+const { loadVoices, effectiveModel } = require('./voices');
 const { record, describeStep, authenticate, sessionIsFresh, sessionPath } = require('./recorder');
 const { resolveFlowSecrets } = require('./secrets');
 const captions = require('./captions');
@@ -380,7 +381,12 @@ async function main(argv) {
       // Nothing chosen leaves these undefined, which is what lets the
       // ELEVENLABS_* defaults inside tts.js still apply.
       voiceId: flow.voiceId || undefined,
-      modelId: flow.voiceModel || undefined,
+      // A voice made for one model is read by that model, whatever the Model
+      // setting says. Nothing chosen at all still falls through to the
+      // ELEVENLABS_MODEL_ID default inside tts.js.
+      modelId: (flow.voiceId || flow.voiceModel)
+        ? effectiveModel(flow.voiceId, flow.voiceModel, loadVoices(path.dirname(flow.path)))
+        : undefined,
       languageCode: flow.voiceLanguage || undefined,
       voiceSettings: voiceSettingsFrom({ style: flow.voiceStyle, speed: flow.voiceSpeed }),
       cacheDir: path.join(process.cwd(), '.tts-cache'),

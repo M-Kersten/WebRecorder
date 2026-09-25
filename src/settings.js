@@ -29,12 +29,20 @@ const FIELDS = [
     type: 'boolean',
   },
   {
+    key: 'flow.voiceId',
+    section: 'Narration',
+    label: 'Voice',
+    help: 'Listed in voices.json, beside this project. A voice made for one model ' +
+      'is always read by that model. Press play to hear it before you choose.',
+    type: 'voice', nullable: true,
+  },
+  {
     key: 'flow.voiceModel',
     section: 'Narration',
     label: 'Model',
-    help: 'v3 is the most expressive, and the one that ignores the most settings: ' +
-      'no speed, no similarity, no speaker boost. Changing the model regenerates ' +
-      'every line.',
+    help: 'For voices that do not name their own. v3 is the most expressive, and ' +
+      'the one that ignores the most settings: no speed, no similarity, no speaker ' +
+      'boost. Changing the model regenerates every line.',
     type: 'select',
     options: require('./tts').MODELS.map((m) => ({ value: m.id, label: m.label })),
   },
@@ -63,14 +71,6 @@ const FIELDS = [
     help: 'One is the voice as it comes. Slower gives a walkthrough more room.',
     type: 'number', min: 0.7, max: 1.2, step: 0.05,
     needs: { setting: 'speed' },
-  },
-  {
-    key: 'flow.voiceId',
-    section: 'Narration',
-    label: 'Voice',
-    help: 'Listed in voices.json, beside this project. Changing it regenerates every ' +
-      'line at ElevenLabs\u2019 usual cost.',
-    type: 'voice', nullable: true,
   },
   {
     key: 'theme.cursor.moveMs',

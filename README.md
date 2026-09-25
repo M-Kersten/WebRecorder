@@ -443,13 +443,28 @@ environment, because the CLI has no window to have typed one into.
 ```jsonc
 [
   { "id": "21m00Tcm4TlvDq8ikWAM", "name": "Rachel (English, calm)" },
-  { "id": "...", "name": "Sanne (Dutch, warm)" }
+  { "id": "...", "name": "Sanne (Dutch, warm)", "model": "eleven_v3" }
 ]
 ```
 
 The name is yours to choose and is what the dropdown shows, so write whatever
 tells one ID apart from the next. IDs come from elevenlabs.io: open Voices, pick
 one, copy its ID. Your own cloned voices work the same way.
+
+`model` is the model a voice was made for. A voice designed on v3 and read by
+Multilingual v2 comes out as a different voice, so a voice that names its model
+is always read by it, and the Model setting only applies to voices that do not.
+The dropdown groups voices that way, and choosing one with a model of its own
+moves the Model setting to match, greys it, and says why. Whatever model was
+picked by hand is kept aside and comes back for the next voice without one.
+
+Choosing a voice plays it, and the button beside it plays it again. The sample
+is the walkthrough's own first line, cut to a sentence, read with the voice,
+model, language, expression and speed in the form right now, saved or not. It
+goes through the same synthesis and the same `.tts-cache` a render does: the
+first play of a voice costs that one line, every play after is free, and when
+the video is made that line is already paid for. Running the keyboard down the
+list waits until you stop rather than buying a sample of every voice passed.
 
 Deliberately a file rather than a live call. ElevenLabs can list every voice on
 an account with a preview of each, which is a better way to go shopping, and it

@@ -7,6 +7,13 @@
 // IDs come from elevenlabs.io: open Voices, pick one, and copy its ID. Any
 // voice on your account works, your own cloned ones included.
 //
+// A voice designed on one model sounds different on another. Add "model" to
+// pin it: that voice is then always read by that model, and the Model setting
+// only applies to voices without one. The models are eleven_v3,
+// eleven_multilingual_v2, eleven_turbo_v2_5 and eleven_flash_v2_5.
+//
+//   { "id": "...", "name": "Roland", "model": "eleven_v3" }
+//
 // Changing voice regenerates every line, at ElevenLabs' usual cost. The cache
 // is keyed on the voice, so switching back to one you already used is free.
 [

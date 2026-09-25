@@ -18,7 +18,7 @@ const { readJson, ConfigError } = require('./config');
 const FILE = 'voices.json';
 
 /** The stock voice everything falls back to, so a dropdown is never empty. */
-const FALLBACK = [{ id: '21m00Tcm4TlvDq8ikWAM', name: 'Rachel (English, calm)' }];
+const FALLBACK = [{ id: '21m00Tcm4TlvDq8ikWAM', name: 'Rachel (English, calm)', model: null }];
 
 const file = (dir) => path.join(dir, FILE);
 
@@ -48,10 +48,36 @@ function loadVoices(dir) {
     // beats refusing to open the window over a missing label.
     if (seen.has(id)) throw new ConfigError(`${where}: "${id}" is listed twice`);
     seen.add(id);
-    return { id, name: name || id };
+    // The model a voice was made for. A voice designed on v3 and read by v2 is
+    // a different voice, so when this is set it wins over the Model setting.
+    let model = null;
+    if (entry.model !== undefined && entry.model !== null && entry.model !== '') {
+      const { MODELS } = require('./tts');
+      const known = MODELS.map((m) => m.id);
+      if (!known.includes(entry.model)) {
+        throw new ConfigError(
+          `${where}: "model" is "${entry.model}". Use one of: ${known.join(', ')}.`
+        );
+      }
+      model = entry.model;
+    }
+    return { id, name: name || id, model };
   });
 
   return voices.length ? voices : FALLBACK.slice();
 }
 
-module.exports = { loadVoices, FILE, FALLBACK };
+/**
+ * Which model actually reads the narration.
+ *
+ * The voice's own model when it has one, the Model setting when it does not.
+ * One function, used by the render, the preview and the window's greying-out
+ * of controls, so the three cannot disagree about what will be heard.
+ */
+function effectiveModel(voiceId, chosenModel, voices) {
+  const { DEFAULT_MODEL } = require('./tts');
+  const voice = (voices || []).find((v) => v.id === voiceId);
+  return (voice && voice.model) || chosenModel || DEFAULT_MODEL;
+}
+
+module.exports = { loadVoices, effectiveModel, FILE, FALLBACK };

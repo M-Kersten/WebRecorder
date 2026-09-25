@@ -37,7 +37,7 @@ const FLOW = {
 };
 
 /** Open the window against a project that already has a walkthrough in it. */
-async function withWindow(fn, flow = FLOW) {
+async function withWindow(fn, flow = FLOW, appOptions = {}, setup = () => {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tutvid-window-'));
   for (const f of ['theme.json', 'theme-rebels.json']) {
     fs.copyFileSync(path.join(REPO, f), path.join(dir, f));
@@ -45,8 +45,9 @@ async function withWindow(fn, flow = FLOW) {
   fs.cpSync(path.join(REPO, 'fonts'), path.join(dir, 'fonts'), { recursive: true });
   fs.cpSync(path.join(REPO, 'assets'), path.join(dir, 'assets'), { recursive: true });
   if (flow) fs.writeFileSync(path.join(dir, 'flow.json'), JSON.stringify(flow, null, 2));
+  setup(dir);
 
-  const app = createApp({ projectDir: dir });
+  const app = createApp({ projectDir: dir, ...appOptions });
   const url = await app.listen();
   const page = await browser.newPage({ viewport: { width: 1240, height: 900 } });
   const dialogs = [];
@@ -629,6 +630,110 @@ test('a pointer picture is picked the same way a logo is', async () => {
     const layer = saved.styles[Object.keys(saved.styles)[0]];
     assert.strictEqual(layer.cursor.image, 'assets/cursor.png',
       'stored as the path the theme reads');
+    assert.deepStrictEqual(errors, []);
+  });
+}, { timeout: 60000 });
+
+/* ---------------------------------------------------------------------- *
+ * Voices that bring their own model, and hearing one before choosing it.
+ * ---------------------------------------------------------------------- */
+
+const MIXED_VOICES = [
+  { id: 'v3voice', name: 'Roland', model: 'eleven_v3' },
+  { id: 'v2voice', name: 'Remko', model: 'eleven_multilingual_v2' },
+  { id: 'anyvoice', name: 'Rachel' },
+];
+
+async function withVoiceWindow(fn) {
+  const synthesised = [];
+  const saved = process.env.ELEVENLABS_API_KEY;
+  process.env.ELEVENLABS_API_KEY = 'test-key';
+  try {
+    return await withWindow(async (ctx) => {
+      await ctx.page.click('#tab-btn-settings');
+      await ctx.page.click('#settings-rail button[data-section="Narration"]');
+      await ctx.page.waitForTimeout(250);
+      return fn({ ...ctx, synthesised });
+    }, FLOW, {
+      synthesizeFn: async (steps, opts) => {
+        synthesised.push(opts);
+        // A real, playable clip, so the page's Audio element has something
+        // to decode rather than failing on a fake.
+        const { generateSilence } = require('../src/ffmpeg');
+        const file = path.join(os.tmpdir(), `voice-sample-${Date.now()}.mp3`);
+        await generateSilence(0.4, file);
+        return [{ file, durationSec: 0.4 }];
+      },
+    }, (dir) => fs.writeFileSync(path.join(dir, 'voices.json'), JSON.stringify(MIXED_VOICES)));
+  } finally {
+    if (saved === undefined) delete process.env.ELEVENLABS_API_KEY;
+    else process.env.ELEVENLABS_API_KEY = saved;
+  }
+}
+
+test('voices are grouped by the model they were made for', async () => {
+  await withVoiceWindow(async ({ page, errors }) => {
+    const groups = await page.$$eval('[data-key="flow.voiceId"] optgroup',
+      (gs) => gs.map((g) => [g.label, [...g.children].map((o) => o.textContent)]));
+    assert.deepStrictEqual(groups, [
+      ['Made for v3', ['Roland']],
+      ['Made for Multilingual v2', ['Remko']],
+      ['Read by the model below', ['Rachel']],
+    ]);
+    // The voice comes before the model, because it can decide the model.
+    const order = await page.$$eval('.pane[data-section="Narration"] [data-key]', (els) => els.map((e) => e.dataset.key));
+    assert.ok(order.indexOf('flow.voiceId') < order.indexOf('flow.voiceModel'), order.join(' '));
+    assert.deepStrictEqual(errors, []);
+  });
+}, { timeout: 60000 });
+
+test('a voice with its own model takes the Model setting with it, without saving over it', async () => {
+  await withVoiceWindow(async ({ page, dir, errors }) => {
+    const model = page.locator('[data-key="flow.voiceModel"]');
+    await model.selectOption('eleven_turbo_v2_5');
+
+    await page.selectOption('[data-key="flow.voiceId"]', 'v3voice');
+    assert.strictEqual(await model.inputValue(), 'eleven_v3');
+    assert.strictEqual(await model.isDisabled(), true);
+    assert.match(await page.locator('.row.follows .d.follows').textContent(), /Roland was made for v3/);
+    // And what v3 ignores is greyed out from the voice alone.
+    assert.strictEqual(await page.locator('[data-key="flow.voiceSpeed"]').isDisabled(), true);
+
+    await page.click('#settings-save');
+    await page.waitForTimeout(800);
+    const settings = JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8'));
+    assert.strictEqual(settings.flow.voiceId, 'v3voice');
+    assert.strictEqual(settings.flow.voiceModel, 'eleven_turbo_v2_5',
+      'showing the voice’s model is not choosing it');
+
+    // A voice without one gives the hand-picked model back.
+    await page.selectOption('[data-key="flow.voiceId"]', 'anyvoice');
+    const back = page.locator('[data-key="flow.voiceModel"]');
+    assert.strictEqual(await back.inputValue(), 'eleven_turbo_v2_5');
+    assert.strictEqual(await back.isDisabled(), false);
+    assert.deepStrictEqual(errors, []);
+  });
+}, { timeout: 60000 });
+
+test('choosing a voice plays it, read by the model that will read the video', async () => {
+  await withVoiceWindow(async ({ page, synthesised, errors }) => {
+    await page.selectOption('[data-key="flow.voiceId"]', 'v3voice');
+    await page.waitForTimeout(1500);
+    assert.strictEqual(synthesised.length, 1, 'one sample for one choice');
+    assert.strictEqual(synthesised[0].voiceId, 'v3voice');
+    assert.strictEqual(synthesised[0].modelId, 'eleven_v3');
+
+    // Running down the list does not buy a sample of every voice passed.
+    await page.selectOption('[data-key="flow.voiceId"]', 'v2voice');
+    await page.selectOption('[data-key="flow.voiceId"]', 'anyvoice');
+    await page.waitForTimeout(1500);
+    assert.strictEqual(synthesised.length, 2);
+    assert.strictEqual(synthesised[1].voiceId, 'anyvoice');
+
+    // And the button plays it again on demand.
+    await page.click('[data-voice-play]');
+    await page.waitForTimeout(900);
+    assert.strictEqual(synthesised.length, 3);
     assert.deepStrictEqual(errors, []);
   });
 }, { timeout: 60000 });

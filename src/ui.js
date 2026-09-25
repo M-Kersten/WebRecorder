@@ -14,7 +14,7 @@ const { loadTheme, validateTheme, deepMerge } = require('./theme');
 const settingsStore = require('./settings');
 const { launch } = require('./browser');
 const shotStore = require('./shots');
-const { loadVoices } = require('./voices');
+const { loadVoices, effectiveModel } = require('./voices');
 const sounds = require('./sounds');
 const images = require('./images');
 const uploads = require('./uploads');
@@ -51,6 +51,8 @@ function createApp(options = {}) {
     renderFn = null,
     // Injected so a test can save a narration key without reaching ElevenLabs.
     verifyKeyFn = null,
+    // Injected so a test can ask for a voice sample without paying for one.
+    synthesizeFn = null,
   } = options;
 
   // Anything on 127.0.0.1 is reachable from any page the browser happens to
@@ -382,6 +384,66 @@ function createApp(options = {}) {
       enabled: !!card.enabled,
       durationSec: card.durationSec,
     };
+  }
+
+  /**
+   * A few seconds of the chosen voice, read the way the video will read it.
+   *
+   * Built from the form as it stands, not as it was saved, so trying a voice
+   * does not mean committing to it first. The line is the walkthrough's own
+   * opening narration when it has one, because that is what the voice will
+   * actually be saying; a stock sentence otherwise.
+   *
+   * It goes through the same synthesis, and the same cache, as a render. So a
+   * sample costs one short line the first time and nothing after, and when the
+   * video is made that opening line is already paid for.
+   */
+  async function voicePreview(values) {
+    const base = currentConfig().flow;
+    const layer = settingsStore.toLayer(values || {}, fieldContext({ fonts: {} }, null), { lenient: true });
+    const flow = { ...base, ...layer.flow };
+    const voices = loadVoices(projectDir);
+    const voiceId = flow.voiceId || require('./tts').DEFAULT_VOICE;
+    const modelId = effectiveModel(voiceId, flow.voiceModel, voices);
+
+    const apiKey = process.env[settingsStore.NARRATION_KEY]
+      || settingsStore.loadSecrets(projectDir)[settingsStore.NARRATION_KEY];
+    if (!apiKey) {
+      throw new Error('A sample needs an ElevenLabs key. Add one at the top of this page.');
+    }
+
+    const { synthesizeAll, voiceSettingsFrom } = require('./tts');
+    const synth = synthesizeFn || synthesizeAll;
+    const [clip] = await synth([{ narration: sampleLine(flow) }], {
+      voiceId,
+      modelId,
+      apiKey,
+      languageCode: flow.voiceLanguage || undefined,
+      voiceSettings: voiceSettingsFrom({ style: flow.voiceStyle, speed: flow.voiceSpeed }),
+      cacheDir: path.join(projectDir, '.tts-cache'),
+    });
+    return { file: clip.file, modelId };
+  }
+
+  /** The first thing the walkthrough says, kept short; a stock line otherwise. */
+  function sampleLine(flow) {
+    let first = '';
+    try {
+      if (fs.existsSync(flowFile)) {
+        const step = loadFlow(flowFile).steps.find((s) => (s.narration || '').trim());
+        first = step ? step.narration.trim() : '';
+      }
+    } catch { /* a flow that will not load has nothing to read out */ }
+    if (first) {
+      // A sentence, not a paragraph: the point is the voice, and every
+      // character is billed.
+      const cut = first.slice(0, 160);
+      const end = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('? '), cut.lastIndexOf('! '));
+      return end > 40 ? cut.slice(0, end + 1) : cut;
+    }
+    return /^nl/i.test(flow.voiceLanguage || '')
+      ? 'Zo klinkt de uitleg bij deze walkthrough.'
+      : 'This is how the walkthrough will sound.';
   }
 
   /**
@@ -792,6 +854,20 @@ function createApp(options = {}) {
         });
       }
 
+      // The chosen voice saying something, before anybody commits to it.
+      if (url.pathname === '/api/voice-preview' && req.method === 'POST') {
+        const body = await readJsonBody(req);
+        const { file, modelId } = await voicePreview(body.values);
+        const stat = fs.statSync(file);
+        res.writeHead(200, {
+          'Content-Type': 'audio/mpeg',
+          'Content-Length': stat.size,
+          'Cache-Control': 'no-store',
+          'X-Voice-Model': modelId,
+        });
+        return fs.createReadStream(file).pipe(res);
+      }
+
       // What the card would look like, from what is in the form right now.
       if (url.pathname === '/api/card-preview' && req.method === 'POST') {
         const body = await readJsonBody(req);
@@ -926,6 +1002,7 @@ function createApp(options = {}) {
     readStory,
     writeStory,
     cardPreview,
+    voicePreview,
     createStyle,
     chooseStyle,
     currentStyle,

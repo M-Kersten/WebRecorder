@@ -354,12 +354,12 @@ test('the list is read as written, comments and all', () => {
       // the ones we use
       [
         { "id": "aaa", "name": "Sanne (Dutch)" },
-        { "id": "bbb", "name": "  Tom (Dutch, low)  " }
+        { "id": "bbb", "name": "  Tom (Dutch, low)  ", "model": "eleven_v3" }
       ]
     `);
     assert.deepStrictEqual(loadVoices(dir), [
-      { id: 'aaa', name: 'Sanne (Dutch)' },
-      { id: 'bbb', name: 'Tom (Dutch, low)' },
+      { id: 'aaa', name: 'Sanne (Dutch)', model: null },
+      { id: 'bbb', name: 'Tom (Dutch, low)', model: 'eleven_v3' },
     ]);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -381,7 +381,7 @@ test('a voices.json that cannot be used says which entry is wrong', () => {
 
     // An id with no name is still usable: the id is the label.
     write('[{ "id": "aaa" }]');
-    assert.deepStrictEqual(loadVoices(dir), [{ id: 'aaa', name: 'aaa' }]);
+    assert.deepStrictEqual(loadVoices(dir), [{ id: 'aaa', name: 'aaa', model: null }]);
 
     // And an empty list is nothing chosen, not nothing available.
     write('[]');
@@ -389,6 +389,17 @@ test('a voices.json that cannot be used says which entry is wrong', () => {
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// A voice designed on v3 and read by v2 is a different voice. So the voice's
+// own model wins, and the Model setting is for the voices that have none.
+test('the model that reads is the voice\u2019s own, then the setting, then the default', () => {
+  const { effectiveModel } = require('../src/voices');
+  const voices = [{ id: 'a', model: 'eleven_v3' }, { id: 'b', model: null }];
+  assert.strictEqual(effectiveModel('a', 'eleven_multilingual_v2', voices), 'eleven_v3');
+  assert.strictEqual(effectiveModel('b', 'eleven_turbo_v2_5', voices), 'eleven_turbo_v2_5');
+  assert.strictEqual(effectiveModel('b', null, voices), 'eleven_multilingual_v2');
+  assert.strictEqual(effectiveModel('unlisted', 'eleven_flash_v2_5', voices), 'eleven_flash_v2_5');
 });
 
 // --- styles are kept apart ----------------------------------------------
