@@ -117,10 +117,14 @@ function createApp(options = {}) {
     let fonts = [];
     let voices = [];
     let problem = null;
+    // What reads a voice that does not name a model of its own: the flow's
+    // voiceModel when somebody wrote one into flow.json, the default otherwise.
+    let fallbackModel = require('./tts').DEFAULT_MODEL;
     const style = path.basename(styleFile || currentStyle());
     try {
       const { theme, flow } = currentConfig(style);
       values = settingsStore.readValues(theme, flow);
+      if (flow.voiceModel) fallbackModel = flow.voiceModel;
       // The font dropdown draws every option in its own face, which means the
       // page needs the file to build an @font-face from, not just a name.
       const { labelFor } = require('./fontcatalog');
@@ -145,6 +149,15 @@ function createApp(options = {}) {
       // else in the form usable.
       problem = problem || friendly(err);
     }
+    // Which model will read each voice, worked out here by the same function
+    // the render uses, so the list cannot show one model and the video use
+    // another.
+    const { DEFAULT_VOICE, MODELS } = require('./tts');
+    const listed = voices;
+    voices = listed.map((voice) => ({
+      ...voice, readBy: effectiveModel(voice.id, fallbackModel, listed),
+    }));
+    const stockVoiceModel = effectiveModel(DEFAULT_VOICE, fallbackModel, listed);
 
     const stored = new Set(Object.keys(settingsStore.loadSecrets(projectDir)));
     let wanted = [];
@@ -177,6 +190,9 @@ function createApp(options = {}) {
       inert: settingsStore.inertByModel(),
       fonts,
       voices,
+      stockVoiceModel,
+      fallbackModel,
+      models: MODELS.map((m) => ({ id: m.id, label: m.label })),
       sounds: sounds.scan(projectDir),
       images: images.scan(projectDir),
       cursorPresets: settingsStore.CURSOR_PRESETS,
@@ -399,6 +415,38 @@ function createApp(options = {}) {
    * video is made that opening line is already paid for.
    */
   async function voicePreview(values) {
+    const key = sampleKey(values);
+    try {
+      const made = await makeSample(values);
+      if (lastSampleFailure && lastSampleFailure.key === key) lastSampleFailure = null;
+      return made;
+    } catch (err) {
+      // Remembered, because the window plays a sample by pointing an audio
+      // element at this address, and an audio element that gets an error back
+      // only says "could not play". The window then asks why, and gets this
+      // rather than a second trip to ElevenLabs for the same refusal.
+      lastSampleFailure = { key, message: friendly(err), at: Date.now() };
+      log(`voice sample: ${lastSampleFailure.message}`);
+      throw err;
+    }
+  }
+
+  let lastSampleFailure = null;
+
+  /** The same form values always give the same key, whatever order they came in. */
+  function sampleKey(values) {
+    const flat = values && typeof values === 'object' ? values : {};
+    return JSON.stringify(Object.keys(flat).sort().map((k) => [k, flat[k]]));
+  }
+
+  /** Why the last sample for these values failed, if it did, recently. */
+  function sampleFailure(values) {
+    const last = lastSampleFailure;
+    if (!last || last.key !== sampleKey(values) || Date.now() - last.at > 120000) return null;
+    return last.message;
+  }
+
+  async function makeSample(values) {
     const base = currentConfig().flow;
     const layer = settingsStore.toLayer(values || {}, fieldContext({ fonts: {} }, null), { lenient: true });
     const flow = { ...base, ...layer.flow };
@@ -855,14 +903,32 @@ function createApp(options = {}) {
       }
 
       // The chosen voice saying something, before anybody commits to it.
-      if (url.pathname === '/api/voice-preview' && req.method === 'POST') {
-        const body = await readJsonBody(req);
-        const { file, modelId } = await voicePreview(body.values);
+      //
+      // A GET, with the form in the query string, so the window can hand this
+      // address straight to an audio element and call play() inside the click.
+      // Fetching the clip first and playing it afterwards is what failed: a
+      // browser lets a page make sound for a few seconds after a click, a v3
+      // voice can take longer than that to read one sentence, and play() was
+      // then refused with nothing to show for it.
+      if (url.pathname === '/api/voice-preview') {
+        let values = {};
+        if (req.method === 'POST') {
+          values = (await readJsonBody(req)).values || {};
+        } else {
+          try { values = JSON.parse(url.searchParams.get('values') || '{}'); } catch { values = {}; }
+        }
+        // The window asking why a sample it could not play failed.
+        if (url.searchParams.get('why')) return send(200, { error: sampleFailure(values) });
+
+        const { file, modelId } = await voicePreview(values);
         const stat = fs.statSync(file);
         res.writeHead(200, {
           'Content-Type': 'audio/mpeg',
           'Content-Length': stat.size,
           'Cache-Control': 'no-store',
+          // Not seekable, so the audio element streams it rather than coming
+          // back with range requests that would each run all of this again.
+          'Accept-Ranges': 'none',
           'X-Voice-Model': modelId,
         });
         return fs.createReadStream(file).pipe(res);
@@ -1068,9 +1134,21 @@ function readJsonBody(req) {
 /** Turn an internal failure into something worth showing a colleague. */
 function friendly(err) {
   const message = String(err && err.message ? err.message : err);
+  // Missing and refused are different problems with different fixes, and they
+  // used to get the same sentence: a key ElevenLabs had turned down was
+  // reported as no key at all, which sends somebody looking for a box they
+  // already filled in.
+  if (/rejected the API key/i.test(message)) {
+    return 'ElevenLabs turned the API key down. Check it under Settings, in ' +
+      'Narration: it may be mistyped, revoked, or missing the text to speech permission.';
+  }
   if (/ELEVENLABS_API_KEY/.test(message)) {
-    return 'Spoken narration needs an ElevenLabs API key. Add one under Style, or ' +
-      'turn narration off to make the video without it.';
+    return 'Spoken narration needs an ElevenLabs API key. Add one under Settings, in ' +
+      'Narration, or turn narration off to make the video without it.';
+  }
+  if (/\(429\)/.test(message) && /ElevenLabs/i.test(message)) {
+    return 'ElevenLabs says the quota is used up, or requests are coming too fast. ' +
+      'Wait a minute and try again, or turn narration off for now.';
   }
   if (/ffmpeg/i.test(message) && /not usable|not installed|missing/i.test(message)) {
     return 'ffmpeg is missing on this machine. It is needed to put the video together.';

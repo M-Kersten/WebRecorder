@@ -501,7 +501,8 @@ test('the voice settings are ranged the way ElevenLabs is', () => {
   assert.throws(() => settings.toLayer({ 'flow.voiceSpeed': 2 }), /cannot be above 1.2/);
   assert.throws(() => settings.toLayer({ 'flow.voiceSpeed': 0.5 }), /cannot be below 0.7/);
   assert.throws(() => settings.toLayer({ 'flow.voiceStyle': 1.4 }), /cannot be above 1/);
-  assert.throws(() => settings.toLayer({ 'flow.voiceModel': 'eleven_made_up' }), /is not one of/);
+  // The model is not a setting any more: it belongs to the voice.
+  assert.throws(() => settings.toLayer({ 'flow.voiceModel': 'eleven_v3' }), /is not a setting/);
 });
 
 test('turning cookie banners off keeps the flow’s own consent selectors', () => {

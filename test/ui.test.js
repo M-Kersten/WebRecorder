@@ -141,8 +141,17 @@ test('the event stream sends the current state immediately', async () => {
 test('failures are rewritten into something worth showing a colleague', () => {
   const noKey = friendly(new Error('ELEVENLABS_API_KEY is not set, so narration cannot be generated.'));
   assert.match(noKey, /turn narration off/);
-  // There is somewhere in the window to put one now, so say where.
-  assert.match(noKey, /under Style/);
+  // There is somewhere in the window to put one, so say where it actually is.
+  assert.match(noKey, /under Settings, in Narration/);
+  // A key that was refused is not a key that is missing. Saying "add one" to
+  // somebody who did sends them looking for a box they already filled in.
+  const refused = friendly(new Error('ElevenLabs rejected the API key (401). Check ELEVENLABS_API_KEY.'));
+  assert.match(refused, /turned the API key down/);
+  assert.ok(!/needs an ElevenLabs API key/.test(refused), refused);
+  // And a CLI flag means nothing in a window.
+  const quota = friendly(new Error('ElevenLabs rate limit or quota reached (429). Try --no-tts while iterating.'));
+  assert.match(quota, /quota is used up/);
+  assert.ok(!/--no-tts/.test(quota), quota);
   assert.match(friendly(new Error('ffmpeg is required but not usable.')), /needed to put the video together/);
   // The tool fetches the browser itself now, so this must not ask a colleague
   // to run a command.
@@ -840,14 +849,14 @@ test('the voice can be given a style, a speed and a language', async () => {
   await withApp(async ({ call, dir }) => {
     const s = await call('/api/settings').then((r) => r.json());
     const narration = s.fields.filter((f) => f.section === 'Narration').map((f) => f.key);
+    // No Model: that belongs to the voice now, beside it in voices.json.
     assert.deepStrictEqual(narration.sort(), [
-      'flow.narration', 'flow.voiceId', 'flow.voiceLanguage', 'flow.voiceModel',
+      'flow.narration', 'flow.voiceId', 'flow.voiceLanguage',
       'flow.voiceSpeed', 'flow.voiceStyle',
     ]);
 
     await call('/api/settings', {
       values: {
-        'flow.voiceModel': 'eleven_v3',
         'flow.voiceLanguage': 'nl',
         'flow.voiceStyle': 0.26,
         'flow.voiceSpeed': 0.9,
@@ -855,7 +864,7 @@ test('the voice can be given a style, a speed and a language', async () => {
     });
     const written = JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8'));
     assert.deepStrictEqual(written.flow, {
-      voiceModel: 'eleven_v3', voiceLanguage: 'nl', voiceStyle: 0.26, voiceSpeed: 0.9,
+      voiceLanguage: 'nl', voiceStyle: 0.26, voiceSpeed: 0.9,
     });
 
     // They hold for the project, not for one style.
@@ -1059,11 +1068,11 @@ const VOICES = [
   { id: 'anyvoice', name: 'Rachel' },
 ];
 
-async function withVoices(fn, options = {}) {
+async function withVoices(fn, options = {}, flowExtra = {}) {
   const dir = makeProject();
   fs.writeFileSync(path.join(dir, 'voices.json'), JSON.stringify(VOICES));
   fs.writeFileSync(path.join(dir, 'flow.json'), JSON.stringify({
-    name: 'x', baseUrl: 'https://x.test',
+    name: 'x', baseUrl: 'https://x.test', ...flowExtra,
     steps: [{ action: 'goto', url: '/', narration: 'Welcome to the portal. Here you fill in your hours for the week.' }],
   }));
   const calls = [];
@@ -1084,9 +1093,12 @@ async function withVoices(fn, options = {}) {
     headers: { 'x-tutvid-token': app.token, 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
+  // The way the window asks: an address an audio element can be pointed at.
+  const sample = (values, extra = '') => fetch(`${base}/api/voice-preview?token=${app.token}` +
+    `&values=${encodeURIComponent(JSON.stringify(values))}${extra}`);
   const saved = process.env.ELEVENLABS_API_KEY;
   try {
-    return await fn({ app, call, calls, dir });
+    return await fn({ app, call, sample, calls, dir });
   } finally {
     if (saved === undefined) delete process.env.ELEVENLABS_API_KEY;
     else process.env.ELEVENLABS_API_KEY = saved;
@@ -1095,22 +1107,64 @@ async function withVoices(fn, options = {}) {
   }
 }
 
-test('a voice that names its model is read by that model, whatever the setting says', async () => {
-  await withVoices(async ({ call, calls }) => {
+test('a voice is read by the model it names, and one without by the default', async () => {
+  await withVoices(async ({ sample, calls }) => {
     process.env.ELEVENLABS_API_KEY = 'test-key';
-    let res = await call('/api/voice-preview', {
-      values: { 'flow.voiceId': 'v3voice', 'flow.voiceModel': 'eleven_multilingual_v2' },
-    });
+    let res = await sample({ 'flow.voiceId': 'v3voice' });
     assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.headers.get('content-type'), 'audio/mpeg');
     assert.strictEqual(res.headers.get('x-voice-model'), 'eleven_v3');
     assert.strictEqual(calls[0].modelId, 'eleven_v3');
     assert.strictEqual(calls[0].voiceId, 'v3voice');
 
-    // A voice without a model of its own follows the setting.
-    res = await call('/api/voice-preview', {
-      values: { 'flow.voiceId': 'anyvoice', 'flow.voiceModel': 'eleven_turbo_v2_5' },
+    res = await sample({ 'flow.voiceId': 'v2voice' });
+    assert.strictEqual(calls[1].modelId, 'eleven_multilingual_v2');
+
+    res = await sample({ 'flow.voiceId': 'anyvoice' });
+    assert.strictEqual(calls[2].modelId, 'eleven_multilingual_v2');
+
+    // A model sent from a form that no longer has one is not a setting, and
+    // changes nothing.
+    await sample({ 'flow.voiceId': 'v3voice', 'flow.voiceModel': 'eleven_flash_v2_5' });
+    assert.strictEqual(calls[3].modelId, 'eleven_v3');
+  });
+});
+
+// Written into flow.json by hand, for the CLI: the model for voices that do not
+// name one. The window shows it on those voices rather than hiding it.
+test('a model written into flow.json reads the voices without one of their own', async () => {
+  await withVoices(async ({ sample, calls, app }) => {
+    process.env.ELEVENLABS_API_KEY = 'test-key';
+    await sample({ 'flow.voiceId': 'anyvoice' });
+    assert.strictEqual(calls[0].modelId, 'eleven_turbo_v2_5');
+    await sample({ 'flow.voiceId': 'v3voice' });
+    assert.strictEqual(calls[1].modelId, 'eleven_v3', 'a voice\u2019s own model still wins');
+
+    const s = app.readSettings();
+    const readBy = Object.fromEntries(s.voices.map((v) => [v.name, v.readBy]));
+    assert.deepStrictEqual(readBy, {
+      Roland: 'eleven_v3', Remko: 'eleven_multilingual_v2', Rachel: 'eleven_turbo_v2_5',
     });
-    assert.strictEqual(calls[1].modelId, 'eleven_turbo_v2_5');
+  }, {}, { voiceModel: 'eleven_turbo_v2_5' });
+});
+
+// A value nobody can see or change in the window must not go on deciding how
+// the voices sound. The Model setting was one, and settings.json kept it.
+test('a Model choice left in settings.json from before is ignored, then cleaned out', async () => {
+  await withVoices(async ({ sample, calls, call, dir, app }) => {
+    process.env.ELEVENLABS_API_KEY = 'test-key';
+    const file = path.join(dir, 'settings.json');
+    fs.writeFileSync(file, JSON.stringify({ flow: { voiceModel: 'eleven_flash_v2_5', voiceSpeed: 0.9 } }));
+
+    await sample({ 'flow.voiceId': 'anyvoice' });
+    assert.strictEqual(calls[0].modelId, 'eleven_multilingual_v2');
+    assert.strictEqual(app.readSettings().voices.find((v) => v.name === 'Rachel').readBy,
+      'eleven_multilingual_v2');
+
+    // The next save takes it out of the file, and keeps everything else.
+    await call('/api/settings', { values: { 'flow.voiceStyle': 0.2 } });
+    const written = JSON.parse(fs.readFileSync(file, 'utf8'));
+    assert.deepStrictEqual(written.flow, { voiceSpeed: 0.9, voiceStyle: 0.2 });
   });
 });
 
@@ -1125,12 +1179,41 @@ test('the sample is the walkthrough’s own first line, cut to a sentence', asyn
 });
 
 test('without a key the sample says what is missing rather than failing somewhere', async () => {
-  await withVoices(async ({ call, calls }) => {
+  await withVoices(async ({ sample, calls }) => {
     delete process.env.ELEVENLABS_API_KEY;
-    const res = await call('/api/voice-preview', { values: { 'flow.voiceId': 'anyvoice' } });
+    const res = await sample({ 'flow.voiceId': 'anyvoice' });
     assert.strictEqual(res.status, 400);
     assert.match((await res.json()).error, /needs an ElevenLabs key/);
     assert.strictEqual(calls.length, 0, 'nothing was synthesised');
+  });
+});
+
+// The window plays a sample by pointing an audio element at the address, and
+// an element that gets an error back only says it could not play. So the
+// window asks why, and has to be told without the refusal being bought twice.
+test('a sample that failed can be asked why, without asking ElevenLabs again', async () => {
+  let attempts = 0;
+  await withVoices(async ({ sample, app }) => {
+    process.env.ELEVENLABS_API_KEY = 'test-key';
+    const values = { 'flow.voiceId': 'v3voice', 'flow.voiceSpeed': 0.9 };
+    const res = await sample(values);
+    assert.strictEqual(res.status, 400);
+
+    const why = await sample(values, '&why=1').then((r) => r.json());
+    assert.match(why.error, /turned the API key down/);
+    assert.strictEqual(attempts, 1, 'asking why did not synthesise again');
+
+    // Different values are a different question, with no answer yet.
+    const other = await sample({ 'flow.voiceId': 'v2voice' }, '&why=1').then((r) => r.json());
+    assert.strictEqual(other.error, null);
+
+    // And the app's own log has it, for whoever looks there.
+    assert.ok(app.publicState().log.some((l) => /voice sample: ElevenLabs turned/.test(l)));
+  }, {
+    synthesizeFn: async () => {
+      attempts++;
+      throw new Error('ElevenLabs rejected the API key (401). Check ELEVENLABS_API_KEY.');
+    },
   });
 });
 

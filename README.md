@@ -287,13 +287,19 @@ on somebody's behalf is not a favour.
 
 ```jsonc
 "flow": {
-  "voiceModel": "eleven_v3",   // v3, multilingual v2, turbo or flash
-  "voiceId": "nl_sanne",       // from voices.json
+  "voiceId": "nl_sanne",       // from voices.json, which also says its model
   "voiceLanguage": "nl",       // ISO 639-1; see the table below
   "voiceStyle": 0.26,          // 0 to 1
-  "voiceSpeed": 0.9            // 0.7 to 1.2
+  "voiceSpeed": 0.9,           // 0.7 to 1.2
+  "voiceModel": "eleven_v3"    // flow.json only: for voices that name no model
 }
 ```
+
+The model comes with the voice, from `voices.json`. `voiceModel` is only read
+from `flow.json`, for the CLI, and only for voices that do not name one; the
+window no longer has a Model setting, and one left in `settings.json` from when
+it did is ignored and cleared at the next save, so a value nobody can see does
+not go on deciding how the voices sound.
 
 `voiceStyle` and `voiceSpeed` ride in the request's `voice_settings`;
 `voiceLanguage` is a top-level `language_code`, which pins how numbers and dates
@@ -451,20 +457,29 @@ The name is yours to choose and is what the dropdown shows, so write whatever
 tells one ID apart from the next. IDs come from elevenlabs.io: open Voices, pick
 one, copy its ID. Your own cloned voices work the same way.
 
-`model` is the model a voice was made for. A voice designed on v3 and read by
-Multilingual v2 comes out as a different voice, so a voice that names its model
-is always read by it, and the Model setting only applies to voices that do not.
-The dropdown groups voices that way, and choosing one with a model of its own
-moves the Model setting to match, greys it, and says why. Whatever model was
-picked by hand is kept aside and comes back for the next voice without one.
+`model` is the model a voice was made for, and it is where the model is set:
+there is no separate choice of model in the window. A voice designed on v3 and
+read by Multilingual v2 comes out as a different voice, so the model belongs
+with the voice rather than beside it. A voice without one is read by
+Multilingual v2, or by the `voiceModel` in `flow.json` if somebody wrote one
+there for the CLI. The dropdown groups voices by the model that reads them, the
+line under it says which and why, and whatever that model ignores goes grey.
 
-Choosing a voice plays it, and the button beside it plays it again. The sample
-is the walkthrough's own first line, cut to a sentence, read with the voice,
-model, language, expression and speed in the form right now, saved or not. It
-goes through the same synthesis and the same `.tts-cache` a render does: the
-first play of a voice costs that one line, every play after is free, and when
-the video is made that line is already paid for. Running the keyboard down the
-list waits until you stop rather than buying a sample of every voice passed.
+Choosing a voice plays it, and the button beside it plays it again; pressing it
+while a sample is on its way stops it. The sample is the walkthrough's own first
+line, cut to a sentence, read with the voice, language, expression and speed in
+the form right now, saved or not. It goes through the same synthesis and the
+same `.tts-cache` a render does: the first play of a voice costs that one line,
+every play after is free, and when the video is made that line is already paid
+for. Running the keyboard down the list waits until you stop rather than buying
+a sample of every voice passed.
+
+The sample starts playing inside the click, and streams in behind it. The first
+version fetched the clip and played it afterwards, and a v3 voice can take
+longer to read a sentence than a browser allows between a click and the sound
+it asked for: `play()` was refused, silently. Now `play()` is asked for while
+the click still counts, and a sample that cannot be made says why under the
+voice and in the log, until the next try.
 
 Deliberately a file rather than a live call. ElevenLabs can list every voice on
 an account with a preview of each, which is a better way to go shopping, and it

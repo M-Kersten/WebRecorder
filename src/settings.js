@@ -32,19 +32,9 @@ const FIELDS = [
     key: 'flow.voiceId',
     section: 'Narration',
     label: 'Voice',
-    help: 'Listed in voices.json, beside this project. A voice made for one model ' +
-      'is always read by that model. Press play to hear it before you choose.',
+    help: 'Listed in voices.json, beside this project, with the model each one was ' +
+      'made for. Choosing one plays it. Changing voice regenerates every line.',
     type: 'voice', nullable: true,
-  },
-  {
-    key: 'flow.voiceModel',
-    section: 'Narration',
-    label: 'Model',
-    help: 'For voices that do not name their own. v3 is the most expressive, and ' +
-      'the one that ignores the most settings: no speed, no similarity, no speaker ' +
-      'boost. Changing the model regenerates every line.',
-    type: 'select',
-    options: require('./tts').MODELS.map((m) => ({ value: m.id, label: m.label })),
   },
   {
     key: 'flow.voiceLanguage',
@@ -562,6 +552,23 @@ function secretsPath(dir) { return path.join(dir, SECRETS_FILE); }
 const DEFAULT_STYLE = 'theme.json';
 
 /**
+ * Flow settings the window used to have and no longer does.
+ *
+ * A value nobody can see or change in the window should not go on steering the
+ * video from settings.json. The Model setting went when voices started naming
+ * their own model in voices.json: a leftover "eleven_v3" in here would have
+ * decided how every voice without one sounds, with nothing on screen saying
+ * so. Dropped when the file is read, and gone from it at the next save.
+ */
+const RETIRED_FLOW_KEYS = ['voiceModel'];
+
+function withoutRetired(flow) {
+  const out = { ...(flow && typeof flow === 'object' && !Array.isArray(flow) ? flow : {}) };
+  for (const key of RETIRED_FLOW_KEYS) delete out[key];
+  return out;
+}
+
+/**
  * Read settings.json.
  *
  * The visual settings are kept per style rather than in one pile, because one
@@ -595,7 +602,7 @@ function loadSettings(file, styleFile = null) {
   const style = typeof raw.style === 'string' && raw.style ? path.basename(raw.style) : DEFAULT_STYLE;
   const wanted = styleFile ? path.basename(styleFile) : style;
 
-  return { theme: styles[wanted] || {}, flow: raw.flow || {}, style, styles };
+  return { theme: styles[wanted] || {}, flow: withoutRetired(raw.flow), style, styles };
 }
 
 /**
@@ -992,7 +999,7 @@ function saveSettings(file, values, context = {}) {
 
   const out = {
     style: typeof raw.style === 'string' && raw.style ? path.basename(raw.style) : DEFAULT_STYLE,
-    flow: mergeDeep(raw.flow || {}, layer.flow),
+    flow: mergeDeep(withoutRetired(raw.flow), layer.flow),
     styles,
   };
   if (Object.keys(layer.theme).length) {
@@ -1067,7 +1074,7 @@ module.exports = {
   applyFlowLayer,
   inertFields,
   inertByModel,
-  FIELDS, FIELD_TYPES, CURSOR_PRESETS, SETTINGS_FILE, SECRETS_FILE, NARRATION_KEY, DEFAULT_STYLE,
+  FIELDS, FIELD_TYPES, CURSOR_PRESETS, RETIRED_FLOW_KEYS, SETTINGS_FILE, SECRETS_FILE, NARRATION_KEY, DEFAULT_STYLE,
   settingsPath, secretsPath,
   loadSettings, saveSettings, saveStyleChoice, readValues, toLayer, mergeDeep,
   loadSecrets, saveSecrets, applySecrets,
